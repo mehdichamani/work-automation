@@ -1,0 +1,261 @@
+from PySide6.QtWidgets import (
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QTableWidget,
+    QTableWidgetItem,
+    QFrame,
+    QHeaderView
+)
+
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QPixmap
+
+import jdatetime
+from camera_worker import CameraManager
+
+
+class StatCard(QFrame):
+
+    def __init__(self, title, value="0"):
+        super().__init__()
+
+        self.setObjectName("StatCard")
+
+        layout = QVBoxLayout(self)
+
+        self.title = QLabel(title)
+        self.title.setAlignment(Qt.AlignCenter)
+
+        self.value = QLabel(value)
+        self.value.setAlignment(Qt.AlignCenter)
+
+        self.value.setStyleSheet("""
+            font-size:32px;
+            font-weight:bold;
+            color:#4ade80;
+        """)
+
+        layout.addWidget(self.title)
+        layout.addWidget(self.value)
+
+
+class Dashboard(QMainWindow):
+
+    def __init__(self):
+
+        super().__init__()
+
+        self.setWindowTitle(
+            "آروم شیشه ساچی - سیستم مانیتورینگ دوربین ها"
+        )
+
+        self.resize(1600, 900)
+
+        self.manager = CameraManager()
+
+        self.manager.load_cameras("ips.txt")
+
+        self.build_ui()
+
+        self.manager.camera_updated.connect(
+            self.update_camera
+        )
+
+        self.manager.scan_finished.connect(
+            self.scan_finished
+        )
+
+        self.refresh_clock()
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(
+            self.refresh_clock
+        )
+        self.timer.start(1000)
+
+    def build_ui(self):
+
+        central = QWidget()
+
+        self.setCentralWidget(central)
+
+        root = QVBoxLayout(central)
+
+        header = QHBoxLayout()
+
+        self.lblDate = QLabel()
+        self.lblTime = QLabel()
+
+        logo = QLabel()
+
+        pix = QPixmap("assets/logo.png")
+
+        logo.setPixmap(
+            pix.scaled(
+                150,
+                150,
+                Qt.KeepAspectRatio
+            )
+        )
+
+        title = QLabel(
+            "سیستم مانیتورینگ دوربین های شرکت\nآروم شیشه ساچی"
+        )
+
+        title.setAlignment(Qt.AlignCenter)
+
+        title.setStyleSheet("""
+            font-size:28px;
+            font-weight:bold;
+            color:white;
+        """)
+
+        header.addWidget(self.lblDate)
+        header.addStretch()
+        header.addWidget(title)
+        header.addStretch()
+        header.addWidget(logo)
+
+        root.addLayout(header)
+
+        cards = QHBoxLayout()
+
+        self.totalCard = StatCard("کل دوربین ها")
+        self.onlineCard = StatCard("آنلاین")
+        self.offlineCard = StatCard("آفلاین")
+        self.availabilityCard = StatCard("درصد دسترس پذیری")
+
+        cards.addWidget(self.totalCard)
+        cards.addWidget(self.onlineCard)
+        cards.addWidget(self.offlineCard)
+        cards.addWidget(self.availabilityCard)
+
+        root.addLayout(cards)
+
+        tools = QHBoxLayout()
+
+        self.search = QLineEdit()
+        self.search.setPlaceholderText(
+            "جستجو ..."
+        )
+
+        self.btnPing = QPushButton(
+            "Ping All"
+        )
+
+        self.btnPing.clicked.connect(
+            self.start_ping
+        )
+
+        tools.addWidget(self.search)
+        tools.addWidget(self.btnPing)
+
+        root.addLayout(tools)
+
+        self.table = QTableWidget()
+
+        self.table.setColumnCount(6)
+
+        self.table.setHorizontalHeaderLabels([
+            "IP",
+            "نام دوربین",
+            "وضعیت",
+            "زمان پاسخ",
+            "آخرین بروزرسانی",
+            "قطع شده از"
+        ])
+
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch
+        )
+
+        root.addWidget(self.table)
+
+    def refresh_clock(self):
+
+        now = jdatetime.datetime.now()
+
+        self.lblDate.setText(
+            now.strftime(
+                "تاریخ : %Y/%m/%d"
+            )
+        )
+
+        self.lblTime.setText(
+            now.strftime(
+                "زمان : %H:%M:%S"
+            )
+        )
+
+    def start_ping(self):
+
+        self.table.setRowCount(0)
+
+        self.online = 0
+        self.offline = 0
+
+        self.manager.ping_all()
+
+    def update_camera(self, result):
+
+        row = self.table.rowCount()
+
+        self.table.insertRow(row)
+
+        self.table.setItem(
+            row, 0,
+            QTableWidgetItem(result["ip"])
+        )
+
+        self.table.setItem(
+            row, 1,
+            QTableWidgetItem(result["name"])
+        )
+
+        self.table.setItem(
+            row, 2,
+            QTableWidgetItem(result["status"])
+        )
+
+        self.table.setItem(
+            row, 3,
+            QTableWidgetItem(str(result["response"]))
+        )
+
+        if result["status"] == "Online":
+            self.online += 1
+        else:
+            self.offline += 1
+
+        self.onlineCard.value.setText(
+            str(self.online)
+        )
+
+        self.offlineCard.value.setText(
+            str(self.offline)
+        )
+
+    def scan_finished(self):
+
+        total = self.online + self.offline
+
+        self.totalCard.value.setText(
+            str(total)
+        )
+
+        if total:
+            av = round(
+                (self.online / total) * 100,
+                2
+            )
+        else:
+            av = 0
+
+        self.availabilityCard.value.setText(
+            f"{av}%"
+        )

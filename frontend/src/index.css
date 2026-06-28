@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Vazirmatn', 'Tahoma', 'Arial', sans-serif;
+  direction: rtl;
+  background: #f0f9ff;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #e2e8f0;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e40af;
+  border-radius: 4px;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.rotate-3d {
+  animation: rotate3d 3s ease-in-out infinite;
+  transform-style: preserve-3d;
+}
+
+@keyframes rotate3d {
+  0% { transform: perspective(500px) rotateY(0deg); }
+  50% { transform: perspective(500px) rotateY(180deg); }
+  100% { transform: perspective(500px) rotateY(360deg); }
+}
+
+.spin-3d {
+  animation: spin3d 5s linear infinite;
+  transform-style: preserve-3d;
+}
+
+@keyframes spin3d {
+  0% { transform: perspective(800px) rotateY(0deg); }
+  100% { transform: perspective(800px) rotateY(360deg); }
+}
+
+.main-content {
+  position: relative;
+  background-color: #f0f9ff;
+}
+
+.main-content::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url('/background.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0.5;
+  pointer-events: none;
+}
