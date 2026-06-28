@@ -10,7 +10,10 @@ if (!isMainThread) {
   const { Pool } = require('pg');
   
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgrespassword@localhost:5432/edari'
+    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgrespassword@localhost:5432/edari',
+    max: 2, // Optimize connection count since each worker thread executes queries strictly sequentially
+    idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
+    connectionTimeoutMillis: 5000 // Fast failure on connection timeout
   });
 
   parentPort.on('message', async (msg) => {
@@ -30,7 +33,26 @@ if (!isMainThread) {
             const req = JSON.parse(reqStr);
             const { sql, params } = req;
             
-            const res = await pool.query(sql, params);
+            // Automatic query retry mechanism on transient database connection errors
+            let res;
+            let retries = 3;
+            while (retries > 0) {
+              try {
+                res = await pool.query(sql, params);
+                break;
+              } catch (queryErr) {
+                const isConnError = queryErr.message.includes('terminated') || 
+                                    queryErr.message.includes('connection') ||
+                                    queryErr.code === 'ECONNREFUSED' ||
+                                    queryErr.code === '57P01'; // Admin shutdown / Postgres restart
+                if (isConnError && retries > 1) {
+                  retries--;
+                  await new Promise(resolve => setTimeout(resolve, 500)); // wait 500ms before retrying
+                  continue;
+                }
+                throw queryErr;
+              }
+            }
             
             const respStr = JSON.stringify({ rows: res.rows, rowCount: res.rowCount });
             const respBuf = Buffer.from(respStr, 'utf16le');
