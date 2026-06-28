@@ -36,6 +36,10 @@ async function startServer() {
     res.json({ status: 'ok', company: 'اروم شیشه ساچی', timestamp: new Date().toISOString() });
   });
 
+  // Serve static files from the React frontend build
+  const frontendDistPath = path.join(__dirname, '..', 'frontend', 'dist');
+  app.use(express.static(frontendDistPath));
+
   app.post('/api/admin/server-restart', authMiddleware, (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'فقط مدیر سیستم می‌تواند سرور را ری‌استارت کند' });
@@ -50,6 +54,18 @@ async function startServer() {
       child.unref();
       server.close(() => process.exit(0));
     }, 500);
+  });
+
+  // Fallback wildcard to serve React Router SPA pages
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+      return next();
+    }
+    res.sendFile(path.join(frontendDistPath, 'index.html'), (err) => {
+      if (err) {
+        res.status(404).send('فرانت‌اند هنوز بیلد نشده است. لطفاً دستور npm run build را در پوشه frontend اجرا کنید.');
+      }
+    });
   });
 
   server = app.listen(PORT, '0.0.0.0', () => {

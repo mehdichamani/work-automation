@@ -1,61 +1,137 @@
-const initSqlJs = require('sql.js');
+const { Worker, isMainThread, parentPort } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
-const DB_PATH = path.join(__dirname, 'edari.db');
-let sqlDb = null;
-let dirty = false;
+if (!isMainThread) {
+  // =========================================================================
+  // WORKER THREAD: Database Connection & Query Execution
+  // =========================================================================
+  const { Pool } = require('pg');
+  
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgrespassword@localhost:5432/edari'
+  });
 
-function markDirty() { dirty = true; }
-
-function saveDb() {
-  if (sqlDb) {
-    const data = sqlDb.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(DB_PATH, buffer);
-    dirty = false;
-  }
+  parentPort.on('message', async (msg) => {
+    if (msg.type === 'init') {
+      const sab = msg.sab;
+      const stateArray = new Int32Array(sab, 0, 4);
+      
+      while (true) {
+        // Wait until state becomes 1 (Request Ready)
+        Atomics.wait(stateArray, 0, 0);
+        
+        if (stateArray[0] === 1) {
+          const len = stateArray[1];
+          const reqStr = Buffer.from(sab, 16, len * 2).toString('utf16le');
+          
+          try {
+            const req = JSON.parse(reqStr);
+            const { sql, params } = req;
+            
+            const res = await pool.query(sql, params);
+            
+            const respStr = JSON.stringify({ rows: res.rows, rowCount: res.rowCount });
+            const respBuf = Buffer.from(respStr, 'utf16le');
+            
+            if (respBuf.length > sab.byteLength - 16) {
+              throw new Error("Response size (" + respBuf.length + ") exceeds shared buffer size");
+            }
+            
+            respBuf.copy(Buffer.from(sab, 16));
+            stateArray[1] = respStr.length;
+            stateArray[0] = 2; // Response Ready
+          } catch (err) {
+            const errStr = JSON.stringify({ error: err.message });
+            const errBuf = Buffer.from(errStr, 'utf16le');
+            errBuf.copy(Buffer.from(sab, 16));
+            stateArray[1] = errStr.length;
+            stateArray[0] = 3; // Error Ready
+          }
+          
+          Atomics.notify(stateArray, 0, 1);
+        }
+      }
+    }
+  });
+  return; // Stop execution here in the worker thread
 }
 
-setInterval(() => {
-  if (dirty) saveDb();
-}, 5000);
+// =========================================================================
+// MAIN THREAD: Synchronous Database Interface
+// =========================================================================
 
-process.on('SIGINT', () => { if (dirty) saveDb(); process.exit(); });
-process.on('SIGTERM', () => { if (dirty) saveDb(); process.exit(); });
+let worker = null;
+let stateArray = null;
+let sab = null;
+
+function initSyncPg() {
+  sab = new SharedArrayBuffer(16 * 1024 * 1024); // 16MB buffer
+  stateArray = new Int32Array(sab, 0, 4);
+  stateArray[0] = 0; // Idle
+  
+  worker = new Worker(__filename);
+  worker.unref(); // Allow the program to exit if the worker is running
+  worker.postMessage({ type: 'init', sab });
+}
+
+function runQuerySync(sql, params = []) {
+  if (!worker) {
+    initSyncPg();
+  }
+  
+  const cleanedParams = params.map(p => p === undefined ? null : p);
+  const reqStr = JSON.stringify({ sql, params: cleanedParams });
+  const reqBuf = Buffer.from(reqStr, 'utf16le');
+  
+  if (reqBuf.length > sab.byteLength - 16) {
+    throw new Error("Query parameters are too large for shared buffer");
+  }
+  
+  reqBuf.copy(Buffer.from(sab, 16));
+  stateArray[1] = reqStr.length;
+  stateArray[0] = 1; // Request Ready
+  
+  Atomics.notify(stateArray, 0, 1);
+  Atomics.wait(stateArray, 0, 1);
+  
+  const state = stateArray[0];
+  const respLen = stateArray[1];
+  const respStr = Buffer.from(sab, 16, respLen * 2).toString('utf16le');
+  
+  stateArray[0] = 0; // Reset to Idle
+  
+  const resp = JSON.parse(respStr);
+  if (state === 3) {
+    throw new Error("PostgreSQL Error: " + resp.error + "\nQuery: " + sql);
+  }
+  
+  return resp;
+}
 
 class SqliteWrapper {
-  constructor(sqlJsDb) {
-    this._db = sqlJsDb;
-  }
-
   exec(sql) {
-    this._db.run(sql);
-    markDirty();
+    const adapted = this._adaptSql(sql);
+    runQuerySync(adapted);
   }
 
   query(sql) {
-    const execResults = this._db.exec(sql);
-    if (!execResults || execResults.length === 0) return [];
-    const { columns, values } = execResults[0];
-    return values.map(row => {
-      const obj = {};
-      columns.forEach((c, i) => obj[c] = row[i]);
-      return obj;
-    });
+    const adapted = this._adaptSql(sql);
+    const res = runQuerySync(adapted);
+    return res.rows;
   }
 
   transaction(fn) {
     const self = this;
     return function() {
-      self._db.run('BEGIN TRANSACTION');
+      self.exec('BEGIN TRANSACTION');
       try {
-        fn.apply(null, arguments);
-        self._db.run('COMMIT');
-        markDirty();
+        const res = fn.apply(null, arguments);
+        self.exec('COMMIT');
+        return res;
       } catch (err) {
-        self._db.run('ROLLBACK');
+        self.exec('ROLLBACK');
         throw err;
       }
     };
@@ -63,98 +139,117 @@ class SqliteWrapper {
 
   prepare(sql) {
     const self = this;
+    const adapted = this._adaptSql(sql);
+    
     return {
       run: function() {
         const params = Array.prototype.slice.call(arguments);
-        const stmt = self._db.prepare(sql);
-        if (params.length > 0 && params[0] !== undefined) {
-          stmt.bind(params);
-        }
-        stmt.step();
-        const changes = self._db.getRowsModified();
+        const res = runQuerySync(adapted, params);
+        
         let lastId = null;
-        try {
-          const r = self._db.exec("SELECT last_insert_rowid() as id");
-          if (r.length > 0 && r[0].values.length > 0) {
-            lastId = r[0].values[0][0];
-          }
-        } catch(e) {}
-        stmt.free();
-        markDirty();
-        return { changes, lastInsertRowid: lastId };
+        if (res.rows && res.rows[0]) {
+          lastId = res.rows[0].id || null;
+        }
+        if (!lastId && /INSERT/i.test(adapted)) {
+          try {
+            const seqRes = runQuerySync('SELECT lastval() as id');
+            if (seqRes.rows && seqRes.rows[0]) {
+              lastId = seqRes.rows[0].id;
+            }
+          } catch(e) {}
+        }
+        
+        return { changes: res.rowCount, lastInsertRowid: lastId };
       },
       get: function() {
         const params = Array.prototype.slice.call(arguments);
-        const stmt = self._db.prepare(sql);
-        if (params.length > 0 && params[0] !== undefined) {
-          stmt.bind(params);
-        }
-        let result = null;
-        if (stmt.step()) {
-          const cols = stmt.getColumnNames();
-          const vals = stmt.get();
-          result = {};
-          cols.forEach((c, i) => result[c] = vals[i]);
-        }
-        stmt.free();
-        return result;
+        const res = runQuerySync(adapted, params);
+        return res.rows[0] || null;
       },
       all: function() {
         const params = Array.prototype.slice.call(arguments);
-        const results = [];
-        const stmt = self._db.prepare(sql);
-        if (params.length > 0 && params[0] !== undefined) {
-          stmt.bind(params);
-        }
-        while (stmt.step()) {
-          const cols = stmt.getColumnNames();
-          const vals = stmt.get();
-          const row = {};
-          cols.forEach((c, i) => row[c] = vals[i]);
-          results.push(row);
-        }
-        stmt.free();
-        return results;
+        const res = runQuerySync(adapted, params);
+        return res.rows;
       }
     };
+  }
+
+  _adaptSql(sql) {
+    if (!sql) return '';
+    let res = sql;
+    
+    // Convert SQLite AUTOINCREMENT to Postgres SERIAL
+    res = res.replace(/INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT/gi, 'SERIAL PRIMARY KEY');
+    
+    // Convert SQLite datetime('now') defaults
+    res = res.replace(/DEFAULT\s+\(datetime\('now'\)\)/gi, "DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)");
+    res = res.replace(/DEFAULT\s+datetime\('now'\)/gi, "DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)");
+    res = res.replace(/datetime\('now'\)/gi, "to_char(now(), 'YYYY-MM-DD'::text)");
+    
+    // Replace SQLite "?" placeholders with PostgreSQL "$1, $2, ..."
+    let index = 1;
+    res = res.replace(/\?/g, () => `$${index++}`);
+    
+    // Append returning clause for INSERT queries to easily get IDs
+    if (/^\s*INSERT\s+INTO/i.test(res) && !/RETURNING/i.test(res)) {
+      res += ' RETURNING *';
+    }
+    
+    return res;
   }
 }
 
 async function initDatabase() {
-  const SQL = await initSqlJs();
+  initSyncPg();
+  const db = new SqliteWrapper();
 
-  let sqlBuffer = null;
-  if (fs.existsSync(DB_PATH)) {
-    sqlBuffer = fs.readFileSync(DB_PATH);
-  }
+  // Acquire advisory lock to prevent concurrent database updates from other PM2 instances
+  db.exec('SELECT pg_advisory_lock(123456)');
+  try {
+    // Create PostgreSQL compatibility functions and view
+  db.exec(`
+    CREATE OR REPLACE FUNCTION datetime(dummy text DEFAULT 'now') RETURNS text AS $$
+    BEGIN
+      RETURN to_char(now(), 'YYYY-MM-DD HH24:MI:SS');
+    END;
+    $$ LANGUAGE plpgsql;
 
-  sqlDb = sqlBuffer ? new SQL.Database(sqlBuffer) : new SQL.Database();
-  const db = new SqliteWrapper(sqlDb);
+    CREATE OR REPLACE FUNCTION last_insert_rowid() RETURNS integer AS $$
+    BEGIN
+      RETURN lastval();
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE OR REPLACE VIEW sqlite_master AS
+    SELECT 'table'::text AS type, table_name::text AS name
+    FROM information_schema.tables
+    WHERE table_schema = 'public';
+  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS departments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       parent_id INTEGER DEFAULT NULL,
       is_active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (parent_id) REFERENCES departments(id)
     );
 
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
       full_name TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'user',
       department_id INTEGER,
       is_active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (department_id) REFERENCES departments(id)
     );
 
     CREATE TABLE IF NOT EXISTS leave_requests (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       leave_type TEXT NOT NULL,
       start_date TEXT NOT NULL,
@@ -170,7 +265,7 @@ async function initDatabase() {
       manager_date TEXT,
       security_id INTEGER,
       security_date TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (supervisor_id) REFERENCES users(id),
       FOREIGN KEY (manager_id) REFERENCES users(id),
@@ -178,7 +273,7 @@ async function initDatabase() {
     );
 
     CREATE TABLE IF NOT EXISTS leave_balance (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       user_id INTEGER UNIQUE NOT NULL,
       total_days INTEGER DEFAULT 26,
       used_days INTEGER DEFAULT 0,
@@ -186,7 +281,7 @@ async function initDatabase() {
     );
 
     CREATE TABLE IF NOT EXISTS letters (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       letter_number TEXT,
       subject TEXT NOT NULL,
       body TEXT,
@@ -200,14 +295,14 @@ async function initDatabase() {
       signature_data TEXT,
       attachment_name TEXT,
       attachment_path TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (sender_id) REFERENCES users(id),
       FOREIGN KEY (sender_unit_id) REFERENCES departments(id),
       FOREIGN KEY (manager_id) REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS letter_units (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       letter_id INTEGER NOT NULL,
       unit_id INTEGER NOT NULL,
       status TEXT DEFAULT 'pending',
@@ -217,16 +312,16 @@ async function initDatabase() {
     );
 
     CREATE TABLE IF NOT EXISTS inventory_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT,
       unit TEXT DEFAULT 'عدد',
       is_active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
     );
 
     CREATE TABLE IF NOT EXISTS cardex (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       item_id INTEGER NOT NULL,
       quantity REAL NOT NULL,
@@ -235,63 +330,63 @@ async function initDatabase() {
       warehouse_user_id INTEGER NOT NULL,
       notes TEXT,
       user_confirm_date TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (item_id) REFERENCES inventory_items(id),
       FOREIGN KEY (warehouse_user_id) REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS restaurant_menu (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       food_date TEXT NOT NULL,
       option_number INTEGER NOT NULL DEFAULT 1,
       food_name TEXT NOT NULL,
       description TEXT,
       price REAL DEFAULT 0,
       is_active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       UNIQUE(food_date, option_number)
     );
 
     CREATE TABLE IF NOT EXISTS restaurant_reservations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       food_id INTEGER NOT NULL,
       food_date TEXT NOT NULL,
       quantity INTEGER DEFAULT 1,
       status TEXT DEFAULT 'active',
       notes TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (food_id) REFERENCES restaurant_menu(id)
     );
 
     CREATE TABLE IF NOT EXISTS notifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       title TEXT NOT NULL,
       body TEXT,
       link TEXT,
       is_read INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS signatures (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL UNIQUE,
       image_data TEXT NOT NULL,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS activity_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       user_id INTEGER,
       action TEXT NOT NULL,
       details TEXT,
       ip_address TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
   `);
@@ -299,7 +394,7 @@ async function initDatabase() {
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS letter_counter (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         year INTEGER NOT NULL,
         last_number INTEGER DEFAULT 0,
         UNIQUE(year)
@@ -324,13 +419,13 @@ async function initDatabase() {
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS letter_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         letter_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
         user_name TEXT,
         action TEXT NOT NULL,
         comment TEXT,
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
         FOREIGN KEY (letter_id) REFERENCES letters(id),
         FOREIGN KEY (user_id) REFERENCES users(id)
       );
@@ -358,10 +453,10 @@ async function initDatabase() {
     }
   }
 
-  const existingAdmin = db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
+  const existingAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();
   if (!existingAdmin) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare('INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)').run('admin', hash, 'مدیر سیستم', 'admin');
+    db.prepare("INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)").run('admin', hash, 'مدیر سیستم', 'admin');
 
     const insertUser = db.prepare('INSERT INTO users (username, password, full_name, role, department_id) VALUES (?, ?, ?, ?, ?)');
     const supHash = bcrypt.hashSync('super123', 10);
@@ -384,7 +479,7 @@ async function initDatabase() {
 
   const existingBalance = db.prepare('SELECT id FROM leave_balance LIMIT 1').get();
   if (!existingBalance) {
-    const allUsers = db.prepare('SELECT id FROM users WHERE role != ?').all('admin');
+    const allUsers = db.prepare("SELECT id FROM users WHERE role != 'admin'").all();
     const insertBal = db.prepare('INSERT INTO leave_balance (user_id, total_days, used_days) VALUES (?, 26, 0)');
     for (const u of allUsers) {
       insertBal.run(u.id);
@@ -408,29 +503,23 @@ async function initDatabase() {
     }
   }
 
-  try { db.exec("ALTER TABLE restaurant_menu ADD COLUMN option_number INTEGER NOT NULL DEFAULT 1"); } catch(e) {}
-  try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_menu_date_option ON restaurant_menu(food_date, option_number)"); } catch(e) {}
-
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS permissions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         module_key TEXT NOT NULL,
         department_id INTEGER DEFAULT NULL,
         user_id INTEGER DEFAULT NULL,
         is_enabled INTEGER DEFAULT 1,
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
       );
     `);
   } catch (e) {}
 
-  try { db.exec("ALTER TABLE permissions ADD COLUMN user_id INTEGER DEFAULT NULL"); } catch(e) {}
-  try { db.exec("ALTER TABLE permissions ADD COLUMN department_id INTEGER DEFAULT NULL"); } catch(e) {}
-
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS announcements (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
         body TEXT,
         image_path TEXT,
@@ -438,7 +527,7 @@ async function initDatabase() {
         priority TEXT DEFAULT 'normal',
         is_active INTEGER DEFAULT 1,
         created_by INTEGER,
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
         FOREIGN KEY (created_by) REFERENCES users(id)
       );
     `);
@@ -448,25 +537,26 @@ async function initDatabase() {
     const migrated = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='permissions_migrated'").get();
     if (!migrated) {
       db.exec(`CREATE TABLE permissions_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         module_key TEXT NOT NULL,
         department_id INTEGER DEFAULT NULL,
         user_id INTEGER DEFAULT NULL,
         is_enabled INTEGER DEFAULT 1,
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
       )`);
       db.exec(`INSERT INTO permissions_new (id, module_key, department_id, user_id, is_enabled, created_at) SELECT id, module_key, department_id, user_id, is_enabled, created_at FROM permissions`);
       db.exec(`DROP TABLE permissions`);
       db.exec(`ALTER TABLE permissions_new RENAME TO permissions`);
-      db.exec(`CREATE TABLE permissions_migrated (id INTEGER PRIMARY KEY)`);
+      db.exec(`CREATE TABLE permissions_migrated (id SERIAL PRIMARY KEY)`);
     }
   } catch (e) {}
 
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS job_applications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         user_id INTEGER,
+        application_number TEXT,
         full_name TEXT NOT NULL,
         father_name TEXT,
         national_id TEXT,
@@ -511,7 +601,7 @@ async function initDatabase() {
         reviewed_at TEXT,
         review_comment TEXT,
         is_active INTEGER DEFAULT 1,
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
         FOREIGN KEY (user_id) REFERENCES users(id),
         FOREIGN KEY (reviewed_by) REFERENCES users(id)
       );
@@ -521,7 +611,7 @@ async function initDatabase() {
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS job_application_work_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         application_id INTEGER NOT NULL,
         org_name TEXT,
         position TEXT,
@@ -538,23 +628,21 @@ async function initDatabase() {
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS job_application_attachments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         application_id INTEGER NOT NULL,
         file_name TEXT NOT NULL,
         file_path TEXT NOT NULL,
         file_type TEXT,
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
         FOREIGN KEY (application_id) REFERENCES job_applications(id) ON DELETE CASCADE
       );
     `);
   } catch (e) {}
 
-  try { db.exec("ALTER TABLE job_applications ADD COLUMN application_number TEXT"); } catch(e) {}
-
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS job_application_counter (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         year INTEGER NOT NULL,
         last_number INTEGER DEFAULT 0,
         UNIQUE(year)
@@ -593,7 +681,12 @@ async function initDatabase() {
     try { db.exec(sql); } catch (e) {}
   }
 
-  saveDb();
+  } finally {
+    try {
+      db.exec('SELECT pg_advisory_unlock(123456)');
+    } catch (e) {}
+  }
+
   return db;
 }
 
