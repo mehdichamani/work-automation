@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const crypto = require('crypto');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, roleGuard } = require('../middleware/auth');
 
 const DEFAULT_CONFIG = {
   ip: '172.20.2.26',
@@ -173,7 +173,7 @@ module.exports = function (db) {
   const router = express.Router();
   router.use(authMiddleware);
 
-  router.get('/config', (req, res) => {
+  router.get('/config', roleGuard('admin'), (req, res) => {
     try {
       const config = getConfig(db);
       res.json({ ip: config.ip, port: config.port, username: config.username, channel: config.channel, rtsp_port: config.rtsp_port || 554 });
@@ -182,7 +182,7 @@ module.exports = function (db) {
     }
   });
 
-  router.put('/config', (req, res) => {
+  router.put('/config', roleGuard('admin'), (req, res) => {
     try {
       const current = getConfig(db);
       const { ip, port, username, password, channel, rtsp_port } = req.body;
@@ -199,7 +199,7 @@ module.exports = function (db) {
     }
   });
 
-  router.get('/test', (req, res) => {
+  router.get('/test', roleGuard('admin'), (req, res) => {
     const config = getConfig(db);
     digestRequest(config, '/ISAPI/System/deviceInfo', (err, data) => {
       if (err) {

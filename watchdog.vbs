@@ -1,4 +1,6 @@
 Set WshShell = CreateObject("WScript.Shell")
+Set objFSO = CreateObject("Scripting.FileSystemObject")
+scriptDir = objFSO.GetParentFolderName(WScript.ScriptFullName)
 
 Do
     Set colProcesses = GetObject("WinMgmts:").ExecQuery("SELECT Name, CommandLine FROM Win32_Process WHERE Name = 'node.exe'")
@@ -10,9 +12,10 @@ Do
     Next
 
     If Not backendRunning Then
-        WshShell.CurrentDirectory = "D:\edari\backend"
+        WshShell.CurrentDirectory = scriptDir & "\backend"
         WshShell.Run "node server.js", 0, False
     End If
 
     WScript.Sleep 10000
 Loop
+

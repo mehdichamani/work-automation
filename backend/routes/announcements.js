@@ -6,7 +6,10 @@ const { authMiddleware, roleGuard } = require('../middleware/auth');
 function saveBase64Image(base64Data) {
   const matches = base64Data.match(/^data:image\/(\w+);base64,(.+)$/);
   if (!matches) return null;
-  const ext = matches[1];
+  const ext = matches[1].toLowerCase();
+  const allowed = ['jpeg', 'jpg', 'png', 'gif', 'webp'];
+  if (!allowed.includes(ext)) return null;
+  
   const buffer = Buffer.from(matches[2], 'base64');
   const filename = Date.now() + '-' + Math.round(Math.random() * 1E9) + '.' + ext;
   const dir = path.join(__dirname, '..', 'uploads', 'announcements');

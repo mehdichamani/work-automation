@@ -5,12 +5,12 @@ echo ============================================
 echo.
 
 echo [1] راه‌اندازی Backend...
-start "Backend" cmd /c "cd /d D:\edari\backend && node server.js"
+start "Backend" cmd /c "cd /d %~dp0backend && node server.js"
 
 timeout /t 3 /nobreak >nul
 
 echo [2] راه‌اندازی Frontend...
-start "Frontend" cmd /c "cd /d D:\edari\frontend && npx vite --host 0.0.0.0 --port 5173"
+start "Frontend" cmd /c "cd /d %~dp0frontend && npx vite --host 0.0.0.0 --port 5173"
 
 echo.
 echo ============================================

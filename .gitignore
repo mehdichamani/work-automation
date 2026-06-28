@@ -1,2 +1,8 @@
 backend/node_modules
 frontend/node_modules
+*.db
+*.db-journal
+.jwt_secret
+backend/.jwt_secret
+token.txt
+backend/uploads/

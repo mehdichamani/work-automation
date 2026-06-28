@@ -20,11 +20,24 @@ const upload = multer({
   storage,
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png|gif|pdf|doc|docx|xls|xlsx|txt|zip|rar/;
-    const ext = allowed.test(path.extname(file.originalname).toLowerCase());
-    const mime = allowed.test(file.mimetype);
-    if (ext || mime) cb(null, true);
-    else cb(new Error('فرمت فایل پشتیبانی نمی‌شود'));
+    const allowedExts = ['.jpeg', '.jpg', '.png', '.gif', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.zip', '.rar'];
+    const allowedMimes = [
+      'image/jpeg', 'image/png', 'image/gif', 
+      'application/pdf', 
+      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain', 
+      'application/zip', 'application/x-zip-compressed', 'application/x-rar-compressed', 'application/octet-stream'
+    ];
+    const ext = path.extname(file.originalname).toLowerCase();
+    const isExtAllowed = allowedExts.includes(ext);
+    const isMimeAllowed = allowedMimes.includes(file.mimetype.toLowerCase());
+    
+    if (isExtAllowed && isMimeAllowed) {
+      cb(null, true);
+    } else {
+      cb(new Error('فرمت فایل پشتیبانی نمی‌شود'));
+    }
   }
 });
 
@@ -37,7 +50,7 @@ module.exports = function (db) {
   }
 
   router.post('/', upload.array('files', 10), (req, res) => {
-    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasJobPerm(req.user.id, 'job_application_fill')) {
+    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasJobPerm(req.user, 'job_application_fill')) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز' });
     }
     try {
@@ -153,13 +166,28 @@ module.exports = function (db) {
     }
   });
 
-  function hasJobPerm(userId, moduleKey) {
-    const perm = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(userId, moduleKey);
-    return perm && perm.is_enabled === 1;
+  function hasJobPerm(user, moduleKey) {
+    if (user.role === 'admin') return true;
+    
+    // 1. Check user-specific permissions first
+    const userPerm = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(user.id, moduleKey);
+    if (userPerm !== undefined) {
+      return userPerm.is_enabled === 1;
+    }
+    
+    // 2. Check department-level permissions if there's no user-specific record
+    if (user.department_id) {
+      const deptPerm = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL AND module_key = ?').get(user.department_id, moduleKey);
+      if (deptPerm !== undefined) {
+        return deptPerm.is_enabled === 1;
+      }
+    }
+    
+    return false;
   }
 
   router.get('/', (req, res) => {
-    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasJobPerm(req.user.id, 'job_application_review')) {
+    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasJobPerm(req.user, 'job_application_review')) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز' });
     }
     try {
@@ -209,7 +237,7 @@ module.exports = function (db) {
   });
 
   router.put('/:id/review', (req, res) => {
-    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasJobPerm(req.user.id, 'job_application_review')) {
+    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasJobPerm(req.user, 'job_application_review')) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز' });
     }
     try {

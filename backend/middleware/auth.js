@@ -1,5 +1,22 @@
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET || 'arrom-shishe-sazi-edari-2024-secret-key';
+const fs = require('fs');
+const path = require('path');
+
+let JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  const secretPath = path.join(__dirname, '..', '.jwt_secret');
+  try {
+    if (fs.existsSync(secretPath)) {
+      JWT_SECRET = fs.readFileSync(secretPath, 'utf8').trim();
+    } else {
+      JWT_SECRET = require('crypto').randomBytes(32).toString('hex');
+      fs.writeFileSync(secretPath, JWT_SECRET, 'utf8');
+    }
+  } catch (err) {
+    // fallback if file write fails, to ensure system still runs
+    JWT_SECRET = 'arrom-shishe-sazi-edari-2024-secret-key-fallback';
+  }
+}
 
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];

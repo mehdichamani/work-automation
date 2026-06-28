@@ -21,11 +21,24 @@ const upload = multer({
   storage,
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png|gif|pdf|doc|docx|xls|xlsx|txt|zip|rar/;
-    const ext = allowed.test(path.extname(file.originalname).toLowerCase());
-    const mime = allowed.test(file.mimetype);
-    if (ext || mime) cb(null, true);
-    else cb(new Error('فرمت فایل پشتیبانی نمی‌شود'));
+    const allowedExts = ['.jpeg', '.jpg', '.png', '.gif', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.zip', '.rar'];
+    const allowedMimes = [
+      'image/jpeg', 'image/png', 'image/gif', 
+      'application/pdf', 
+      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain', 
+      'application/zip', 'application/x-zip-compressed', 'application/x-rar-compressed', 'application/octet-stream'
+    ];
+    const ext = path.extname(file.originalname).toLowerCase();
+    const isExtAllowed = allowedExts.includes(ext);
+    const isMimeAllowed = allowedMimes.includes(file.mimetype.toLowerCase());
+    
+    if (isExtAllowed && isMimeAllowed) {
+      cb(null, true);
+    } else {
+      cb(new Error('فرمت فایل پشتیبانی نمی‌شود'));
+    }
   }
 });
 

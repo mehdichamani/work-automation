@@ -7,7 +7,7 @@ echo.
 set STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 
 echo [1] کپی اسکریپت خودکار...
-copy /Y "D:\edari\auto-start.vbs" "%STARTUP%\EdariAutoStart.vbs" >nul
+copy /Y "%~dp0auto-start.vbs" "%STARTUP%\EdariAutoStart.vbs" >nul
 
 if exist "%STARTUP%\EdariAutoStart.vbs" (
     echo     با موفقیت ثبت شد!
