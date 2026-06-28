@@ -11,15 +11,26 @@ function Show-Header {
 
 function Menu {
     Show-Header
-    Write-Host "Please select one of the options below:" -ForegroundColor Yellow
-    Write-Host "1. Install dependencies & Build Frontend (Install & Build)"
-    Write-Host "2. Start PostgreSQL Database in Docker (Start Database)"
-    Write-Host "3. Start Application with PM2 Cluster (Start Frontend + Backend)"
-    Write-Host "4. Enable Autostart on user login (Setup Auto-Start)"
-    Write-Host "5. Disable Autostart on user login (Remove Auto-Start)"
-    Write-Host "6. Exit"
+    Write-Host "Please select an option:" -ForegroundColor Yellow
     Write-Host ""
-    $choice = Read-Host "Enter option (1-6)"
+    Write-Host "--- Database Actions ---" -ForegroundColor Gray
+    Write-Host "1. Install Database (Pull Docker Image)"
+    Write-Host "2. Start Database (Docker Compose Up)"
+    Write-Host "3. Stop Database (Docker Compose Down)"
+    Write-Host ""
+    Write-Host "--- Application Actions (Backend + Frontend) ---" -ForegroundColor Gray
+    Write-Host "4. Install Application (Npm Install & Build)"
+    Write-Host "5. Start Application (PM2 Cluster Start)"
+    Write-Host "6. Stop Application (PM2 Cluster Stop)"
+    Write-Host ""
+    Write-Host "--- Autostart Actions ---" -ForegroundColor Gray
+    Write-Host "7. Enable Autostart on user login"
+    Write-Host "8. Disable Autostart on user login"
+    Write-Host ""
+    Write-Host "--- System ---" -ForegroundColor Gray
+    Write-Host "9. Exit"
+    Write-Host ""
+    $choice = Read-Host "Enter option (1-9)"
     return $choice
 }
 
@@ -28,22 +39,10 @@ do {
     switch ($c) {
         "1" {
             Show-Header
-            Write-Host "[1/4] Installing backend dependencies..." -ForegroundColor Green
-            Set-Location "$scriptDir\backend"
-            npm install
-            
-            Write-Host "`n[2/4] Installing frontend dependencies..." -ForegroundColor Green
-            Set-Location "$scriptDir\frontend"
-            npm install
-            
-            Write-Host "`n[3/4] Generating React production bundle (Build)..." -ForegroundColor Green
-            npm run build
-            
-            Write-Host "`n[4/4] Pulling PostgreSQL Docker image..." -ForegroundColor Green
+            Write-Host "Pulling PostgreSQL Docker image..." -ForegroundColor Green
             Set-Location "$scriptDir\docker"
             docker compose pull
-            
-            Write-Host "`nInstallation and build completed successfully!" -ForegroundColor Green
+            Write-Host "`nDocker pull completed." -ForegroundColor Green
             Read-Host "Press Enter to return to the menu..."
         }
         "2" {
@@ -55,6 +54,30 @@ do {
             Read-Host "Press Enter to return to the menu..."
         }
         "3" {
+            Show-Header
+            Write-Host "Stopping database in Docker..." -ForegroundColor Green
+            Set-Location "$scriptDir\docker"
+            docker compose down
+            Write-Host "`nDatabase has stopped." -ForegroundColor Green
+            Read-Host "Press Enter to return to the menu..."
+        }
+        "4" {
+            Show-Header
+            Write-Host "[1/3] Installing backend dependencies..." -ForegroundColor Green
+            Set-Location "$scriptDir\backend"
+            npm install
+            
+            Write-Host "`n[2/3] Installing frontend dependencies..." -ForegroundColor Green
+            Set-Location "$scriptDir\frontend"
+            npm install
+            
+            Write-Host "`n[3/3] Generating React production bundle (Build)..." -ForegroundColor Green
+            npm run build
+            
+            Write-Host "`nApplication install and build completed successfully!" -ForegroundColor Green
+            Read-Host "Press Enter to return to the menu..."
+        }
+        "5" {
             Show-Header
             Write-Host "Starting server cluster with PM2..." -ForegroundColor Green
             Set-Location $scriptDir
@@ -71,7 +94,15 @@ do {
             Start-Process "http://localhost:3001"
             Read-Host "Press Enter to return to the menu..."
         }
-        "4" {
+        "6" {
+            Show-Header
+            Write-Host "Stopping server cluster in PM2..." -ForegroundColor Green
+            Set-Location $scriptDir
+            pm2 delete ecosystem.config.js
+            Write-Host "`nApplication has stopped." -ForegroundColor Green
+            Read-Host "Press Enter to return to the menu..."
+        }
+        "7" {
             Show-Header
             Write-Host "Setting up autostart..." -ForegroundColor Green
             $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
@@ -83,11 +114,11 @@ do {
                 Write-Host "Autostart script registered successfully!" -ForegroundColor Green
                 Write-Host "Path: $shortcutPath" -ForegroundColor Gray
             } catch {
-                Write-Host "Failed to register autostart script: $_" -ForegroundColor Red
+                Write-Host "Failed to register autostart: $_" -ForegroundColor Red
             }
             Read-Host "Press Enter to return to the menu..."
         }
-        "5" {
+        "8" {
             Show-Header
             Write-Host "Removing autostart..." -ForegroundColor Green
             $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
@@ -101,11 +132,11 @@ do {
             }
             Read-Host "Press Enter to return to the menu..."
         }
-        "6" {
+        "9" {
             break
         }
         default {
-            Write-Host "Invalid option. Please enter a number between 1 and 6." -ForegroundColor Red
+            Write-Host "Invalid option. Please enter a number between 1 and 9." -ForegroundColor Red
             Start-Sleep -Seconds 2
         }
     }
