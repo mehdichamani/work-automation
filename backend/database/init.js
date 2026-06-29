@@ -35,7 +35,7 @@ if (!isMainThread) {
             
             // Automatic query retry mechanism on transient database connection errors
             let res;
-            let retries = 3;
+            let retries = 10; // Try up to 10 times (total 10 seconds)
             while (retries > 0) {
               try {
                 res = await pool.query(sql, params);
@@ -43,11 +43,13 @@ if (!isMainThread) {
               } catch (queryErr) {
                 const isConnError = queryErr.message.includes('terminated') || 
                                     queryErr.message.includes('connection') ||
+                                    queryErr.message.includes('starting up') ||
                                     queryErr.code === 'ECONNREFUSED' ||
-                                    queryErr.code === '57P01'; // Admin shutdown / Postgres restart
+                                    queryErr.code === '57P01' || // Admin shutdown
+                                    queryErr.code === '57P03'; // Database is starting up
                 if (isConnError && retries > 1) {
                   retries--;
-                  await new Promise(resolve => setTimeout(resolve, 500)); // wait 500ms before retrying
+                  await new Promise(resolve => setTimeout(resolve, 1000)); // wait 1 second before retrying
                   continue;
                 }
                 throw queryErr;
