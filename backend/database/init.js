@@ -9,8 +9,11 @@ if (!isMainThread) {
   // =========================================================================
   const { Pool } = require('pg');
   
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL environment variable is required');
+  }
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgrespassword@localhost:5432/edari',
+    connectionString: process.env.DATABASE_URL,
     max: 2, // Optimize connection count since each worker thread executes queries strictly sequentially
     idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
     connectionTimeoutMillis: 5000 // Fast failure on connection timeout
@@ -35,7 +38,7 @@ if (!isMainThread) {
             
             // Automatic query retry mechanism on transient database connection errors
             let res;
-            let retries = 10; // Try up to 10 times (total 10 seconds)
+            let retries = 3;
             while (retries > 0) {
               try {
                 res = await pool.query(sql, params);
@@ -43,13 +46,11 @@ if (!isMainThread) {
               } catch (queryErr) {
                 const isConnError = queryErr.message.includes('terminated') || 
                                     queryErr.message.includes('connection') ||
-                                    queryErr.message.includes('starting up') ||
                                     queryErr.code === 'ECONNREFUSED' ||
-                                    queryErr.code === '57P01' || // Admin shutdown
-                                    queryErr.code === '57P03'; // Database is starting up
+                                    queryErr.code === '57P01'; // Admin shutdown / Postgres restart
                 if (isConnError && retries > 1) {
                   retries--;
-                  await new Promise(resolve => setTimeout(resolve, 1000)); // wait 1 second before retrying
+                  await new Promise(resolve => setTimeout(resolve, 500)); // wait 500ms before retrying
                   continue;
                 }
                 throw queryErr;
@@ -413,6 +414,45 @@ async function initDatabase() {
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS work_shifts (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      start_time TEXT DEFAULT '',
+      end_time TEXT DEFAULT '',
+      description TEXT,
+      color TEXT DEFAULT '#3b82f6',
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_shift_assignments (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      shift_id INTEGER NOT NULL,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (shift_id) REFERENCES work_shifts(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS shift_change_requests (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      current_shift_id INTEGER,
+      requested_shift_id INTEGER NOT NULL,
+      requested_date TEXT,
+      reason TEXT,
+      status TEXT DEFAULT 'pending',
+      reviewed_by INTEGER,
+      reviewed_at TEXT,
+      review_comment TEXT,
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (current_shift_id) REFERENCES work_shifts(id),
+      FOREIGN KEY (requested_shift_id) REFERENCES work_shifts(id),
+      FOREIGN KEY (reviewed_by) REFERENCES users(id)
+    );
   `);
 
   try {
@@ -507,6 +547,28 @@ async function initDatabase() {
     const insertBal = db.prepare('INSERT INTO leave_balance (user_id, total_days, used_days) VALUES (?, 26, 0)');
     for (const u of allUsers) {
       insertBal.run(u.id);
+    }
+  }
+
+  const existingShift = db.prepare('SELECT id FROM work_shifts LIMIT 1').get();
+  if (!existingShift) {
+    const insertShift = db.prepare('INSERT INTO work_shifts (name, start_time, end_time, description, color) VALUES (?, ?, ?, ?, ?)');
+    insertShift.run('عادی کاری', '08:00', '17:00', 'شیفت عادی کاری', '#3b82f6');
+    insertShift.run('شیفت عصر', '13:00', '22:00', 'شیفت عصر', '#f59e0b');
+    insertShift.run('شیفت شب', '22:00', '06:00', 'شیفت شب', '#111827');
+  }
+
+  const defaultShift = db.prepare('SELECT id FROM work_shifts WHERE name = ?').get('عادی کاری');
+  if (defaultShift) {
+    const unassignedUsers = db.prepare(`
+      SELECT u.id
+      FROM users u
+      LEFT JOIN user_shift_assignments usa ON usa.user_id = u.id AND usa.is_active = 1
+      WHERE usa.id IS NULL
+    `).all();
+    const assignShift = db.prepare('INSERT INTO user_shift_assignments (user_id, shift_id, is_active) VALUES (?, ?, 1)');
+    for (const u of unassignedUsers) {
+      assignShift.run(u.id, defaultShift.id);
     }
   }
 

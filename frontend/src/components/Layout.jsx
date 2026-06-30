@@ -9,6 +9,7 @@ const menuItems = [
   { path: '/letters', label: 'نامه‌ها', icon: '📨', roles: ['admin','manager','supervisor','user'] },
   { path: '/inventory', label: 'کارتکس انبار', icon: '📦', roles: ['admin','manager','supervisor','user'] },
   { path: '/restaurant', label: 'رستوران', icon: '🍽️', roles: ['admin','manager','supervisor','user'] },
+  { path: '/shifts', label: 'شیفت‌های کاری', icon: '🕒', roles: ['admin','manager','supervisor','user'] },
   { path: '/job-application', label: 'پرسشنامه استخدامی', icon: '📋', permission: 'job_application_fill' },
   { path: '/admin', label: 'پنل مدیریت', icon: '⚙️', roles: ['admin', 'manager'] },
 ];

@@ -79,12 +79,7 @@ do {
         }
         "5" {
             Show-Header
-            Write-Host "Starting server cluster with PM2..." -ForegroundColor Green
-            Set-Location $scriptDir
-            
-            # Ensure PostgreSQL is running
-            Set-Location "$scriptDir\docker"
-            docker compose up -d
+            Write-Host "Starting server with PM2..." -ForegroundColor Green
             Set-Location $scriptDir
             
             # Start via PM2
