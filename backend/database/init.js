@@ -13,15 +13,20 @@ if (!isMainThread) {
   if (!databaseUrl) {
     try {
       const envPath = path.join(__dirname, '..', '..', '.env');
+      console.log('Worker: envPath =', envPath);
+      console.log('Worker: envPath exists? =', fs.existsSync(envPath));
       if (fs.existsSync(envPath)) {
         const envContent = fs.readFileSync(envPath, 'utf8');
         const match = envContent.match(/DATABASE_URL=(.+)/);
         if (match) {
           databaseUrl = match[1].trim();
+          console.log('Worker: databaseUrl from .env file =', databaseUrl.replace(/:[^:@\s]+@/, ':***@'));
+        } else {
+          console.log('Worker: no DATABASE_URL match in .env file');
         }
       }
     } catch (e) {
-      // ignore
+      console.log('Worker: error reading .env:', e.message);
     }
   }
   
@@ -479,6 +484,23 @@ async function initDatabase() {
     `);
   } catch (e) {}
 
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS announcements (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT,
+        image_path TEXT,
+        target_audience TEXT NOT NULL DEFAULT 'all',
+        priority TEXT DEFAULT 'normal',
+        is_active INTEGER DEFAULT 1,
+        created_by INTEGER,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (created_by) REFERENCES users(id)
+      );
+    `);
+  } catch (e) {}
+
   const alterStatements = [
     "ALTER TABLE letters ADD COLUMN attachment_name TEXT",
     "ALTER TABLE letters ADD COLUMN attachment_path TEXT",
@@ -615,22 +637,7 @@ async function initDatabase() {
     `);
   } catch (e) {}
 
-  try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS announcements (
-        id SERIAL PRIMARY KEY,
-        title TEXT NOT NULL,
-        body TEXT,
-        image_path TEXT,
-        target_audience TEXT NOT NULL DEFAULT 'all',
-        priority TEXT DEFAULT 'normal',
-        is_active INTEGER DEFAULT 1,
-        created_by INTEGER,
-        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-        FOREIGN KEY (created_by) REFERENCES users(id)
-      );
-    `);
-  } catch (e) {}
+
 
   try {
     const migrated = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='permissions_migrated'").get();
