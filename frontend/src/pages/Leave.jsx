@@ -25,11 +25,16 @@ export default function Leave() {
   const [balance, setBalance] = useState(null);
   const [balanceAll, setBalanceAll] = useState([]);
   const [subordinates, setSubordinates] = useState([]);
+  const [holidays, setHolidays] = useState([]);
+  const [holidayForm, setHolidayForm] = useState({ holiday_date: '', title: '' });
+  const [showHolidayCal, setShowHolidayCal] = useState(false);
+  const [calculation, setCalculation] = useState(null);
+  const [editCalculation, setEditCalculation] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [comment, setComment] = useState('');
-  const [form, setForm] = useState({ user_id: '', leave_type: '', start_date: '', end_date: '', reason: '', start_hour: '', end_hour: '' });
+  const [form, setForm] = useState({ user_id: '', start_date: '', start_hour: '', end_date: '', end_hour: '', reason: '' });
   const [editId, setEditId] = useState(null);
-  const [editForm, setEditForm] = useState({ leave_type: '', start_date: '', end_date: '', reason: '', start_hour: '', end_hour: '' });
+  const [editForm, setEditForm] = useState({ start_date: '', start_hour: '', end_date: '', end_hour: '', reason: '' });
   const [showStartCal, setShowStartCal] = useState(false);
   const [showEndCal, setShowEndCal] = useState(false);
   const [editShowStartCal, setEditShowStartCal] = useState(false);
@@ -42,6 +47,38 @@ export default function Leave() {
         .catch(err => console.error('Error fetching subordinates', err));
     }
   }, [user]);
+
+  useEffect(() => {
+    if (form.start_date && form.start_hour && form.end_date && form.end_hour) {
+      api.get('/leave/calculate', {
+        params: {
+          start_date: form.start_date,
+          start_time: form.start_hour,
+          end_date: form.end_date,
+          end_time: form.end_hour
+        }
+      }).then(res => setCalculation(res.data))
+        .catch(err => setCalculation(null));
+    } else {
+      setCalculation(null);
+    }
+  }, [form.start_date, form.start_hour, form.end_date, form.end_hour]);
+
+  useEffect(() => {
+    if (editForm.start_date && editForm.start_hour && editForm.end_date && editForm.end_hour) {
+      api.get('/leave/calculate', {
+        params: {
+          start_date: editForm.start_date,
+          start_time: editForm.start_hour,
+          end_date: editForm.end_date,
+          end_time: editForm.end_hour
+        }
+      }).then(res => setEditCalculation(res.data))
+        .catch(err => setEditCalculation(null));
+    } else {
+      setEditCalculation(null);
+    }
+  }, [editForm.start_date, editForm.start_hour, editForm.end_date, editForm.end_hour]);
 
   useEffect(() => { loadData(); }, [tab]);
 
@@ -69,17 +106,47 @@ export default function Leave() {
       } else if (tab === 'balance') {
         const balAllRes = await api.get('/leave/balance-all');
         setBalanceAll(balAllRes.data);
+      } else if (tab === 'holidays') {
+        const holRes = await api.get('/leave/holidays');
+        setHolidays(holRes.data);
       }
     } catch (err) {
       toast.error('خطا در بارگذاری اطلاعات');
     }
   };
 
+  const addHoliday = async (e) => {
+    e.preventDefault();
+    try {
+      if (!holidayForm.holiday_date) {
+        toast.error('تاریخ تعطیل را انتخاب کنید');
+        return;
+      }
+      await api.post('/leave/holidays', holidayForm);
+      toast.success('تعطیلی ثبت شد');
+      setHolidayForm({ holiday_date: '', title: '' });
+      loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'خطا در ثبت تعطیلی');
+    }
+  };
+
+  const deleteHoliday = async (id) => {
+    if (!confirm('آیا از حذف این تعطیلی مطمئن هستید؟')) return;
+    try {
+      await api.delete(`/leave/holidays/${id}`);
+      toast.success('تعطیلی حذف شد');
+      loadData();
+    } catch (err) {
+      toast.error('خطا در حذف تعطیلی');
+    }
+  };
+
   const submitRequest = async (e) => {
     e.preventDefault();
     try {
-      if (!form.leave_type) {
-        toast.error('نوع مرخصی را انتخاب کنید');
+      if (!form.start_date || !form.start_hour || !form.end_date || !form.end_hour) {
+        toast.error('پر کردن تمام فیلدهای تاریخ و ساعت الزامی است');
         return;
       }
       const today = moment().format('jYYYY/jMM/jDD');
@@ -87,10 +154,17 @@ export default function Leave() {
         toast.error('امکان ثبت مرخصی برای تاریخ گذشته وجود ندارد');
         return;
       }
-      await api.post('/leave', form);
+      await api.post('/leave', {
+        user_id: form.user_id,
+        start_date: form.start_date,
+        start_time: form.start_hour,
+        end_date: form.end_date,
+        end_time: form.end_hour,
+        reason: form.reason
+      });
       toast.success('درخواست مرخصی ثبت شد');
       setShowForm(false);
-      setForm({ user_id: '', leave_type: '', start_date: '', end_date: '', reason: '', start_hour: '', end_hour: '' });
+      setForm({ user_id: '', start_date: '', start_hour: '', end_date: '', end_hour: '', reason: '' });
       loadData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا در ثبت درخواست');
@@ -100,7 +174,6 @@ export default function Leave() {
   const openEdit = (leave) => {
     setEditId(leave.id);
     setEditForm({
-      leave_type: leave.leave_type,
       start_date: leave.start_date,
       end_date: leave.end_date,
       reason: leave.reason || '',
@@ -112,11 +185,17 @@ export default function Leave() {
   const submitEdit = async (e) => {
     e.preventDefault();
     try {
-      if (!editForm.leave_type) {
-        toast.error('نوع مرخصی را انتخاب کنید');
+      if (!editForm.start_date || !editForm.start_hour || !editForm.end_date || !editForm.end_hour) {
+        toast.error('پر کردن تمام فیلدهای تاریخ و ساعت الزامی است');
         return;
       }
-      await api.put(`/leave/${editId}/edit`, editForm);
+      await api.put(`/leave/${editId}/edit`, {
+        start_date: editForm.start_date,
+        start_time: editForm.start_hour,
+        end_date: editForm.end_date,
+        end_time: editForm.end_hour,
+        reason: editForm.reason
+      });
       toast.success('درخواست ویرایش شد');
       setEditId(null);
       loadData();
@@ -210,6 +289,7 @@ export default function Leave() {
       { id: 'all', label: 'همه درخواست‌ها' },
       { id: 'balance', label: 'مانده مرخصی کارکنان' },
     ] : []),
+    ...((user.role === 'admin') ? [{ id: 'holidays', label: 'مدیریت تعطیلات رسمی' }] : []),
   ];
 
   return (
@@ -219,7 +299,7 @@ export default function Leave() {
           <h2 className="text-xl font-bold">مدیریت مرخصی</h2>
           {balance && (
             <p className="text-sm text-gray-500 mt-1">
-              مانده مرخصی شما: <span className="font-bold text-green-600">{balance.remaining_days}</span> از {balance.total_days} روز
+              مانده مرخصی شما: <span className="font-bold text-green-600">{balance.remaining_days} روز و {balance.remaining_hours_only} ساعت</span> از {balance.total_days} روز
             </p>
           )}
         </div>
@@ -253,18 +333,6 @@ export default function Leave() {
                   </select>
                 </div>
               )}
-              <div>
-                <label className="block text-sm font-medium mb-1">نوع مرخصی</label>
-                <select
-                  value={form.leave_type}
-                  onChange={(e) => setForm({...form, leave_type: e.target.value})}
-                  className="w-full px-4 py-3 border rounded-xl"
-                >
-                  <option value="">انتخاب کنید</option>
-                  <option value="روزانه">روزانه</option>
-                  <option value="ساعتی">ساعتی</option>
-                </select>
-              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ شروع</label>
@@ -281,6 +349,34 @@ export default function Leave() {
                   )}
                 </div>
                 <div>
+                  <label className="block text-sm font-medium mb-1">ساعت شروع</label>
+                  <select value={form.start_hour} onChange={(e) => setForm({...form, start_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
+                    <option value="">انتخاب ساعت</option>
+                    <option value="08:00">08:00</option>
+                    <option value="08:30">08:30</option>
+                    <option value="09:00">09:00</option>
+                    <option value="09:30">09:30</option>
+                    <option value="10:00">10:00</option>
+                    <option value="10:30">10:30</option>
+                    <option value="11:00">11:00</option>
+                    <option value="11:30">11:30</option>
+                    <option value="12:00">12:00</option>
+                    <option value="12:30">12:30</option>
+                    <option value="13:00">13:00</option>
+                    <option value="13:30">13:30</option>
+                    <option value="14:00">14:00</option>
+                    <option value="14:30">14:30</option>
+                    <option value="15:00">15:00</option>
+                    <option value="15:30">15:30</option>
+                    <option value="16:00">16:00</option>
+                    <option value="16:30">16:30</option>
+                    <option value="17:00">17:00</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
                   <label className="block text-sm font-medium mb-1">تاریخ پایان</label>
                   <button type="button" onClick={() => setShowEndCal(!showEndCal)} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">
                     {form.end_date || 'انتخاب تاریخ'}
@@ -294,74 +390,39 @@ export default function Leave() {
                     </div>
                   )}
                 </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">ساعت پایان</label>
+                  <select value={form.end_hour} onChange={(e) => setForm({...form, end_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
+                    <option value="">انتخاب ساعت</option>
+                    <option value="08:00">08:00</option>
+                    <option value="08:30">08:30</option>
+                    <option value="09:00">09:00</option>
+                    <option value="09:30">09:30</option>
+                    <option value="10:00">10:00</option>
+                    <option value="10:30">10:30</option>
+                    <option value="11:00">11:00</option>
+                    <option value="11:30">11:30</option>
+                    <option value="12:00">12:00</option>
+                    <option value="12:30">12:30</option>
+                    <option value="13:00">13:00</option>
+                    <option value="13:30">13:30</option>
+                    <option value="14:00">14:00</option>
+                    <option value="14:30">14:30</option>
+                    <option value="15:00">15:00</option>
+                    <option value="15:30">15:30</option>
+                    <option value="16:00">16:00</option>
+                    <option value="16:30">16:30</option>
+                    <option value="17:00">17:00</option>
+                  </select>
+                </div>
               </div>
-              {form.leave_type === 'ساعتی' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">ساعت شروع</label>
-                    <select value={form.start_hour} onChange={(e) => setForm({...form, start_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
-                      <option value="">انتخاب ساعت</option>
-                      <option value="08:00">08:00</option>
-                      <option value="08:30">08:30</option>
-                      <option value="09:00">09:00</option>
-                      <option value="09:30">09:30</option>
-                      <option value="10:00">10:00</option>
-                      <option value="10:30">10:30</option>
-                      <option value="11:00">11:00</option>
-                      <option value="11:30">11:30</option>
-                      <option value="12:00">12:00</option>
-                      <option value="12:30">12:30</option>
-                      <option value="13:00">13:00</option>
-                      <option value="13:30">13:30</option>
-                      <option value="14:00">14:00</option>
-                      <option value="14:30">14:30</option>
-                      <option value="15:00">15:00</option>
-                      <option value="15:30">15:30</option>
-                      <option value="16:00">16:00</option>
-                      <option value="16:30">16:30</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">ساعت پایان</label>
-                    <select value={form.end_hour} onChange={(e) => setForm({...form, end_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
-                      <option value="">انتخاب ساعت</option>
-                      {form.start_date && moment(form.start_date, 'jYYYY/jMM/jDD').day() === 5 ? (
-                        <>
-                          <option value="08:30">08:30</option>
-                          <option value="09:00">09:00</option>
-                          <option value="09:30">09:30</option>
-                          <option value="10:00">10:00</option>
-                          <option value="10:30">10:30</option>
-                          <option value="11:00">11:00</option>
-                          <option value="11:30">11:30</option>
-                          <option value="12:00">12:00</option>
-                        </>
-                      ) : (
-                        <>
-                          <option value="08:30">08:30</option>
-                          <option value="09:00">09:00</option>
-                          <option value="09:30">09:30</option>
-                          <option value="10:00">10:00</option>
-                          <option value="10:30">10:30</option>
-                          <option value="11:00">11:00</option>
-                          <option value="11:30">11:30</option>
-                          <option value="12:00">12:00</option>
-                          <option value="12:30">12:30</option>
-                          <option value="13:00">13:00</option>
-                          <option value="13:30">13:30</option>
-                          <option value="14:00">14:00</option>
-                          <option value="14:30">14:30</option>
-                          <option value="15:00">15:00</option>
-                          <option value="15:30">15:30</option>
-                          <option value="16:00">16:00</option>
-                          <option value="16:30">16:30</option>
-                          <option value="17:00">17:00</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
+
+              {calculation && (
+                <div className="bg-primary-50 p-4 rounded-xl text-primary-700 text-sm font-medium border border-primary-100">
+                  در صورت تائید این مرخصی {calculation.days} روز و {calculation.remaining_hours} ساعت از سهمیه شما کم خواهد شد
                 </div>
               )}
+
               <div>
                 <label className="block text-sm font-medium mb-1">دلیل مرخصی</label>
                 <textarea
@@ -385,18 +446,6 @@ export default function Leave() {
           <div className="bg-white rounded-2xl p-8 w-full max-w-lg animate-fade-in relative">
             <h3 className="text-lg font-bold mb-6">ویرایش درخواست مرخصی</h3>
             <form onSubmit={submitEdit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">نوع مرخصی</label>
-                <select
-                  value={editForm.leave_type}
-                  onChange={(e) => setEditForm({...editForm, leave_type: e.target.value})}
-                  className="w-full px-4 py-3 border rounded-xl"
-                >
-                  <option value="">انتخاب کنید</option>
-                  <option value="روزانه">روزانه</option>
-                  <option value="ساعتی">ساعتی</option>
-                </select>
-              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ شروع</label>
@@ -413,6 +462,34 @@ export default function Leave() {
                   )}
                 </div>
                 <div>
+                  <label className="block text-sm font-medium mb-1">ساعت شروع</label>
+                  <select value={editForm.start_hour} onChange={(e) => setEditForm({...editForm, start_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
+                    <option value="">انتخاب ساعت</option>
+                    <option value="08:00">08:00</option>
+                    <option value="08:30">08:30</option>
+                    <option value="09:00">09:00</option>
+                    <option value="09:30">09:30</option>
+                    <option value="10:00">10:00</option>
+                    <option value="10:30">10:30</option>
+                    <option value="11:00">11:00</option>
+                    <option value="11:30">11:30</option>
+                    <option value="12:00">12:00</option>
+                    <option value="12:30">12:30</option>
+                    <option value="13:00">13:00</option>
+                    <option value="13:30">13:30</option>
+                    <option value="14:00">14:00</option>
+                    <option value="14:30">14:30</option>
+                    <option value="15:00">15:00</option>
+                    <option value="15:30">15:30</option>
+                    <option value="16:00">16:00</option>
+                    <option value="16:30">16:30</option>
+                    <option value="17:00">17:00</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
                   <label className="block text-sm font-medium mb-1">تاریخ پایان</label>
                   <button type="button" onClick={() => setEditShowEndCal(!editShowEndCal)} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">
                     {editForm.end_date || 'انتخاب تاریخ'}
@@ -426,74 +503,39 @@ export default function Leave() {
                     </div>
                   )}
                 </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">ساعت پایان</label>
+                  <select value={editForm.end_hour} onChange={(e) => setEditForm({...editForm, end_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
+                    <option value="">انتخاب ساعت</option>
+                    <option value="08:00">08:00</option>
+                    <option value="08:30">08:30</option>
+                    <option value="09:00">09:00</option>
+                    <option value="09:30">09:30</option>
+                    <option value="10:00">10:00</option>
+                    <option value="10:30">10:30</option>
+                    <option value="11:00">11:00</option>
+                    <option value="11:30">11:30</option>
+                    <option value="12:00">12:00</option>
+                    <option value="12:30">12:30</option>
+                    <option value="13:00">13:00</option>
+                    <option value="13:30">13:30</option>
+                    <option value="14:00">14:00</option>
+                    <option value="14:30">14:30</option>
+                    <option value="15:00">15:00</option>
+                    <option value="15:30">15:30</option>
+                    <option value="16:00">16:00</option>
+                    <option value="16:30">16:30</option>
+                    <option value="17:00">17:00</option>
+                  </select>
+                </div>
               </div>
-              {editForm.leave_type === 'ساعتی' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">ساعت شروع</label>
-                    <select value={editForm.start_hour} onChange={(e) => setEditForm({...editForm, start_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
-                      <option value="">انتخاب ساعت</option>
-                      <option value="08:00">08:00</option>
-                      <option value="08:30">08:30</option>
-                      <option value="09:00">09:00</option>
-                      <option value="09:30">09:30</option>
-                      <option value="10:00">10:00</option>
-                      <option value="10:30">10:30</option>
-                      <option value="11:00">11:00</option>
-                      <option value="11:30">11:30</option>
-                      <option value="12:00">12:00</option>
-                      <option value="12:30">12:30</option>
-                      <option value="13:00">13:00</option>
-                      <option value="13:30">13:30</option>
-                      <option value="14:00">14:00</option>
-                      <option value="14:30">14:30</option>
-                      <option value="15:00">15:00</option>
-                      <option value="15:30">15:30</option>
-                      <option value="16:00">16:00</option>
-                      <option value="16:30">16:30</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">ساعت پایان</label>
-                    <select value={editForm.end_hour} onChange={(e) => setEditForm({...editForm, end_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
-                      <option value="">انتخاب ساعت</option>
-                      {editForm.start_date && moment(editForm.start_date, 'jYYYY/jMM/jDD').day() === 5 ? (
-                        <>
-                          <option value="08:30">08:30</option>
-                          <option value="09:00">09:00</option>
-                          <option value="09:30">09:30</option>
-                          <option value="10:00">10:00</option>
-                          <option value="10:30">10:30</option>
-                          <option value="11:00">11:00</option>
-                          <option value="11:30">11:30</option>
-                          <option value="12:00">12:00</option>
-                        </>
-                      ) : (
-                        <>
-                          <option value="08:30">08:30</option>
-                          <option value="09:00">09:00</option>
-                          <option value="09:30">09:30</option>
-                          <option value="10:00">10:00</option>
-                          <option value="10:30">10:30</option>
-                          <option value="11:00">11:00</option>
-                          <option value="11:30">11:30</option>
-                          <option value="12:00">12:00</option>
-                          <option value="12:30">12:30</option>
-                          <option value="13:00">13:00</option>
-                          <option value="13:30">13:30</option>
-                          <option value="14:00">14:00</option>
-                          <option value="14:30">14:30</option>
-                          <option value="15:00">15:00</option>
-                          <option value="15:30">15:30</option>
-                          <option value="16:00">16:00</option>
-                          <option value="16:30">16:30</option>
-                          <option value="17:00">17:00</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
+
+              {editCalculation && (
+                <div className="bg-primary-50 p-4 rounded-xl text-primary-700 text-sm font-medium border border-primary-100">
+                  در صورت تائید این مرخصی {editCalculation.days} روز و {editCalculation.remaining_hours} ساعت از سهمیه شما کم خواهد شد
                 </div>
               )}
+
               <div>
                 <label className="block text-sm font-medium mb-1">دلیل مرخصی</label>
                 <textarea
@@ -704,7 +746,11 @@ export default function Leave() {
                 { key: 'total_days', label: 'کل روزها' },
                 { key: 'used_days', label: 'استفاده شده' },
                 { key: 'remaining_days', label: 'مانده' },
-              ], balanceAll)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2">
+              ], balanceAll.map(b => ({
+                ...b,
+                used_days: `${b.used_days_display} روز و ${b.used_hours_display} ساعت`,
+                remaining_days: `${b.remaining_days} روز و ${b.remaining_hours_only} ساعت`
+              })))} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
                 چاپ
               </button>
@@ -725,10 +771,73 @@ export default function Leave() {
                     <td className="p-3 font-bold">{b.full_name}</td>
                     <td className="p-3">{b.department_name}</td>
                     <td className="p-3">{b.total_days}</td>
-                    <td className="p-3 text-red-500">{b.used_days}</td>
-                    <td className="p-3 text-green-600 font-bold">{b.remaining_days}</td>
+                    <td className="p-3 text-red-500">{b.used_days_display} روز و {b.used_hours_display} ساعت</td>
+                    <td className="p-3 text-green-600 font-bold">{b.remaining_days} روز و {b.remaining_hours_only} ساعت</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === 'holidays' && (
+          <div className="p-6">
+            <h3 className="text-lg font-bold mb-4">مدیریت تعطیلات رسمی</h3>
+            <form onSubmit={addHoliday} className="bg-gray-50 p-6 rounded-2xl mb-6 flex flex-wrap gap-4 items-end">
+              <div className="flex-1 min-w-[200px] relative">
+                <label className="block text-sm font-medium mb-1">تاریخ تعطیلی</label>
+                <button type="button" onClick={() => setShowHolidayCal(!showHolidayCal)} className="w-full px-4 py-3 bg-white border rounded-xl text-left" dir="ltr">
+                  {holidayForm.holiday_date || 'انتخاب تاریخ'}
+                </button>
+                {showHolidayCal && (
+                  <div className="absolute mt-1 z-10">
+                    <JalaliCalendar
+                      selectedDate={holidayForm.holiday_date}
+                      onSelect={(d) => { setHolidayForm({...holidayForm, holiday_date: d}); setShowHolidayCal(false); }}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-sm font-medium mb-1">عنوان / مناسبت (اختیاری)</label>
+                <input
+                  type="text"
+                  value={holidayForm.title}
+                  onChange={(e) => setHolidayForm({...holidayForm, title: e.target.value})}
+                  placeholder="مثال: عید نوروز"
+                  className="w-full px-4 py-3 border rounded-xl"
+                />
+              </div>
+              <button type="submit" className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-3 rounded-xl font-bold transition-colors">
+                + افزودن تعطیلی
+              </button>
+            </form>
+
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="p-3 text-right">تاریخ</th>
+                  <th className="p-3 text-right">مناسبت</th>
+                  <th className="p-3 text-center">عملیات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {holidays.map(h => (
+                  <tr key={h.id} className="border-t hover:bg-gray-50">
+                    <td className="p-3 font-mono" dir="ltr">{h.holiday_date}</td>
+                    <td className="p-3 text-gray-700">{h.title || 'بدون عنوان'}</td>
+                    <td className="p-3 text-center">
+                      <button onClick={() => deleteHoliday(h.id)} className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors">
+                        حذف
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {holidays.length === 0 && (
+                  <tr>
+                    <td colSpan="3" className="p-4 text-center text-gray-500">هیچ روز تعطیلی ثبت نشده است</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

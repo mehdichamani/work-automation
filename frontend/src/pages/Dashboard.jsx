@@ -115,19 +115,23 @@ export default function Dashboard() {
           {balance && (
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
-                <span>کل روزها:</span>
-                <span className="font-bold">{balance.total_days}</span>
+                <span>کل سهمیه:</span>
+                <span className="font-bold">{balance.total_days} روز ({balance.total_days * 8} ساعت)</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span>استفاده شده:</span>
-                <span className="font-bold text-red-500">{balance.used_days}</span>
+                <span className="font-bold text-red-500">
+                  {balance.used_days_display} روز و {balance.used_hours_display} ساعت
+                </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-3">
-                <div className="bg-primary-500 h-3 rounded-full" style={{ width: `${balance.total_days > 0 ? (balance.remaining_days / balance.total_days) * 100 : 0}%` }}></div>
+                <div className="bg-primary-500 h-3 rounded-full" style={{ width: `${balance.total_days > 0 ? ((balance.total_days * 8 - balance.used_hours) / (balance.total_days * 8)) * 100 : 0}%` }}></div>
               </div>
               <div className="flex justify-between text-sm">
                 <span>مانده:</span>
-                <span className="font-bold text-green-600">{balance.remaining_days} روز</span>
+                <span className="font-bold text-green-600">
+                  {balance.remaining_days} روز و {balance.remaining_hours_only} ساعت
+                </span>
               </div>
             </div>
           )}

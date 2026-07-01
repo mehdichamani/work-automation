@@ -16,6 +16,17 @@ module.exports = function(db) {
     return e.diff(s, 'days') + 1;
   }
 
+  function mapLeave(l) {
+    if (!l) return l;
+    const days = Math.floor(l.hours_count / 8);
+    const hrs = l.hours_count % 8;
+    let formatted = '';
+    if (days > 0) formatted += `${days} روز`;
+    if (hrs > 0) formatted += `${formatted ? ' و ' : ''}${hrs} ساعت`;
+    if (!formatted) formatted = '0 ساعت';
+    return { ...l, days_count: formatted, raw_hours: l.hours_count };
+  }
+
   router.get('/subordinates', (req, res) => {
     try {
       if (!['admin', 'manager', 'supervisor'].includes(req.user.role)) {
@@ -61,7 +72,7 @@ module.exports = function(db) {
         WHERE l.user_id = ?
         ORDER BY l.created_at DESC
       `).all(req.user.id);
-      res.json(leaves);
+      res.json(leaves.map(mapLeave));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -89,7 +100,7 @@ module.exports = function(db) {
           ORDER BY l.created_at DESC
         `).all(req.user.department_id);
       }
-      res.json(leaves);
+      res.json(leaves.map(mapLeave));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -107,7 +118,7 @@ module.exports = function(db) {
         WHERE l.status = 'pending_manager'
         ORDER BY l.created_at DESC
       `).all();
-      res.json(leaves);
+      res.json(leaves.map(mapLeave));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -123,7 +134,7 @@ module.exports = function(db) {
         WHERE l.status = 'approved'
         ORDER BY l.created_at DESC
       `).all();
-      res.json(leaves);
+      res.json(leaves.map(mapLeave));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -138,7 +149,7 @@ module.exports = function(db) {
         LEFT JOIN departments d ON u.department_id = d.id
         ORDER BY l.created_at DESC
       `).all();
-      res.json(leaves);
+      res.json(leaves.map(mapLeave));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -146,9 +157,9 @@ module.exports = function(db) {
 
   router.post('/', (req, res) => {
     try {
-      const { user_id, leave_type, start_date, end_date, reason, start_hour, end_hour } = req.body;
-      if (!leave_type || !start_date || !end_date) {
-        return res.status(400).json({ error: 'فیلدهای مرخصی الزامی است' });
+      const { user_id, start_date, start_time, end_date, end_time, reason } = req.body;
+      if (!start_date || !start_time || !end_date || !end_time) {
+        return res.status(400).json({ error: 'تمام فیلدهای تاریخ و ساعت شروع و پایان الزامی هستند' });
       }
 
       let targetUserId = req.user.id;
@@ -194,54 +205,42 @@ module.exports = function(db) {
         }
       }
 
-      if (leave_type === 'ساعتی') {
-        if (!start_hour || !end_hour) {
-          return res.status(400).json({ error: 'ساعت شروع و پایان الزامی است' });
-        }
-        if (start_hour >= end_hour) {
-          return res.status(400).json({ error: 'ساعت پایان باید بعد از ساعت شروع باشد' });
-        }
-        const dayOfWeek = moment(start_date, 'jYYYY/jMM/jDD').day();
-        const maxHour = dayOfWeek === 5 ? '12:00' : '17:00';
-        if (end_hour > maxHour) {
-          return res.status(400).json({ error: `ساعت پایان نمی‌تواند بیشتر از ${maxHour} باشد` });
-        }
-        if (start_hour < '08:00') {
-          return res.status(400).json({ error: 'ساعت شروع نمی‌تواند قبل از ۰۸:۰۰ باشد' });
-        }
-      }
-
-      const days = leave_type === 'ساعتی' ? 0.5 : calcDays(start_date, end_date);
-      if (days <= 0) {
-        return res.status(400).json({ error: 'تاریخ پایان باید بعد از تاریخ شروع باشد' });
-      }
-
       const today = moment().format('jYYYY/jMM/jDD');
       if (start_date < today) {
         return res.status(400).json({ error: 'امکان ثبت مرخصی برای تاریخ گذشته وجود ندارد' });
       }
 
+      const leaveHours = calculateLeaveHours(start_date, start_time, end_date, end_time);
+      if (leaveHours <= 0) {
+        return res.status(400).json({ error: 'زمان انتخاب شده در ساعات کاری معتبر یا روزهای غیر تعطیل قرار ندارد' });
+      }
+
       const balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(targetUserId);
-      if (balance && (balance.used_days + days) > balance.total_days) {
-        return res.status(400).json({ error: `مانده مرخصی کافی نیست. مانده: ${balance.total_days - balance.used_days} روز` });
+      if (balance) {
+        const totalHours = balance.total_days * 8;
+        if ((balance.used_hours + leaveHours) > totalHours) {
+          const rem = totalHours - balance.used_hours;
+          const remDays = Math.floor(rem / 8);
+          const remHrs = rem % 8;
+          return res.status(400).json({ error: `مانده مرخصی کافی نیست. مانده شما: ${remDays} روز و ${remHrs} ساعت` });
+        }
       }
 
       const result = db.prepare(`
         INSERT INTO leave_requests (
-          user_id, leave_type, start_date, end_date, days_count, reason, status, start_hour, end_hour,
+          user_id, leave_type, start_date, end_date, hours_count, reason, status, start_hour, end_hour,
           supervisor_id, supervisor_date, manager_id, manager_date
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, 'مرخصی', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         targetUserId,
-        leave_type,
         start_date,
         end_date,
-        days,
+        leaveHours,
         reason || '',
         initialStatus,
-        start_hour || null,
-        end_hour || null,
+        start_time,
+        end_time,
         supervisorId,
         supervisorDate,
         managerId,
@@ -282,31 +281,9 @@ module.exports = function(db) {
       const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND user_id = ? AND status = 'pending_supervisor'").get(req.params.id, req.user.id);
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد یا قابل ویرایش نیست' });
 
-      const { leave_type, start_date, end_date, reason, start_hour, end_hour } = req.body;
-      if (!leave_type || !start_date || !end_date) {
-        return res.status(400).json({ error: 'فیلدهای مرخصی الزامی است' });
-      }
-
-      if (leave_type === 'ساعتی') {
-        if (!start_hour || !end_hour) {
-          return res.status(400).json({ error: 'ساعت شروع و پایان الزامی است' });
-        }
-        if (start_hour >= end_hour) {
-          return res.status(400).json({ error: 'ساعت پایان باید بعد از ساعت شروع باشد' });
-        }
-        const dayOfWeek = moment(start_date, 'jYYYY/jMM/jDD').day();
-        const maxHour = dayOfWeek === 5 ? '12:00' : '17:00';
-        if (end_hour > maxHour) {
-          return res.status(400).json({ error: `ساعت پایان نمی‌تواند بیشتر از ${maxHour} باشد` });
-        }
-        if (start_hour < '08:00') {
-          return res.status(400).json({ error: 'ساعت شروع نمی‌تواند قبل از ۰۸:۰۰ باشد' });
-        }
-      }
-
-      const days = leave_type === 'ساعتی' ? 0.5 : calcDays(start_date, end_date);
-      if (days <= 0) {
-        return res.status(400).json({ error: 'تاریخ پایان باید بعد از تاریخ شروع باشد' });
+      const { start_date, start_time, end_date, end_time, reason } = req.body;
+      if (!start_date || !start_time || !end_date || !end_time) {
+        return res.status(400).json({ error: 'تمام فیلدهای تاریخ و ساعت شروع و پایان الزامی هستند' });
       }
 
       const today = moment().format('jYYYY/jMM/jDD');
@@ -314,8 +291,13 @@ module.exports = function(db) {
         return res.status(400).json({ error: 'امکان ثبت مرخصی برای تاریخ گذشته وجود ندارد' });
       }
 
-      db.prepare('UPDATE leave_requests SET leave_type = ?, start_date = ?, end_date = ?, days_count = ?, reason = ?, start_hour = ?, end_hour = ? WHERE id = ?')
-        .run(leave_type, start_date, end_date, days, reason || '', start_hour || null, end_hour || null, req.params.id);
+      const leaveHours = calculateLeaveHours(start_date, start_time, end_date, end_time);
+      if (leaveHours <= 0) {
+        return res.status(400).json({ error: 'زمان انتخاب شده در ساعات کاری معتبر یا روزهای غیر تعطیل قرار ندارد' });
+      }
+
+      db.prepare('UPDATE leave_requests SET start_date = ?, end_date = ?, hours_count = ?, reason = ?, start_hour = ?, end_hour = ? WHERE id = ?')
+        .run(start_date, end_date, leaveHours, reason || '', start_time, end_time, req.params.id);
 
       res.json({ message: 'درخواست با موفقیت ویرایش شد' });
     } catch (err) {
@@ -343,11 +325,11 @@ module.exports = function(db) {
       const leave = db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(req.params.id);
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      if (['approved', 'seen_security'].includes(leave.status) && leave.days_count > 0) {
+      if (['approved', 'seen_security'].includes(leave.status) && leave.hours_count > 0) {
         const balanceBefore = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(leave.user_id);
         if (balanceBefore) {
-          const newUsed = Math.max(0, balanceBefore.used_days - leave.days_count);
-          db.prepare('UPDATE leave_balance SET used_days = ? WHERE user_id = ?').run(newUsed, leave.user_id);
+          const newUsed = Math.max(0, balanceBefore.used_hours - leave.hours_count);
+          db.prepare('UPDATE leave_balance SET used_hours = ? WHERE user_id = ?').run(newUsed, leave.user_id);
         }
       }
 
@@ -421,7 +403,7 @@ module.exports = function(db) {
         WHERE id = ?
       `).run(req.user.id, comment || '', req.params.id);
 
-      db.prepare('UPDATE leave_balance SET used_days = used_days + ? WHERE user_id = ?').run(leave.days_count, leave.user_id);
+      db.prepare('UPDATE leave_balance SET used_hours = used_hours + ? WHERE user_id = ?').run(leave.hours_count, leave.user_id);
 
       notify(leave.user_id, 'تایید نهایی مرخصی', `مرخصی شما توسط مدیر تایید شد`, '/leave');
 
@@ -470,14 +452,142 @@ module.exports = function(db) {
     }
   });
 
+  // Holidays endpoints
+  router.get('/holidays', (req, res) => {
+    try {
+      const holidays = db.prepare('SELECT * FROM official_holidays ORDER BY holiday_date').all();
+      res.json(holidays);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/holidays', (req, res) => {
+    try {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      }
+      const { holiday_date, title } = req.body;
+      if (!holiday_date) {
+        return res.status(400).json({ error: 'تاریخ تعطیل الزامی است' });
+      }
+      db.prepare('INSERT INTO official_holidays (holiday_date, title) VALUES (?, ?)').run(holiday_date, title || '');
+      res.json({ message: 'تعطیلی با موفقیت ثبت شد' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.delete('/holidays/:id', (req, res) => {
+    try {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      }
+      db.prepare('DELETE FROM official_holidays WHERE id = ?').run(req.params.id);
+      res.json({ message: 'تعطیلی حذف شد' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Helper function to calculate leave hours
+  function calculateLeaveHours(startDateStr, startTimeStr, endDateStr, endTimeStr) {
+    const holidays = db.prepare('SELECT holiday_date FROM official_holidays').all();
+    const holidaysSet = new Set(holidays.map(h => h.holiday_date));
+    
+    let current = moment(startDateStr, 'jYYYY/jMM/jDD');
+    const end = moment(endDateStr, 'jYYYY/jMM/jDD');
+    
+    let totalHours = 0;
+    
+    const timeToMinutes = (t) => {
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + m;
+    };
+    
+    const minutesToHours = (m) => m / 60;
+    
+    while (current.isSameOrBefore(end, 'day')) {
+      const dateStr = current.format('jYYYY/jMM/jDD');
+      const dayOfWeek = current.day(); // 0 is Sunday, ..., 5 is Friday, 6 is Saturday
+      
+      const isFriday = (dayOfWeek === 5);
+      const isOfficialHoliday = holidaysSet.has(dateStr);
+      
+      if (!isFriday && !isOfficialHoliday) {
+        let dayStart = "08:00";
+        let dayEnd = (dayOfWeek === 4) ? "12:00" : "17:00";
+        
+        let leaveStart = (dateStr === startDateStr) ? startTimeStr : dayStart;
+        let leaveEnd = (dateStr === endDateStr) ? endTimeStr : dayEnd;
+        
+        const leaveStartMin = timeToMinutes(leaveStart);
+        const leaveEndMin = timeToMinutes(leaveEnd);
+        
+        if (dayOfWeek === 4) {
+          // Thursday: 08:00 to 12:00
+          const startMin = Math.max(leaveStartMin, timeToMinutes("08:00"));
+          const endMin = Math.min(leaveEndMin, timeToMinutes("12:00"));
+          if (startMin < endMin) {
+            totalHours += minutesToHours(endMin - startMin);
+          }
+        } else {
+          // Saturday-Wednesday: 08:00 to 12:00, and 13:00 to 17:00
+          // Morning overlap
+          const morningStart = Math.max(leaveStartMin, timeToMinutes("08:00"));
+          const morningEnd = Math.min(leaveEndMin, timeToMinutes("12:00"));
+          if (morningStart < morningEnd) {
+            totalHours += minutesToHours(morningEnd - morningStart);
+          }
+          // Afternoon overlap
+          const afternoonStart = Math.max(leaveStartMin, timeToMinutes("13:00"));
+          const afternoonEnd = Math.min(leaveEndMin, timeToMinutes("17:00"));
+          if (afternoonStart < afternoonEnd) {
+            totalHours += minutesToHours(afternoonEnd - afternoonStart);
+          }
+        }
+      }
+      current.add(1, 'day');
+    }
+    
+    return totalHours;
+  }
+
+  // Calculate endpoint
+  router.get('/calculate', (req, res) => {
+    try {
+      const { start_date, start_time, end_date, end_time } = req.query;
+      if (!start_date || !start_time || !end_date || !end_time) {
+        return res.status(400).json({ error: 'تمام فیلدهای تاریخ و ساعت شروع و پایان الزامی هستند' });
+      }
+      const totalHours = calculateLeaveHours(start_date, start_time, end_date, end_time);
+      const days = Math.floor(totalHours / 8);
+      const remainingHours = totalHours % 8;
+      res.json({ total_hours: totalHours, days, remaining_hours: remainingHours });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.get('/balance', (req, res) => {
     try {
-      const balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(req.user.id);
+      let balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(req.user.id);
       if (!balance) {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_days) VALUES (?, 26, 0)').run(req.user.id);
-        return res.json({ total_days: 26, used_days: 0, remaining_days: 26 });
+        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)').run(req.user.id);
+        balance = { total_days: 26, used_hours: 0 };
       }
-      res.json({ ...balance, remaining_days: balance.total_days - balance.used_days });
+      
+      const totalHours = balance.total_days * 8;
+      const remainingHours = totalHours - balance.used_hours;
+      
+      res.json({
+        total_days: balance.total_days,
+        used_hours: balance.used_hours,
+        remaining_days: Math.floor(remainingHours / 8),
+        remaining_hours_only: remainingHours % 8,
+        used_days_display: Math.floor(balance.used_hours / 8),
+        used_hours_display: balance.used_hours % 8
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -493,7 +603,18 @@ module.exports = function(db) {
         WHERE u.is_active = 1
         ORDER BY d.name, u.full_name
       `).all();
-      res.json(balances.map(b => ({ ...b, remaining_days: b.total_days - b.used_days })));
+      
+      res.json(balances.map(b => {
+        const totalHours = b.total_days * 8;
+        const remainingHours = totalHours - b.used_hours;
+        return {
+          ...b,
+          remaining_days: Math.floor(remainingHours / 8),
+          remaining_hours_only: remainingHours % 8,
+          used_days_display: Math.floor(b.used_hours / 8),
+          used_hours_display: b.used_hours % 8
+        };
+      }));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -501,14 +622,14 @@ module.exports = function(db) {
 
   router.put('/balance/:userId', (req, res) => {
     try {
-      const { total_days, used_days } = req.body;
+      const { total_days, used_hours } = req.body;
       const existing = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(req.params.userId);
       if (existing) {
-        db.prepare('UPDATE leave_balance SET total_days = ?, used_days = ? WHERE user_id = ?')
-          .run(total_days, used_days, req.params.userId);
+        db.prepare('UPDATE leave_balance SET total_days = ?, used_hours = ? WHERE user_id = ?')
+          .run(total_days, used_hours, req.params.userId);
       } else {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_days) VALUES (?, ?, ?)')
-          .run(req.params.userId, total_days, used_days);
+        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, ?, ?)')
+          .run(req.params.userId, total_days, used_hours);
       }
       res.json({ message: 'مانده مرخصی بروزرسانی شد' });
     } catch (err) {

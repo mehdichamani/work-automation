@@ -297,7 +297,7 @@ async function initDatabase() {
       leave_type TEXT NOT NULL,
       start_date TEXT NOT NULL,
       end_date TEXT NOT NULL,
-      days_count INTEGER NOT NULL,
+      hours_count REAL NOT NULL,
       reason TEXT,
       status TEXT DEFAULT 'pending_supervisor',
       supervisor_id INTEGER,
@@ -319,8 +319,15 @@ async function initDatabase() {
       id SERIAL PRIMARY KEY,
       user_id INTEGER UNIQUE NOT NULL,
       total_days INTEGER DEFAULT 26,
-      used_days INTEGER DEFAULT 0,
+      used_hours REAL DEFAULT 0,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS official_holidays (
+      id SERIAL PRIMARY KEY,
+      holiday_date TEXT UNIQUE NOT NULL,
+      title TEXT,
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
     );
 
     CREATE TABLE IF NOT EXISTS letters (
@@ -579,7 +586,7 @@ async function initDatabase() {
   const existingBalance = db.prepare('SELECT id FROM leave_balance LIMIT 1').get();
   if (!existingBalance) {
     const allUsers = db.prepare("SELECT id FROM users WHERE role != 'admin'").all();
-    const insertBal = db.prepare('INSERT INTO leave_balance (user_id, total_days, used_days) VALUES (?, 26, 0)');
+    const insertBal = db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)');
     for (const u of allUsers) {
       insertBal.run(u.id);
     }
