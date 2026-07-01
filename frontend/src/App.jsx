@@ -12,6 +12,7 @@ const Inventory = lazy(() => import('./pages/Inventory'));
 const Restaurant = lazy(() => import('./pages/Restaurant'));
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 const JobApplication = lazy(() => import('./pages/JobApplication'));
+const Shifts = lazy(() => import('./pages/Shifts'));
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -35,6 +36,7 @@ function App() {
           <Route path="/restaurant" element={<PrivateRoute><Restaurant /></PrivateRoute>} />
           <Route path="/admin" element={<PrivateRoute><AdminPanel /></PrivateRoute>} />
           <Route path="/job-application" element={<PrivateRoute><JobApplication /></PrivateRoute>} />
+          <Route path="/shifts" element={<PrivateRoute><Shifts /></PrivateRoute>} />
         </Routes>
         </Suspense>
       </BrowserRouter>

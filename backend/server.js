@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -31,6 +33,7 @@ async function startServer() {
   app.use('/api/announcements', require('./routes/announcements')(db));
   app.use('/api/job-applications', require('./routes/jobApplications')(db));
   app.use('/api/camera', require('./routes/camera')(db));
+  app.use('/api/shifts', require('./routes/shifts')(db));
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', company: 'اروم شیشه ساچی', timestamp: new Date().toISOString() });
