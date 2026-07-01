@@ -17,20 +17,21 @@ function Menu {
     Write-Host "1. Initialize/Create Local Database (If not exists)"
     Write-Host "2. Check Local PostgreSQL Service Status"
     Write-Host "3. Start Local PostgreSQL Service (Needs Admin)"
+    Write-Host "4. Reset/Wipe Local Database (Fresh Start)"
     Write-Host ""
     Write-Host "--- Application Actions (Backend + Frontend) ---" -ForegroundColor Gray
-    Write-Host "4. Install Application (Npm Install & Build)"
-    Write-Host "5. Start Application (PM2 Cluster Start)"
-    Write-Host "6. Stop Application (PM2 Cluster Stop)"
+    Write-Host "5. Install Application (Npm Install & Build)"
+    Write-Host "6. Start Application (PM2 Cluster Start)"
+    Write-Host "7. Stop Application (PM2 Cluster Stop)"
     Write-Host ""
     Write-Host "--- Autostart Actions ---" -ForegroundColor Gray
-    Write-Host "7. Enable Autostart on user login"
-    Write-Host "8. Disable Autostart on user login"
+    Write-Host "8. Enable Autostart on user login"
+    Write-Host "9. Disable Autostart on user login"
     Write-Host ""
     Write-Host "--- System ---" -ForegroundColor Gray
-    Write-Host "9. Exit"
+    Write-Host "10. Exit"
     Write-Host ""
-    $choice = Read-Host "Enter option (1-9)"
+    $choice = Read-Host "Enter option (1-10)"
     return $choice
 }
 
@@ -85,6 +86,13 @@ do {
         }
         "4" {
             Show-Header
+            Write-Host "Resetting Local Database (Fresh Start)..." -ForegroundColor Green
+            Set-Location "$scriptDir\backend"
+            node database/reset_local_db.js
+            Read-Host "`nPress Enter to return to the menu..."
+        }
+        "5" {
+            Show-Header
             Write-Host "[1/3] Installing backend dependencies..." -ForegroundColor Green
             Set-Location "$scriptDir\backend"
             npm install
@@ -99,7 +107,7 @@ do {
             Write-Host "`nApplication install and build completed successfully!" -ForegroundColor Green
             Read-Host "Press Enter to return to the menu..."
         }
-        "5" {
+        "6" {
             Show-Header
             Write-Host "Starting server cluster with PM2..." -ForegroundColor Green
             Set-Location $scriptDir
@@ -111,7 +119,7 @@ do {
             Start-Process "http://localhost:3001"
             Read-Host "Press Enter to return to the menu..."
         }
-        "6" {
+        "7" {
             Show-Header
             Write-Host "Stopping server cluster in PM2..." -ForegroundColor Green
             Set-Location $scriptDir
@@ -119,7 +127,7 @@ do {
             Write-Host "`nApplication has stopped." -ForegroundColor Green
             Read-Host "Press Enter to return to the menu..."
         }
-        "7" {
+        "8" {
             Show-Header
             Write-Host "Setting up autostart..." -ForegroundColor Green
             $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
@@ -135,7 +143,7 @@ do {
             }
             Read-Host "Press Enter to return to the menu..."
         }
-        "8" {
+        "9" {
             Show-Header
             Write-Host "Removing autostart..." -ForegroundColor Green
             $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
@@ -149,11 +157,11 @@ do {
             }
             Read-Host "Press Enter to return to the menu..."
         }
-        "9" {
+        "10" {
             break
         }
         default {
-            Write-Host "Invalid option. Please enter a number between 1 and 9." -ForegroundColor Red
+            Write-Host "Invalid option. Please enter a number between 1 and 10." -ForegroundColor Red
             Start-Sleep -Seconds 2
         }
     }
