@@ -309,10 +309,10 @@ async function initDatabase() {
       security_id INTEGER,
       security_date TEXT,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (supervisor_id) REFERENCES users(id),
-      FOREIGN KEY (manager_id) REFERENCES users(id),
-      FOREIGN KEY (security_id) REFERENCES users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (supervisor_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (security_id) REFERENCES users(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS leave_balance (
@@ -320,7 +320,7 @@ async function initDatabase() {
       user_id INTEGER UNIQUE NOT NULL,
       total_days INTEGER DEFAULT 26,
       used_days INTEGER DEFAULT 0,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS letters (
@@ -339,9 +339,9 @@ async function initDatabase() {
       attachment_name TEXT,
       attachment_path TEXT,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-      FOREIGN KEY (sender_id) REFERENCES users(id),
-      FOREIGN KEY (sender_unit_id) REFERENCES departments(id),
-      FOREIGN KEY (manager_id) REFERENCES users(id)
+      FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (sender_unit_id) REFERENCES departments(id) ON DELETE CASCADE,
+      FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS letter_units (
@@ -350,8 +350,8 @@ async function initDatabase() {
       unit_id INTEGER NOT NULL,
       status TEXT DEFAULT 'pending',
       seen_date TEXT,
-      FOREIGN KEY (letter_id) REFERENCES letters(id),
-      FOREIGN KEY (unit_id) REFERENCES departments(id)
+      FOREIGN KEY (letter_id) REFERENCES letters(id) ON DELETE CASCADE,
+      FOREIGN KEY (unit_id) REFERENCES departments(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS inventory_items (
@@ -374,9 +374,9 @@ async function initDatabase() {
       notes TEXT,
       user_confirm_date TEXT,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (item_id) REFERENCES inventory_items(id),
-      FOREIGN KEY (warehouse_user_id) REFERENCES users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (item_id) REFERENCES inventory_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (warehouse_user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS restaurant_menu (
@@ -400,8 +400,8 @@ async function initDatabase() {
       status TEXT DEFAULT 'active',
       notes TEXT,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (food_id) REFERENCES restaurant_menu(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (food_id) REFERENCES restaurant_menu(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS notifications (
@@ -412,7 +412,7 @@ async function initDatabase() {
       link TEXT,
       is_read INTEGER DEFAULT 0,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS signatures (
@@ -420,7 +420,7 @@ async function initDatabase() {
       user_id INTEGER NOT NULL UNIQUE,
       image_data TEXT NOT NULL,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS activity_log (
@@ -430,7 +430,7 @@ async function initDatabase() {
       details TEXT,
       ip_address TEXT,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS work_shifts (
@@ -450,8 +450,8 @@ async function initDatabase() {
       shift_id INTEGER NOT NULL,
       is_active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (shift_id) REFERENCES work_shifts(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (shift_id) REFERENCES work_shifts(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS shift_change_requests (
@@ -466,10 +466,10 @@ async function initDatabase() {
       reviewed_at TEXT,
       review_comment TEXT,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (current_shift_id) REFERENCES work_shifts(id),
-      FOREIGN KEY (requested_shift_id) REFERENCES work_shifts(id),
-      FOREIGN KEY (reviewed_by) REFERENCES users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (current_shift_id) REFERENCES work_shifts(id) ON DELETE SET NULL,
+      FOREIGN KEY (requested_shift_id) REFERENCES work_shifts(id) ON DELETE CASCADE,
+      FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
     );
   `);
 
@@ -496,7 +496,7 @@ async function initDatabase() {
         is_active INTEGER DEFAULT 1,
         created_by INTEGER,
         created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-        FOREIGN KEY (created_by) REFERENCES users(id)
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
       );
     `);
   } catch (e) {}
@@ -525,8 +525,8 @@ async function initDatabase() {
         action TEXT NOT NULL,
         comment TEXT,
         created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-        FOREIGN KEY (letter_id) REFERENCES letters(id),
-        FOREIGN KEY (user_id) REFERENCES users(id)
+        FOREIGN KEY (letter_id) REFERENCES letters(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
     `);
   } catch (e) {}
@@ -708,8 +708,8 @@ async function initDatabase() {
         review_comment TEXT,
         is_active INTEGER DEFAULT 1,
         created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
-        FOREIGN KEY (user_id) REFERENCES users(id),
-        FOREIGN KEY (reviewed_by) REFERENCES users(id)
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
       );
     `);
   } catch (e) {}

@@ -79,6 +79,9 @@ module.exports = function(db) {
       }
       db.prepare('DELETE FROM cardex WHERE user_id = ?').run(userId);
       db.prepare('DELETE FROM cardex WHERE warehouse_user_id = ?').run(userId);
+      db.prepare('DELETE FROM user_shift_assignments WHERE user_id = ?').run(userId);
+      db.prepare('DELETE FROM shift_change_requests WHERE user_id = ?').run(userId);
+      db.prepare('DELETE FROM leave_requests WHERE user_id = ?').run(userId);
       db.prepare('UPDATE leave_requests SET supervisor_id = NULL WHERE supervisor_id = ?').run(userId);
       db.prepare('UPDATE leave_requests SET manager_id = NULL WHERE manager_id = ?').run(userId);
       db.prepare('UPDATE leave_requests SET security_id = NULL WHERE security_id = ?').run(userId);
