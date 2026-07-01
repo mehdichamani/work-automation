@@ -16,6 +16,34 @@ module.exports = function(db) {
     return e.diff(s, 'days') + 1;
   }
 
+  router.get('/subordinates', (req, res) => {
+    try {
+      if (!['admin', 'manager', 'supervisor'].includes(req.user.role)) {
+        return res.json([]);
+      }
+      let users;
+      if (req.user.role === 'supervisor') {
+        users = db.prepare(`
+          SELECT id, full_name, username, role 
+          FROM users 
+          WHERE department_id = ? AND id != ? AND is_active = 1
+          ORDER BY full_name
+        `).all(req.user.department_id, req.user.id);
+      } else {
+        // admin or manager
+        users = db.prepare(`
+          SELECT id, full_name, username, role 
+          FROM users 
+          WHERE id != ? AND is_active = 1
+          ORDER BY full_name
+        `).all(req.user.id);
+      }
+      res.json(users);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.get('/my-requests', (req, res) => {
     try {
       const leaves = db.prepare(`
@@ -118,9 +146,52 @@ module.exports = function(db) {
 
   router.post('/', (req, res) => {
     try {
-      const { leave_type, start_date, end_date, reason, start_hour, end_hour } = req.body;
+      const { user_id, leave_type, start_date, end_date, reason, start_hour, end_hour } = req.body;
       if (!leave_type || !start_date || !end_date) {
         return res.status(400).json({ error: 'فیلدهای مرخصی الزامی است' });
+      }
+
+      let targetUserId = req.user.id;
+      let targetUser = req.user;
+      let initialStatus = 'pending_supervisor';
+      let supervisorId = null;
+      let supervisorDate = null;
+      let managerId = null;
+      let managerDate = null;
+
+      const pad = (n) => String(n).padStart(2, '0');
+      const getNowString = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      };
+
+      if (user_id && parseInt(user_id) !== req.user.id) {
+        if (!['admin', 'manager', 'supervisor'].includes(req.user.role)) {
+          return res.status(403).json({ error: 'شما مجاز به ثبت مرخصی برای دیگران نیستید' });
+        }
+        
+        const u = db.prepare('SELECT id, full_name, department_id, is_active, role FROM users WHERE id = ?').get(user_id);
+        if (!u || !u.is_active) {
+          return res.status(404).json({ error: 'کاربر مورد نظر یافت نشد یا غیرفعال است' });
+        }
+        
+        if (req.user.role === 'supervisor') {
+          if (u.department_id !== req.user.department_id) {
+            return res.status(403).json({ error: 'شما فقط می‌توانید برای پرسنل واحد خودتان مرخصی ثبت کنید' });
+          }
+          targetUserId = u.id;
+          targetUser = u;
+          initialStatus = 'pending_manager';
+          supervisorId = req.user.id;
+          supervisorDate = getNowString();
+        } else {
+          // admin or manager
+          targetUserId = u.id;
+          targetUser = u;
+          initialStatus = 'approved';
+          managerId = req.user.id;
+          managerDate = getNowString();
+        }
       }
 
       if (leave_type === 'ساعتی') {
@@ -150,19 +221,54 @@ module.exports = function(db) {
         return res.status(400).json({ error: 'امکان ثبت مرخصی برای تاریخ گذشته وجود ندارد' });
       }
 
-      const balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(req.user.id);
+      const balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(targetUserId);
       if (balance && (balance.used_days + days) > balance.total_days) {
         return res.status(400).json({ error: `مانده مرخصی کافی نیست. مانده: ${balance.total_days - balance.used_days} روز` });
       }
 
       const result = db.prepare(`
-        INSERT INTO leave_requests (user_id, leave_type, start_date, end_date, days_count, reason, status, start_hour, end_hour)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending_supervisor', ?, ?)
-      `).run(req.user.id, leave_type, start_date, end_date, days, reason || '', start_hour || null, end_hour || null);
+        INSERT INTO leave_requests (
+          user_id, leave_type, start_date, end_date, days_count, reason, status, start_hour, end_hour,
+          supervisor_id, supervisor_date, manager_id, manager_date
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        targetUserId,
+        leave_type,
+        start_date,
+        end_date,
+        days,
+        reason || '',
+        initialStatus,
+        start_hour || null,
+        end_hour || null,
+        supervisorId,
+        supervisorDate,
+        managerId,
+        managerDate
+      );
 
-      const supervisor = db.prepare("SELECT id FROM users WHERE role = 'supervisor' AND department_id = ? AND is_active = 1").get(req.user.department_id);
-      if (supervisor) {
-        notify(supervisor.id, 'درخواست مرخصی جدید', `${req.user.full_name} درخواست مرخصی ثبت کرده است`, '/leave');
+      // Notifications
+      if (targetUserId !== req.user.id) {
+        // Registered by supervisor/manager/admin on behalf of user
+        if (req.user.role === 'supervisor') {
+          notify(targetUserId, 'ثبت مرخصی توسط سرپرست', `مرخصی برای شما توسط سرپرست (${req.user.full_name}) ثبت گردید و برای تایید مدیر ارسال شد`, '/leave');
+          
+          // Notify managers
+          const managers = db.prepare("SELECT id FROM users WHERE role = 'manager' AND is_active = 1").all();
+          managers.forEach(m => {
+            notify(m.id, 'درخواست مرخصی جدید', `درخواست مرخصی ثبت شده توسط سرپرست برای ${targetUser.full_name} نیاز به تایید مدیر دارد`, '/leave');
+          });
+        } else {
+          // Registered by manager/admin
+          notify(targetUserId, 'ثبت مرخصی توسط مدیریت', `مرخصی برای شما توسط مدیریت (${req.user.full_name}) ثبت و تایید گردید`, '/leave');
+        }
+      } else {
+        // Normal flow (self submission)
+        const supervisor = db.prepare("SELECT id FROM users WHERE role = 'supervisor' AND department_id = ? AND is_active = 1").get(req.user.department_id);
+        if (supervisor) {
+          notify(supervisor.id, 'درخواست مرخصی جدید', `${req.user.full_name} درخواست مرخصی ثبت کرده است`, '/leave');
+        }
       }
 
       res.json({ id: result.lastInsertRowid, message: 'درخواست مرخصی ثبت شد' });

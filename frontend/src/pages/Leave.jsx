@@ -24,15 +24,24 @@ export default function Leave() {
   const [allLeaves, setAllLeaves] = useState([]);
   const [balance, setBalance] = useState(null);
   const [balanceAll, setBalanceAll] = useState([]);
+  const [subordinates, setSubordinates] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [comment, setComment] = useState('');
-  const [form, setForm] = useState({ leave_type: '', start_date: '', end_date: '', reason: '', start_hour: '', end_hour: '' });
+  const [form, setForm] = useState({ user_id: '', leave_type: '', start_date: '', end_date: '', reason: '', start_hour: '', end_hour: '' });
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({ leave_type: '', start_date: '', end_date: '', reason: '', start_hour: '', end_hour: '' });
   const [showStartCal, setShowStartCal] = useState(false);
   const [showEndCal, setShowEndCal] = useState(false);
   const [editShowStartCal, setEditShowStartCal] = useState(false);
   const [editShowEndCal, setEditShowEndCal] = useState(false);
+
+  useEffect(() => {
+    if (user && ['admin', 'manager', 'supervisor'].includes(user.role)) {
+      api.get('/leave/subordinates')
+        .then(res => setSubordinates(res.data))
+        .catch(err => console.error('Error fetching subordinates', err));
+    }
+  }, [user]);
 
   useEffect(() => { loadData(); }, [tab]);
 
@@ -81,7 +90,7 @@ export default function Leave() {
       await api.post('/leave', form);
       toast.success('درخواست مرخصی ثبت شد');
       setShowForm(false);
-      setForm({ leave_type: '', start_date: '', end_date: '', reason: '', start_hour: '', end_hour: '' });
+      setForm({ user_id: '', leave_type: '', start_date: '', end_date: '', reason: '', start_hour: '', end_hour: '' });
       loadData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا در ثبت درخواست');
@@ -227,6 +236,23 @@ export default function Leave() {
           <div className="bg-white rounded-2xl p-8 w-full max-w-lg animate-fade-in relative">
             <h3 className="text-lg font-bold mb-6">درخواست مرخصی جدید</h3>
             <form onSubmit={submitRequest} className="space-y-4">
+              {subordinates.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">پرسنل مورد نظر</label>
+                  <select
+                    value={form.user_id}
+                    onChange={(e) => setForm({...form, user_id: e.target.value})}
+                    className="w-full px-4 py-3 border rounded-xl"
+                  >
+                    <option value="">ثبت برای خود ({user.full_name})</option>
+                    {subordinates.map(sub => (
+                      <option key={sub.id} value={sub.id}>
+                        {sub.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium mb-1">نوع مرخصی</label>
                 <select
