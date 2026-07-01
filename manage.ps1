@@ -14,9 +14,9 @@ function Menu {
     Write-Host "Please select an option:" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "--- Database Actions ---" -ForegroundColor Gray
-    Write-Host "1. Install Database (Pull Docker Image)"
-    Write-Host "2. Start Database (Docker Compose Up)"
-    Write-Host "3. Stop Database (Docker Compose Down)"
+    Write-Host "1. Initialize/Create Local Database (If not exists)"
+    Write-Host "2. Check Local PostgreSQL Service Status"
+    Write-Host "3. Start Local PostgreSQL Service (Needs Admin)"
     Write-Host ""
     Write-Host "--- Application Actions (Backend + Frontend) ---" -ForegroundColor Gray
     Write-Host "4. Install Application (Npm Install & Build)"
@@ -39,27 +39,49 @@ do {
     switch ($c) {
         "1" {
             Show-Header
-            Write-Host "Pulling PostgreSQL Docker image..." -ForegroundColor Green
-            Set-Location "$scriptDir\docker"
-            docker compose pull
-            Write-Host "`nDocker pull completed." -ForegroundColor Green
-            Read-Host "Press Enter to return to the menu..."
+            Write-Host "Initializing Local PostgreSQL Database..." -ForegroundColor Green
+            Set-Location "$scriptDir\backend"
+            node database/init_local_db.js
+            Read-Host "`nPress Enter to return to the menu..."
         }
         "2" {
             Show-Header
-            Write-Host "Starting database in Docker..." -ForegroundColor Green
-            Set-Location "$scriptDir\docker"
-            docker compose up -d
-            Write-Host "`nDatabase is running." -ForegroundColor Green
-            Read-Host "Press Enter to return to the menu..."
+            Write-Host "Checking local PostgreSQL service status..." -ForegroundColor Green
+            $services = Get-Service -Name *postgres* -ErrorAction SilentlyContinue
+            if ($services) {
+                foreach ($s in $services) {
+                    $color = if ($s.Status -eq 'Running') { 'Green' } else { 'Yellow' }
+                    Write-Host "Service: $($s.Name) ($($s.DisplayName)) - " -NoNewline -ForegroundColor Gray
+                    Write-Host "$($s.Status)" -ForegroundColor $color
+                }
+            } else {
+                Write-Host "No PostgreSQL service found on this system. Please verify installation." -ForegroundColor Red
+            }
+            Read-Host "`nPress Enter to return to the menu..."
         }
         "3" {
             Show-Header
-            Write-Host "Stopping database in Docker..." -ForegroundColor Green
-            Set-Location "$scriptDir\docker"
-            docker compose down
-            Write-Host "`nDatabase has stopped." -ForegroundColor Green
-            Read-Host "Press Enter to return to the menu..."
+            Write-Host "Attempting to start PostgreSQL service..." -ForegroundColor Green
+            $services = Get-Service -Name *postgres* -ErrorAction SilentlyContinue
+            if ($services) {
+                foreach ($s in $services) {
+                    if ($s.Status -eq 'Running') {
+                        Write-Host "Service '$($s.Name)' is already running." -ForegroundColor Green
+                    } else {
+                        Write-Host "Starting service '$($s.Name)'..." -ForegroundColor Yellow
+                        try {
+                            Start-Service -Name $s.Name -ErrorAction Stop
+                            Write-Host "Service started successfully!" -ForegroundColor Green
+                        } catch {
+                            Write-Host "Failed to start service: $_" -ForegroundColor Red
+                            Write-Host "Note: Starting services may require Administrator privileges. Try running this prompt/PowerShell as Administrator." -ForegroundColor Yellow
+                        }
+                    }
+                }
+            } else {
+                Write-Host "No PostgreSQL service found." -ForegroundColor Red
+            }
+            Read-Host "`nPress Enter to return to the menu..."
         }
         "4" {
             Show-Header
@@ -80,11 +102,6 @@ do {
         "5" {
             Show-Header
             Write-Host "Starting server cluster with PM2..." -ForegroundColor Green
-            Set-Location $scriptDir
-            
-            # Ensure PostgreSQL is running
-            Set-Location "$scriptDir\docker"
-            docker compose up -d
             Set-Location $scriptDir
             
             # Start via PM2

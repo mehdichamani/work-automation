@@ -9,8 +9,24 @@ if (!isMainThread) {
   // =========================================================================
   const { Pool } = require('pg');
   
+  let databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    try {
+      const envPath = path.join(__dirname, '..', '..', '.env');
+      if (fs.existsSync(envPath)) {
+        const envContent = fs.readFileSync(envPath, 'utf8');
+        const match = envContent.match(/DATABASE_URL=(.+)/);
+        if (match) {
+          databaseUrl = match[1].trim();
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+  
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgrespassword@localhost:5432/edari',
+    connectionString: databaseUrl || 'postgresql://postgres:postgrespassword@localhost:5432/edari',
     max: 2, // Optimize connection count since each worker thread executes queries strictly sequentially
     idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
     connectionTimeoutMillis: 5000 // Fast failure on connection timeout

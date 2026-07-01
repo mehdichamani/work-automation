@@ -1,3 +1,5 @@
+const path = require('path');
+
 module.exports = {
   apps: [
     {
@@ -5,7 +7,7 @@ module.exports = {
       script: './backend/server.js',
       instances: 'max',
       exec_mode: 'cluster',
-      env_file: '.env'
+      env_file: path.join(__dirname, '.env')
     }
   ]
 };
