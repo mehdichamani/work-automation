@@ -84,11 +84,11 @@ export default function JalaliCalendar({ onSelect, selectedDate, showPast = fals
   return (
     <div className="bg-white border rounded-xl p-4">
       <div className="flex items-center justify-between mb-4">
-        <button onClick={prevMonth} className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-bold">&lt;</button>
+        <button type="button" onClick={prevMonth} className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-bold">&lt;</button>
         <div className="text-center">
           <span className="font-bold text-sm">{MONTH_NAMES[viewMonth - 1]} {viewYear}</span>
         </div>
-        <button onClick={nextMonth} className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-bold">&gt;</button>
+        <button type="button" onClick={nextMonth} className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-bold">&gt;</button>
       </div>
 
       <table className="w-full text-center text-xs border-collapse">
