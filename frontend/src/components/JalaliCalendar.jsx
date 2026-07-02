@@ -1,26 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import moment from 'moment-jalaali';
-
-const HOLIDAYS_1405 = {
-  '1405/01/01': 'جشن نوروز',
-  '1405/01/02': 'جشن نوروز',
-  '1405/01/03': 'جشن نوروز',
-  '1405/01/04': 'جشن نوروز',
-  '1405/01/12': 'روز جمهوری اسلامی',
-  '1405/01/13': 'سیزده به در',
-  '1405/01/25': 'شهادت امام جعفر صادق (ع)',
-  '1405/03/06': 'عید سعید قربان',
-  '1405/03/14': 'رحلت امام خمینی - عید سعید غدیر خم',
-  '1405/03/15': 'قیام ۱۵ خرداد',
-  '1405/04/03': 'تاسوعای حسینی',
-  '1405/04/04': 'عاشورای حسینی',
-  '1405/05/13': 'اربعین حسینی',
-  '1405/05/21': 'رحلت رسول اکرم - شهادت امام حسن مجتبی (ع)',
-  '1405/05/22': 'شهادت امام رضا (ع)',
-  '1405/08/22': 'شهادت حضرت فاطمه زهرا (س)',
-  '1405/11/22': 'پیروزی انقلاب اسلامی',
-  '1405/12/19': 'عید سعید فطر',
-};
+import api from '../api/axios';
 
 function getJalaliDayOfWeek(jYear, jMonth, jDay) {
   const anchor = moment('1405/01/01', 'jYYYY/jMM/jDD');
@@ -48,6 +28,19 @@ export default function JalaliCalendar({ onSelect, selectedDate, showPast = fals
 
   const [viewYear, setViewYear] = useState(today.jYear());
   const [viewMonth, setViewMonth] = useState(today.jMonth() + 1);
+  const [holidays, setHolidays] = useState({});
+
+  useEffect(() => {
+    api.get('/leave/holidays')
+      .then(res => {
+        const holMap = {};
+        res.data.forEach(h => {
+          holMap[h.holiday_date] = h.title || 'تعطیل رسمی';
+        });
+        setHolidays(holMap);
+      })
+      .catch(err => console.error('Error fetching holidays in calendar:', err));
+  }, []);
 
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
   const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
@@ -61,10 +54,11 @@ export default function JalaliCalendar({ onSelect, selectedDate, showPast = fals
     const isPast = dateStr < todayStr;
     const isToday = dateStr === todayStr;
     const isSelected = dateStr === selectedDate;
-    const holiday = HOLIDAYS_1405[dateStr];
+    const holiday = holidays[dateStr];
+    const isThursday = getJalaliDayOfWeek(viewYear, viewMonth, d) === 5;
     const isFriday = getJalaliDayOfWeek(viewYear, viewMonth, d) === 6;
 
-    cells.push({ day: d, dateStr, isPast, isToday, isSelected, holiday, isFriday });
+    cells.push({ day: d, dateStr, isPast, isToday, isSelected, holiday, isThursday, isFriday });
   }
 
   const prevMonth = () => {
@@ -112,9 +106,17 @@ export default function JalaliCalendar({ onSelect, selectedDate, showPast = fals
                 if (!cell) return <td key={colIdx} className="py-1"></td>;
 
                 const disabled = cell.isPast && !showPast;
-                const baseClass = cell.isFriday && !cell.holiday
-                  ? 'text-red-400'
-                  : '';
+                
+                let dayClass = 'text-gray-700';
+                if (!disabled && !cell.isSelected) {
+                  if (cell.holiday) {
+                    dayClass = 'bg-purple-100 text-purple-700 hover:bg-purple-200 font-bold';
+                  } else if (cell.isFriday) {
+                    dayClass = 'bg-red-50 text-red-600 hover:bg-red-100';
+                  } else if (cell.isThursday) {
+                    dayClass = 'bg-amber-50 text-amber-700 hover:bg-amber-100';
+                  }
+                }
 
                 return (
                   <td key={colIdx} className="py-1">
@@ -126,8 +128,7 @@ export default function JalaliCalendar({ onSelect, selectedDate, showPast = fals
                         ${disabled ? 'text-gray-300 cursor-not-allowed' : 'cursor-pointer hover:bg-primary-100'}
                         ${cell.isSelected ? 'bg-primary-500 text-white hover:bg-primary-600 shadow' : ''}
                         ${cell.isToday && !cell.isSelected ? 'ring-2 ring-primary-300 font-bold' : ''}
-                        ${cell.holiday && !cell.isSelected ? 'bg-red-100 text-red-700 hover:bg-red-200' : ''}
-                        ${baseClass}
+                        ${dayClass}
                       `}
                       title={cell.holiday || ''}
                     >
@@ -145,8 +146,8 @@ export default function JalaliCalendar({ onSelect, selectedDate, showPast = fals
         <div className="mt-3 pt-3 border-t space-y-1">
           {cells.filter(c => c?.holiday).map(c => (
             <div key={c.dateStr} className="flex items-center gap-2 text-[11px]">
-              <span className="text-red-500 font-bold">{c.day} {MONTH_NAMES[viewMonth - 1]}</span>
-              <span className="text-red-600">🔴</span>
+              <span className="text-purple-500 font-bold">{c.day} {MONTH_NAMES[viewMonth - 1]}</span>
+              <span className="text-purple-600">🟣</span>
               <span className="text-gray-600">{c.holiday}</span>
             </div>
           ))}
