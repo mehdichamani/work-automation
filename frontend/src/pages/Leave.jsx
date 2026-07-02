@@ -335,8 +335,10 @@ export default function Leave() {
     ...((user.role === 'manager' || user.role === 'admin') ? [
       { id: 'manager', label: `تایید مدیر (${pendingManager.length})` },
       { id: 'security', label: `رویت حراست (${securityList.length})` },
-      { id: 'all', label: 'همه درخواست‌ها' },
-      { id: 'balance', label: 'مانده مرخصی کارکنان' },
+    ] : []),
+    ...((user.role === 'supervisor' || user.role === 'manager' || user.role === 'admin') ? [
+      { id: 'all', label: user.role === 'supervisor' ? 'وضعیت مرخصی پرسنل واحد' : 'همه درخواست‌ها' },
+      { id: 'balance', label: user.role === 'supervisor' ? 'مانده مرخصی پرسنل واحد' : 'مانده مرخصی کارکنان' },
     ] : []),
     ...((user.role === 'admin') ? [{ id: 'holidays', label: 'مدیریت تعطیلات رسمی' }] : []),
   ];

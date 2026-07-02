@@ -35,7 +35,7 @@ module.exports = function(db) {
       let users;
       if (req.user.role === 'supervisor') {
         users = db.prepare(`
-          SELECT id, full_name, username, role 
+          SELECT id, full_name, role 
           FROM users 
           WHERE department_id = ? AND id != ? AND is_active = 1
           ORDER BY full_name
@@ -43,7 +43,7 @@ module.exports = function(db) {
       } else {
         // admin or manager
         users = db.prepare(`
-          SELECT id, full_name, username, role 
+          SELECT id, full_name, role 
           FROM users 
           WHERE id != ? AND is_active = 1
           ORDER BY full_name
@@ -142,13 +142,27 @@ module.exports = function(db) {
 
   router.get('/all', (req, res) => {
     try {
-      const leaves = db.prepare(`
-        SELECT l.*, u.full_name as user_name, d.name as user_dept
-        FROM leave_requests l
-        JOIN users u ON l.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        ORDER BY l.created_at DESC
-      `).all();
+      let leaves;
+      if (req.user.role === 'admin' || req.user.role === 'manager') {
+        leaves = db.prepare(`
+          SELECT l.*, u.full_name as user_name, d.name as user_dept
+          FROM leave_requests l
+          JOIN users u ON l.user_id = u.id
+          LEFT JOIN departments d ON u.department_id = d.id
+          ORDER BY l.created_at DESC
+        `).all();
+      } else if (req.user.role === 'supervisor') {
+        leaves = db.prepare(`
+          SELECT l.*, u.full_name as user_name, d.name as user_dept
+          FROM leave_requests l
+          JOIN users u ON l.user_id = u.id
+          LEFT JOIN departments d ON u.department_id = d.id
+          WHERE u.department_id = ? AND u.role != 'admin'
+          ORDER BY l.created_at DESC
+        `).all(req.user.department_id);
+      } else {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      }
       res.json(leaves.map(mapLeave));
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -631,14 +645,28 @@ module.exports = function(db) {
 
   router.get('/balance-all', (req, res) => {
     try {
-      const balances = db.prepare(`
-        SELECT lb.*, u.full_name, u.department_id, d.name as department_name
-        FROM leave_balance lb
-        JOIN users u ON lb.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        WHERE u.is_active = 1
-        ORDER BY d.name, u.full_name
-      `).all();
+      let balances;
+      if (req.user.role === 'admin' || req.user.role === 'manager') {
+        balances = db.prepare(`
+          SELECT lb.*, u.full_name, u.department_id, d.name as department_name
+          FROM leave_balance lb
+          JOIN users u ON lb.user_id = u.id
+          LEFT JOIN departments d ON u.department_id = d.id
+          WHERE u.is_active = 1
+          ORDER BY d.name, u.full_name
+        `).all();
+      } else if (req.user.role === 'supervisor') {
+        balances = db.prepare(`
+          SELECT lb.*, u.full_name, u.department_id, d.name as department_name
+          FROM leave_balance lb
+          JOIN users u ON lb.user_id = u.id
+          LEFT JOIN departments d ON u.department_id = d.id
+          WHERE u.is_active = 1 AND u.department_id = ? AND u.role != 'admin'
+          ORDER BY u.full_name
+        `).all(req.user.department_id);
+      } else {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      }
       
       res.json(balances.map(b => {
         const totalHours = b.total_days * 8;
