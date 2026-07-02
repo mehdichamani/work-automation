@@ -600,33 +600,7 @@ async function initDatabase() {
     insertShift.run('شیفت شب', '22:00', '06:00', 'شیفت شب', '#111827');
   }
 
-  const existingHolidays = db.prepare('SELECT id FROM official_holidays LIMIT 1').get();
-  if (!existingHolidays) {
-    const holidays1405 = {
-      '1405/01/01': 'جشن نوروز',
-      '1405/01/02': 'جشن نوروز',
-      '1405/01/03': 'جشن نوروز',
-      '1405/01/04': 'جشن نوروز',
-      '1405/01/12': 'روز جمهوری اسلامی',
-      '1405/01/13': 'سیزده به در',
-      '1405/01/25': 'شهادت امام جعفر صادق (ع)',
-      '1405/03/06': 'عید سعید قربان',
-      '1405/03/14': 'رحلت امام خمینی - عید سعید غدیر خم',
-      '1405/03/15': 'قیام ۱۵ خرداد',
-      '1405/04/03': 'تاسوعای حسینی',
-      '1405/04/04': 'عاشورای حسینی',
-      '1405/05/13': 'اربعین حسینی',
-      '1405/05/21': 'رحلت رسول اکرم - شهادت امام حسن مجتبی (ع)',
-      '1405/05/22': 'شهادت امام رضا (ع)',
-      '1405/08/22': 'شهادت حضرت فاطمه زهرا (س)',
-      '1405/11/22': 'پیروزی انقلاب اسلامی',
-      '1405/12/19': 'عید سعید فطر',
-    };
-    const insertHoliday = db.prepare('INSERT INTO official_holidays (holiday_date, title) VALUES (?, ?) ON CONFLICT (holiday_date) DO NOTHING');
-    for (const [date, title] of Object.entries(holidays1405)) {
-      insertHoliday.run(date, title);
-    }
-  }
+
 
   const defaultShift = db.prepare('SELECT id FROM work_shifts WHERE name = ?').get('عادی کاری');
   if (defaultShift) {

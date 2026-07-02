@@ -471,8 +471,35 @@ module.exports = function(db) {
       if (!holiday_date) {
         return res.status(400).json({ error: 'تاریخ تعطیل الزامی است' });
       }
-      db.prepare('INSERT INTO official_holidays (holiday_date, title) VALUES (?, ?)').run(holiday_date, title || '');
+      db.prepare('INSERT INTO official_holidays (holiday_date, title) VALUES (?, ?) ON CONFLICT (holiday_date) DO NOTHING').run(holiday_date, title || '');
       res.json({ message: 'تعطیلی با موفقیت ثبت شد' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/holidays/import', (req, res) => {
+    try {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      }
+      const { holidays } = req.body;
+      if (!Array.isArray(holidays)) {
+        return res.status(400).json({ error: 'فرمت داده‌ها نامعتبر است' });
+      }
+      
+      const insert = db.prepare('INSERT INTO official_holidays (holiday_date, title) VALUES (?, ?) ON CONFLICT (holiday_date) DO NOTHING');
+      
+      const transaction = db.transaction((list) => {
+        for (const h of list) {
+          if (h.holiday_date) {
+            insert.run(h.holiday_date, h.title || '');
+          }
+        }
+      });
+      
+      transaction(holidays);
+      res.json({ message: 'تعطیلات رسمی با موفقیت وارد شدند' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

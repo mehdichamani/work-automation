@@ -142,6 +142,48 @@ export default function Leave() {
     }
   };
 
+  const handleCsvImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        const lines = text.split(/\r?\n/);
+        const holidays = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+
+          const firstCommaIdx = line.indexOf(',');
+          if (firstCommaIdx === -1) continue;
+
+          const date = line.substring(0, firstCommaIdx).trim();
+          const title = line.substring(firstCommaIdx + 1).trim();
+
+          if (date && date.includes('/')) {
+            holidays.push({ holiday_date: date, title });
+          }
+        }
+
+        if (holidays.length === 0) {
+          toast.error('هیچ داده معتبری در فایل پیدا نشد');
+          return;
+        }
+
+        const res = await api.post('/leave/holidays/import', { holidays });
+        toast.success(res.data.message || 'تعطیلات با موفقیت وارد شدند');
+        loadData();
+      } catch (err) {
+        toast.error(err.response?.data?.error || 'خطا در بارگذاری فایل CSV');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   const submitRequest = async (e) => {
     e.preventDefault();
     try {
@@ -782,7 +824,19 @@ export default function Leave() {
 
         {tab === 'holidays' && (
           <div className="p-6">
-            <h3 className="text-lg font-bold mb-4">مدیریت تعطیلات رسمی</h3>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold">مدیریت تعطیلات رسمی</h3>
+              <label className="bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-colors cursor-pointer flex items-center gap-2">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                وارد کردن دسته جمعی (CSV)
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={handleCsvImport}
+                  className="hidden"
+                />
+              </label>
+            </div>
             <form onSubmit={addHoliday} className="bg-gray-50 p-6 rounded-2xl mb-6 flex flex-wrap gap-4 items-end">
               <div className="flex-1 min-w-[200px] relative">
                 <label className="block text-sm font-medium mb-1">تاریخ تعطیلی</label>
