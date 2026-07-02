@@ -280,8 +280,7 @@ async function initDatabase() {
     );
 
     CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL,
+      id INTEGER PRIMARY KEY,
       password TEXT NOT NULL,
       full_name TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'user',
@@ -562,25 +561,25 @@ async function initDatabase() {
   const existingAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();
   if (!existingAdmin) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare("INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)").run('admin', hash, 'مدیر سیستم', 'admin');
+    db.prepare("INSERT INTO users (id, password, full_name, role) VALUES (?, ?, ?, ?)").run(1000, hash, 'مدیر سیستم', 'admin');
 
-    const insertUser = db.prepare('INSERT INTO users (username, password, full_name, role, department_id) VALUES (?, ?, ?, ?, ?)');
+    const insertUser = db.prepare('INSERT INTO users (id, password, full_name, role, department_id) VALUES (?, ?, ?, ?, ?)');
     const supHash = bcrypt.hashSync('super123', 10);
     const mgrHash = bcrypt.hashSync('manager123', 10);
     const usrHash = bcrypt.hashSync('user123', 10);
 
-    insertUser.run('ali_rezaei', supHash, 'علی رضایی', 'supervisor', 2);
-    insertUser.run('mohammad_hossein', supHash, 'محمد حسینی', 'supervisor', 3);
-    insertUser.run('ahmad_taghavi', mgrHash, 'احمد تقی‌زاده', 'manager', 1);
-    insertUser.run('reza_moradi', mgrHash, 'رضا مرادی', 'manager', 1);
-    insertUser.run('sara_ahmadi', usrHash, 'سارا احمدی', 'user', 2);
-    insertUser.run('maryam_karimi', usrHash, 'مریم کریمی', 'user', 3);
-    insertUser.run('hossein_fazeli', usrHash, 'حسین فاضلی', 'user', 4);
-    insertUser.run('fateme_shamsi', usrHash, 'فاطمه شمسی', 'user', 5);
-    insertUser.run('amir_hosseini', supHash, 'امیر حسینی', 'supervisor', 8);
-    insertUser.run('nasim_raeisi', usrHash, 'نسیم رئیسی', 'user', 9);
-    insertUser.run('behnam_jafari', usrHash, 'بهنام جعفری', 'user', 10);
-    insertUser.run('zahra_mousavi', usrHash, 'زهرا موسوی', 'user', 11);
+    insertUser.run(1001, supHash, 'علی رضایی', 'supervisor', 2);
+    insertUser.run(1002, supHash, 'محمد حسینی', 'supervisor', 3);
+    insertUser.run(1003, mgrHash, 'احمد تقی‌زاده', 'manager', 1);
+    insertUser.run(1004, mgrHash, 'رضا مرادی', 'manager', 1);
+    insertUser.run(1005, usrHash, 'سارا احمدی', 'user', 2);
+    insertUser.run(1006, usrHash, 'مریم کریمی', 'user', 3);
+    insertUser.run(1007, usrHash, 'حسین فاضلی', 'user', 4);
+    insertUser.run(1008, usrHash, 'فاطمه شمسی', 'user', 5);
+    insertUser.run(1009, supHash, 'امیر حسینی', 'supervisor', 8);
+    insertUser.run(1010, usrHash, 'نسیم رئیسی', 'user', 9);
+    insertUser.run(1011, usrHash, 'بهنام جعفری', 'user', 10);
+    insertUser.run(1012, usrHash, 'زهرا موسوی', 'user', 11);
   }
 
   const existingBalance = db.prepare('SELECT id FROM leave_balance LIMIT 1').get();

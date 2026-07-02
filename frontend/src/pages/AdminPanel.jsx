@@ -558,12 +558,12 @@ export default function AdminPanel() {
             <form onSubmit={addUser} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">نام کاربری</label>
-                  <input type="text" value={userForm.username} onChange={(e) => setUserForm({...userForm, username: e.target.value})} className="w-full px-4 py-3 border rounded-xl" required disabled={!!editingUser} />
+                  <label className="block text-sm font-medium mb-1">کد پرسنلی</label>
+                  <input type="number" placeholder="مثال: 1001" value={userForm.username} onChange={(e) => setUserForm({...userForm, username: e.target.value})} className="w-full px-4 py-3 border rounded-xl text-center" required disabled={!!editingUser} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">{editingUser ? 'رمز جدید' : 'رمز عبور'}</label>
-                  <input type="password" value={userForm.password} onChange={(e) => setUserForm({...userForm, password: e.target.value})} className="w-full px-4 py-3 border rounded-xl" required={!editingUser} />
+                  <input type="password" placeholder="پیش‌فرض: کد پرسنلی" value={userForm.password} onChange={(e) => setUserForm({...userForm, password: e.target.value})} className="w-full px-4 py-3 border rounded-xl text-center" />
                 </div>
               </div>
               <div>
@@ -705,7 +705,7 @@ export default function AdminPanel() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="p-3 text-right">نام</th>
-                  <th className="p-3 text-right">نام کاربری</th>
+                  <th className="p-3 text-right">کد پرسنلی</th>
                   <th className="p-3 text-right">واحد</th>
                   <th className="p-3 text-right">سمت</th>
                   <th className="p-3 text-right">وضعیت</th>
@@ -716,7 +716,7 @@ export default function AdminPanel() {
                 {users.filter(u => u.is_active).map(u => (
                   <tr key={u.id} className="border-t hover:bg-gray-50">
                     <td className="p-3 font-medium">{u.full_name}</td>
-                    <td className="p-3 text-gray-500">{u.username}</td>
+                    <td className="p-3 text-gray-500 font-mono">{u.id}</td>
                     <td className="p-3">{u.department_name || '-'}</td>
                     <td className="p-3"><span className={`px-3 py-1 rounded-full text-xs font-medium ${roleColors[u.role]}`}>{roleLabels[u.role]}</span></td>
                     <td className="p-3"><span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">فعال</span></td>
@@ -796,7 +796,7 @@ export default function AdminPanel() {
                               <div key={s.id} className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
                                 <div className="w-7 h-7 bg-green-500 text-white rounded-full flex items-center justify-center text-xs font-bold">{s.full_name.charAt(0)}</div>
                                 <span className="text-xs font-medium text-green-800">{s.full_name}</span>
-                                <span className="text-[10px] text-green-500">@{s.username}</span>
+                                <span className="text-[10px] text-green-500 font-mono">({s.id})</span>
                                 <div className="flex gap-1 mr-2">
                                   <button onClick={() => editUser(s)} className="text-[10px] text-gray-400 hover:text-blue-500 px-1">ویرایش</button>
                                   <button onClick={() => demoteSupervisor(d.id, s.id)} className="text-[10px] text-orange-400 hover:text-orange-600 px-1" title="حذف سرپرستی">↓</button>
@@ -842,7 +842,7 @@ export default function AdminPanel() {
                                   <div className="w-7 h-7 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center text-xs font-bold">{m.full_name.charAt(0)}</div>
                                   <div>
                                     <span className="text-xs font-medium">{m.full_name}</span>
-                                    <span className="text-[10px] text-gray-400 mr-2">@{m.username}</span>
+                                    <span className="text-[10px] text-gray-400 mr-2 font-mono">({m.id})</span>
                                   </div>
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1085,7 +1085,7 @@ export default function AdminPanel() {
               >
                 <option value="">انتخاب کنید...</option>
                 {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.full_name} ({u.username}) - {u.department_name || 'بدون واحد'}</option>
+                  <option key={u.id} value={u.id}>{u.full_name} ({u.id}) - {u.department_name || 'بدون واحد'}</option>
                 ))}
               </select>
             </div>

@@ -9,7 +9,7 @@ module.exports = function(db) {
   router.get('/users', roleGuard('admin'), (req, res) => {
     try {
       const users = db.prepare(`
-        SELECT u.id, u.username, u.full_name, u.role, u.department_id, u.is_active, u.created_at,
+        SELECT u.id, u.id as username, u.full_name, u.role, u.department_id, u.is_active, u.created_at,
                d.name as department_name
         FROM users u
         LEFT JOIN departments d ON u.department_id = d.id
@@ -23,30 +23,30 @@ module.exports = function(db) {
 
   router.post('/users', roleGuard('admin'), (req, res) => {
     try {
-      const { username, password, full_name, role, department_id } = req.body;
-      if (!username || !password || !full_name || !role) {
-        return res.status(400).json({ error: 'فیلدهای الزامی را پر کنید' });
+      const { id, username, password, full_name, role, department_id } = req.body;
+      const targetId = parseInt(id || username, 10);
+      if (!targetId || !full_name || !role) {
+        return res.status(400).json({ error: 'کد پرسنلی، نام کامل و نقش الزامی هستند' });
       }
-      const existing = db.prepare('SELECT id, is_active FROM users WHERE username = ?').get(username);
+      const existing = db.prepare('SELECT id, is_active FROM users WHERE id = ?').get(targetId);
       if (existing && existing.is_active) {
-        return res.status(400).json({ error: 'نام کاربری تکراری است' });
+        return res.status(400).json({ error: 'کد پرسنلی تکراری است' });
       }
-      const hash = bcrypt.hashSync(password, 10);
-      let result;
+      const pass = password || String(targetId);
+      const hash = bcrypt.hashSync(pass, 10);
       if (existing && !existing.is_active) {
         db.prepare('UPDATE users SET password = ?, full_name = ?, role = ?, department_id = ?, is_active = 1 WHERE id = ?')
-          .run(hash, full_name, role, department_id || null, existing.id);
-        result = { lastInsertRowid: existing.id };
+          .run(hash, full_name, role, department_id || null, targetId);
       } else {
-        result = db.prepare('INSERT INTO users (username, password, full_name, role, department_id) VALUES (?, ?, ?, ?, ?)').run(username, hash, full_name, role, department_id || null);
+        db.prepare('INSERT INTO users (id, password, full_name, role, department_id) VALUES (?, ?, ?, ?, ?)').run(targetId, hash, full_name, role, department_id || null);
       }
       
-      const existingBalance = db.prepare('SELECT id FROM leave_balance WHERE user_id = ?').get(result.lastInsertRowid);
+      const existingBalance = db.prepare('SELECT id FROM leave_balance WHERE user_id = ?').get(targetId);
       if (!existingBalance) {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_days) VALUES (?, 26, 0)').run(result.lastInsertRowid);
+        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)').run(targetId);
       }
       
-      res.json({ id: result.lastInsertRowid, message: 'کاربر با موفقیت ایجاد شد' });
+      res.json({ id: targetId, message: 'کاربر با موفقیت ایجاد شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -151,7 +151,7 @@ module.exports = function(db) {
     try {
       const deptId = req.params.id;
       const supervisors = db.prepare(`
-        SELECT u.id, u.full_name, u.username, u.role
+        SELECT u.id, u.full_name, u.id as username, u.role
         FROM users u
         WHERE u.department_id = ? AND u.is_active = 1
         ORDER BY u.role = 'supervisor' DESC, u.full_name

@@ -10,21 +10,26 @@ module.exports = function(db) {
     try {
       const { username, password } = req.body;
       if (!username || !password) {
-        return res.status(400).json({ error: 'نام کاربری و رمز عبور الزامی است' });
+        return res.status(400).json({ error: 'کد پرسنلی و رمز عبور الزامی است' });
       }
 
-      const user = db.prepare('SELECT * FROM users WHERE username = ? AND is_active = 1').get(username);
+      const userId = parseInt(username, 10);
+      if (isNaN(userId)) {
+        return res.status(401).json({ error: 'کد پرسنلی یا رمز عبور اشتباه است' });
+      }
+
+      const user = db.prepare('SELECT * FROM users WHERE id = ? AND is_active = 1').get(userId);
       if (!user) {
-        return res.status(401).json({ error: 'نام کاربری یا رمز عبور اشتباه است' });
+        return res.status(401).json({ error: 'کد پرسنلی یا رمز عبور اشتباه است' });
       }
 
       if (!bcrypt.compareSync(password, user.password)) {
-        return res.status(401).json({ error: 'نام کاربری یا رمز عبور اشتباه است' });
+        return res.status(401).json({ error: 'کد پرسنلی یا رمز عبور اشتباه است' });
       }
 
       const dept = db.prepare('SELECT name FROM departments WHERE id = ?').get(user.department_id);
       const token = jwt.sign(
-        { id: user.id, username: user.username, role: user.role, full_name: user.full_name, department_id: user.department_id, department_name: dept?.name || '' },
+        { id: user.id, username: String(user.id), role: user.role, full_name: user.full_name, department_id: user.department_id, department_name: dept?.name || '' },
         JWT_SECRET,
         { expiresIn: '24h' }
       );
@@ -33,7 +38,7 @@ module.exports = function(db) {
         token,
         user: {
           id: user.id,
-          username: user.username,
+          username: String(user.id),
           full_name: user.full_name,
           role: user.role,
           department_id: user.department_id,
