@@ -61,7 +61,14 @@ export default function Letters() {
   const filteredArchived = archivedLetters.filter(l => !letterSearch || (l.letter_number && l.letter_number.includes(letterSearch)));
   const filteredAll = allLetters.filter(l => !letterSearch || (l.letter_number && l.letter_number.includes(letterSearch)));
 
-  useEffect(() => { loadData(); }, [tab]);
+  useEffect(() => {
+    loadData();
+    const handleUpdate = () => {
+      loadData();
+    };
+    window.addEventListener('ws-update', handleUpdate);
+    return () => window.removeEventListener('ws-update', handleUpdate);
+  }, [tab]);
 
   const fetchNextNumber = async () => {
     try {

@@ -81,7 +81,22 @@ export default function AdminPanel() {
   const [cameraTestResult, setCameraTestResult] = useState(null);
   const [viewPhoto, setViewPhoto] = useState(null);
 
-  useEffect(() => { loadData(); if (tab === 'backup') loadBackups(); if (tab === 'permissions') loadPermissions(); if (tab === 'user-permissions') { loadUserPermissions(); } if (tab === 'toast-central') { loadAnnouncements(); } if (tab === 'job-applications') { loadJobApplications(); } if (tab === 'camera-settings') { loadCameraConfig(); } }, [tab]);
+  useEffect(() => {
+    const handleLoad = () => {
+      loadData();
+      if (tab === 'backup') loadBackups();
+      if (tab === 'permissions') loadPermissions();
+      if (tab === 'user-permissions') loadUserPermissions();
+      if (tab === 'toast-central') loadAnnouncements();
+      if (tab === 'job-applications') loadJobApplications();
+      if (tab === 'camera-settings') loadCameraConfig();
+    };
+
+    handleLoad();
+
+    window.addEventListener('ws-update', handleLoad);
+    return () => window.removeEventListener('ws-update', handleLoad);
+  }, [tab]);
 
   const loadBackups = async () => {
     try {

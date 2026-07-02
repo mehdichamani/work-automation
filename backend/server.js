@@ -19,6 +19,18 @@ async function startServer() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
+  // Global WebSocket mutation broadcast middleware
+  app.use((req, res, next) => {
+    res.on('finish', () => {
+      if (['POST', 'PUT', 'DELETE'].includes(req.method) && res.statusCode >= 200 && res.statusCode < 300) {
+        if (global.io) {
+          global.io.emit('update');
+        }
+      }
+    });
+    next();
+  });
+
   app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
   app.use('/api/auth', require('./routes/auth')(db));
@@ -71,7 +83,23 @@ async function startServer() {
     });
   });
 
-  server = app.listen(PORT, '0.0.0.0', () => {
+  const http = require('http');
+  const httpServer = http.createServer(app);
+  const { Server } = require('socket.io');
+  const io = new Server(httpServer, {
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST']
+    }
+  });
+
+  global.io = io;
+
+  io.on('connection', (socket) => {
+    socket.on('disconnect', () => {});
+  });
+
+  server = httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`\n========================================`);
     console.log(`  سیستم اتوماسیون اداری اروم شیشه ساچی`);
     console.log(`  Server running on port ${PORT}`);

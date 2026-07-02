@@ -80,7 +80,14 @@ export default function Leave() {
     }
   }, [editForm.start_date, editForm.start_hour, editForm.end_date, editForm.end_hour]);
 
-  useEffect(() => { loadData(); }, [tab]);
+  useEffect(() => {
+    loadData();
+    const handleUpdate = () => {
+      loadData();
+    };
+    window.addEventListener('ws-update', handleUpdate);
+    return () => window.removeEventListener('ws-update', handleUpdate);
+  }, [tab]);
 
   const loadData = async () => {
     try {

@@ -52,5 +52,55 @@ module.exports = function(db) {
     }
   });
 
+  router.get('/pending-counts', (req, res) => {
+    try {
+      const counts = {
+        leave: 0,
+        letters: 0,
+        inventory: 0,
+        jobApplication: 0
+      };
+
+      if (req.user.role === 'admin' || req.user.role === 'manager') {
+        const r = db.prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status = 'pending_manager'").get();
+        counts.leave = parseInt(r.count, 10) || 0;
+      } else if (req.user.role === 'supervisor') {
+        const r = db.prepare(`
+          SELECT COUNT(*) as count 
+          FROM leave_requests 
+          WHERE status = 'pending_supervisor' 
+            AND user_id IN (SELECT id FROM users WHERE department_id = ? AND role != 'admin')
+        `).get(req.user.department_id);
+        counts.leave = parseInt(r.count, 10) || 0;
+      }
+
+      let centralCount = 0;
+      const dept = db.prepare('SELECT name FROM departments WHERE id = ?').get(req.user.department_id);
+      const isSantral = req.user.role === 'admin' || (dept && dept.name.includes('سانترال'));
+      if (isSantral) {
+        const r = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status = 'pending_central'").get();
+        centralCount = parseInt(r.count, 10) || 0;
+      }
+      let managerCount = 0;
+      if (req.user.role === 'admin' || req.user.role === 'manager') {
+        const r = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status = 'pending_manager' AND selected_manager_id = ?").get(req.user.id);
+        managerCount = parseInt(r.count, 10) || 0;
+      }
+      counts.letters = centralCount + managerCount;
+
+      const inv = db.prepare("SELECT COUNT(*) as count FROM cardex WHERE user_id = ? AND status = 'pending_user'").get(req.user.id);
+      counts.inventory = parseInt(inv.count, 10) || 0;
+
+      if (req.user.role === 'admin' || req.user.role === 'manager') {
+        const r = db.prepare("SELECT COUNT(*) as count FROM job_applications WHERE status = 'pending'").get();
+        counts.jobApplication = parseInt(r.count, 10) || 0;
+      }
+
+      res.json(counts);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 };

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
+import { io } from 'socket.io-client';
 
 const menuItems = [
   { path: '/', label: 'داشبورد', icon: '📊', roles: ['admin','manager','supervisor','user'] },
@@ -31,6 +32,16 @@ export default function Layout({ children }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [activeAnnouncements, setActiveAnnouncements] = useState([]);
+  const [pendingCounts, setPendingCounts] = useState({ leave: 0, letters: 0, inventory: 0, jobApplication: 0 });
+
+  const fetchPendingCounts = async () => {
+    try {
+      const res = await api.get('/notifications/pending-counts');
+      setPendingCounts(res.data);
+    } catch (err) {
+      console.error('Error fetching pending counts:', err);
+    }
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -40,14 +51,37 @@ export default function Layout({ children }) {
       setUnreadCount(countRes.data.count);
       const annRes = await api.get('/announcements/active');
       setActiveAnnouncements(annRes.data.slice(0, 5));
+      fetchPendingCounts();
     } catch (err) {}
   };
 
   useEffect(() => {
     if (user) {
       fetchNotifications();
-      const interval = setInterval(fetchNotifications, 30000);
-      return () => clearInterval(interval);
+      fetchPendingCounts();
+
+      const socket = io();
+
+      socket.on('connect', () => {
+        console.log('Socket.IO connected');
+      });
+
+      socket.on('update', () => {
+        console.log('Socket.IO update event received');
+        fetchNotifications();
+        fetchPendingCounts();
+        window.dispatchEvent(new CustomEvent('ws-update'));
+      });
+
+      const interval = setInterval(() => {
+        fetchNotifications();
+        fetchPendingCounts();
+      }, 30000);
+
+      return () => {
+        clearInterval(interval);
+        socket.disconnect();
+      };
     }
   }, [user]);
 
@@ -65,6 +99,17 @@ export default function Layout({ children }) {
     if (item.permission && !hasPermission(item.permission)) return false;
     if (item.roles && !item.roles.includes(user?.role)) return false;
     return true;
+  }).map(item => {
+    let count = 0;
+    if (item.path === '/leave') count = pendingCounts.leave;
+    if (item.path === '/letters') count = pendingCounts.letters;
+    if (item.path === '/inventory') count = pendingCounts.inventory;
+    if (item.path === '/job-application') count = pendingCounts.jobApplication;
+
+    return {
+      ...item,
+      label: count > 0 ? `${item.label} (${count})` : item.label
+    };
   });
 
   return (

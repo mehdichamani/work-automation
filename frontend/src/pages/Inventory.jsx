@@ -37,7 +37,14 @@ export default function Inventory() {
   const canManageItems = hasPermission('inventory_items');
   const canViewAll = hasPermission('inventory_all');
 
-  useEffect(() => { loadData(); }, [tab]);
+  useEffect(() => {
+    loadData();
+    const handleUpdate = () => {
+      loadData();
+    };
+    window.addEventListener('ws-update', handleUpdate);
+    return () => window.removeEventListener('ws-update', handleUpdate);
+  }, [tab]);
 
   const loadData = async () => {
     try {

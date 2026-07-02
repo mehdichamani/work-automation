@@ -14,6 +14,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData();
+
+    const handleUpdate = () => {
+      loadData();
+    };
+    window.addEventListener('ws-update', handleUpdate);
+    return () => window.removeEventListener('ws-update', handleUpdate);
   }, []);
 
   const loadData = async () => {

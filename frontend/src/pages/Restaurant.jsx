@@ -28,7 +28,14 @@ export default function Restaurant() {
     });
   }
 
-  useEffect(() => { loadData(); }, [tab]);
+  useEffect(() => {
+    loadData();
+    const handleUpdate = () => {
+      loadData();
+    };
+    window.addEventListener('ws-update', handleUpdate);
+    return () => window.removeEventListener('ws-update', handleUpdate);
+  }, [tab]);
 
   const loadData = async () => {
     try {
