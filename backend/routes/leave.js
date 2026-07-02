@@ -203,6 +203,15 @@ module.exports = function(db) {
           managerId = req.user.id;
           managerDate = getNowString();
         }
+      } else {
+        // Requesting for themselves
+        if (req.user.role === 'supervisor') {
+          initialStatus = 'pending_manager';
+        } else if (req.user.role === 'admin' || req.user.role === 'manager') {
+          initialStatus = 'approved';
+          managerId = req.user.id;
+          managerDate = getNowString();
+        }
       }
 
       const today = moment().format('jYYYY/jMM/jDD');

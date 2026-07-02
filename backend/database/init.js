@@ -539,47 +539,16 @@ async function initDatabase() {
 
   const existingDept = db.prepare('SELECT id FROM departments LIMIT 1').get();
   if (!existingDept) {
-    const depts = [
-      ['مدیریت', null],
-      ['اداری', 1],
-      ['انبار', 1],
-      ['بایگانی', 1],
-      ['اکانتینگ', 1],
-      ['تولید', 1],
-      ['فروش', 1],
-      ['فنی', 1],
-      ['حراست و انتظامات', 1],
-      ['رستوران', 1],
-      ['سانترال', 1]
-    ];
-    const insert = db.prepare('INSERT INTO departments (name, parent_id) VALUES (?, ?)');
-    for (const [name, parent] of depts) {
-      insert.run(name, parent);
-    }
+    db.prepare('INSERT INTO departments (name, parent_id) VALUES (?, ?)').run('بدون واحد', null);
   }
 
   const existingAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();
   if (!existingAdmin) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare("INSERT INTO users (id, password, full_name, role) VALUES (?, ?, ?, ?)").run(1000, hash, 'مدیر سیستم', 'admin');
-
-    const insertUser = db.prepare('INSERT INTO users (id, password, full_name, role, department_id) VALUES (?, ?, ?, ?, ?)');
-    const supHash = bcrypt.hashSync('super123', 10);
-    const mgrHash = bcrypt.hashSync('manager123', 10);
-    const usrHash = bcrypt.hashSync('user123', 10);
-
-    insertUser.run(1001, supHash, 'علی رضایی', 'supervisor', 2);
-    insertUser.run(1002, supHash, 'محمد حسینی', 'supervisor', 3);
-    insertUser.run(1003, mgrHash, 'احمد تقی‌زاده', 'manager', 1);
-    insertUser.run(1004, mgrHash, 'رضا مرادی', 'manager', 1);
-    insertUser.run(1005, usrHash, 'سارا احمدی', 'user', 2);
-    insertUser.run(1006, usrHash, 'مریم کریمی', 'user', 3);
-    insertUser.run(1007, usrHash, 'حسین فاضلی', 'user', 4);
-    insertUser.run(1008, usrHash, 'فاطمه شمسی', 'user', 5);
-    insertUser.run(1009, supHash, 'امیر حسینی', 'supervisor', 8);
-    insertUser.run(1010, usrHash, 'نسیم رئیسی', 'user', 9);
-    insertUser.run(1011, usrHash, 'بهنام جعفری', 'user', 10);
-    insertUser.run(1012, usrHash, 'زهرا موسوی', 'user', 11);
+    db.prepare("INSERT INTO users (id, password, full_name, role, department_id) VALUES (?, ?, ?, ?, ?)").run(1000, hash, 'مدیر سیستم', 'admin', 1);
+    
+    // Also create a leave balance for the admin
+    db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)').run(1000);
   }
 
   const existingBalance = db.prepare('SELECT id FROM leave_balance LIMIT 1').get();
