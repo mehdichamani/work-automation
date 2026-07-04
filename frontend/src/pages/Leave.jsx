@@ -764,7 +764,21 @@ export default function Leave() {
                     <p className="font-bold">{leave.user_name}</p>
                     <p className="text-sm text-gray-500">{leave.user_dept}</p>
                     <p className="text-sm mt-2">{leave.leave_type} - {leave.days_count} روز ({leave.start_date} تا {leave.end_date})</p>
-                    {leave.reason && <p className="text-sm text-gray-500 mt-1">دلیل: {leave.reason}</p>}
+                    {leave.reason && <p className="text-sm text-gray-500 mt-1 font-medium">دلیل: {leave.reason}</p>}
+                    {(() => {
+                      const currentRemainingHours = (leave.total_days * 8) - leave.used_hours;
+                      const projectedRemainingHours = currentRemainingHours - leave.hours_count;
+                      const isNegative = projectedRemainingHours < 0;
+                      const absHours = Math.abs(projectedRemainingHours);
+                      const days = Math.floor(absHours / 8);
+                      const hours = absHours % 8;
+                      const formatted = `${isNegative ? 'منفی ' : ''}${days} روز و ${hours} ساعت`;
+                      return (
+                        <p className={`text-xs font-bold mt-2 ${isNegative ? 'text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg inline-block' : 'text-green-700 bg-green-50 border border-green-200 px-3 py-1.5 rounded-lg inline-block'}`}>
+                          مانده پس از تایید: {formatted}
+                        </p>
+                      );
+                    })()}
                   </div>
                   <div className="flex gap-2">
                     <input
@@ -793,11 +807,26 @@ export default function Leave() {
                     <p className="font-bold">{leave.user_name}</p>
                     <p className="text-sm text-gray-500">{leave.user_dept} | سرپرست: {leave.supervisor_name}</p>
                     <p className="text-sm mt-2">{leave.leave_type} - {leave.days_count} روز ({leave.start_date} تا {leave.end_date})</p>
+                    {leave.reason && <p className="text-sm text-gray-500 mt-1 font-medium">دلیل: {leave.reason}</p>}
                     {leave.supervisor_comment && (
                       <p className="text-xs text-blue-500 mt-1">
                         نظر سرپرست ({leave.supervisor_name || 'نامشخص'}): {leave.supervisor_comment}
                       </p>
                     )}
+                    {(() => {
+                      const currentRemainingHours = (leave.total_days * 8) - leave.used_hours;
+                      const projectedRemainingHours = currentRemainingHours - leave.hours_count;
+                      const isNegative = projectedRemainingHours < 0;
+                      const absHours = Math.abs(projectedRemainingHours);
+                      const days = Math.floor(absHours / 8);
+                      const hours = absHours % 8;
+                      const formatted = `${isNegative ? 'منفی ' : ''}${days} روز و ${hours} ساعت`;
+                      return (
+                        <p className={`text-xs font-bold mt-2 ${isNegative ? 'text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg inline-block' : 'text-green-700 bg-green-50 border border-green-200 px-3 py-1.5 rounded-lg inline-block'}`}>
+                          مانده پس از تایید: {formatted}
+                        </p>
+                      );
+                    })()}
                   </div>
                   <div className="flex gap-2">
                     <input type="text" placeholder="توضیحات" value={comments[leave.id] || ''} onChange={(e) => setComments({ ...comments, [leave.id]: e.target.value })} className="px-3 py-2 border rounded-lg text-sm w-40" />

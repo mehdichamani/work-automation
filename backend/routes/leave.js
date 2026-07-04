@@ -83,19 +83,23 @@ module.exports = function(db) {
       let leaves;
       if (req.user.role === 'admin') {
         leaves = db.prepare(`
-          SELECT l.*, u.full_name as user_name, d.name as user_dept
+          SELECT l.*, u.full_name as user_name, d.name as user_dept,
+                 COALESCE(lb.total_days, 26) as total_days, COALESCE(lb.used_hours, 0) as used_hours
           FROM leave_requests l
           JOIN users u ON l.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
+          LEFT JOIN leave_balance lb ON l.user_id = lb.user_id
           WHERE l.status = 'pending_supervisor'
           ORDER BY l.created_at DESC
         `).all();
       } else {
         leaves = db.prepare(`
-          SELECT l.*, u.full_name as user_name, d.name as user_dept
+          SELECT l.*, u.full_name as user_name, d.name as user_dept,
+                 COALESCE(lb.total_days, 26) as total_days, COALESCE(lb.used_hours, 0) as used_hours
           FROM leave_requests l
           JOIN users u ON l.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
+          LEFT JOIN leave_balance lb ON l.user_id = lb.user_id
           WHERE l.status = 'pending_supervisor' AND u.department_id = ?
           ORDER BY l.created_at DESC
         `).all(req.user.department_id);
@@ -109,12 +113,15 @@ module.exports = function(db) {
   router.get('/pending-manager', (req, res) => {
     try {
       const leaves = db.prepare(`
-        SELECT l.*, u.full_name as user_name, d.name as user_dept, s.full_name as supervisor_name, s_dept.name as supervisor_dept
+        SELECT l.*, u.full_name as user_name, d.name as user_dept,
+               s.full_name as supervisor_name, s_dept.name as supervisor_dept,
+               COALESCE(lb.total_days, 26) as total_days, COALESCE(lb.used_hours, 0) as used_hours
         FROM leave_requests l
         JOIN users u ON l.user_id = u.id
         LEFT JOIN departments d ON u.department_id = d.id
         LEFT JOIN users s ON l.supervisor_id = s.id
         LEFT JOIN departments s_dept ON s.department_id = s_dept.id
+        LEFT JOIN leave_balance lb ON l.user_id = lb.user_id
         WHERE l.status = 'pending_manager'
         ORDER BY l.created_at DESC
       `).all();
