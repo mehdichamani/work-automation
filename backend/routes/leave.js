@@ -52,7 +52,7 @@ module.exports = function(db) {
         users = db.prepare(`
           SELECT id, full_name, role 
           FROM users 
-          WHERE department_id = ? AND id != ? AND is_active = 1
+          WHERE department_id = ? AND id != ? AND is_active = 1 AND work_type != 'shift'
           ORDER BY full_name
         `).all(req.user.department_id, req.user.id);
       } else {
@@ -60,7 +60,7 @@ module.exports = function(db) {
         users = db.prepare(`
           SELECT id, full_name, role 
           FROM users 
-          WHERE id != ? AND is_active = 1
+          WHERE id != ? AND is_active = 1 AND work_type != 'shift'
           ORDER BY full_name
         `).all(req.user.id);
       }
@@ -230,6 +230,11 @@ module.exports = function(db) {
       let supervisorDate = null;
       let managerId = null;
       let managerDate = null;
+      
+      const userTypeCheck = db.prepare("SELECT work_type FROM users WHERE id = ?").get(req.user.id);
+      if (userTypeCheck && userTypeCheck.work_type === 'shift' && (!user_id || parseInt(user_id) === req.user.id)) {
+        return res.status(400).json({ error: 'کاربران شیفتی مجاز به ثبت درخواست مرخصی نیستند' });
+      }
 
       const pad = (n) => String(n).padStart(2, '0');
       const getNowString = () => {
@@ -242,9 +247,13 @@ module.exports = function(db) {
           return res.status(403).json({ error: 'شما مجاز به ثبت مرخصی برای دیگران نیستید' });
         }
         
-        const u = db.prepare('SELECT id, full_name, department_id, is_active, role FROM users WHERE id = ?').get(user_id);
+        const u = db.prepare('SELECT id, full_name, department_id, is_active, role, work_type FROM users WHERE id = ?').get(user_id);
         if (!u || !u.is_active) {
           return res.status(404).json({ error: 'کاربر مورد نظر یافت نشد یا غیرفعال است' });
+        }
+        
+        if (u.work_type === 'shift') {
+          return res.status(400).json({ error: 'کاربر مورد نظر شیفتی بوده و مجاز به ثبت درخواست مرخصی نمی‌باشد' });
         }
         
         if (req.user.role === 'supervisor') {

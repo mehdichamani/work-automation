@@ -4,29 +4,31 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 
 export default function Shifts() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [shifts, setShifts] = useState([]);
   const [myShift, setMyShift] = useState(null);
-  const [assignments, setAssignments] = useState([]);
+  const [usersList, setUsersList] = useState([]);
   const [requests, setRequests] = useState([]);
   const [form, setForm] = useState({ name: '', start_time: '', end_time: '', description: '', color: '#3b82f6' });
   const [requestForm, setRequestForm] = useState({ requested_shift_id: '', reason: '', requested_date: '' });
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
-  const isManager = useMemo(() => ['admin', 'manager', 'supervisor'].includes(user?.role), [user]);
+  const isManager = useMemo(() => {
+    return ['admin', 'manager', 'supervisor'].includes(user?.role) || hasPermission('shifts_manage');
+  }, [user, hasPermission]);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [shiftsRes, myRes, assignmentsRes, reqRes] = await Promise.all([
+      const [shiftsRes, myRes, usersRes, reqRes] = await Promise.all([
         api.get('/shifts'),
         api.get('/shifts/my'),
-        isManager ? api.get('/shifts/assignments') : Promise.resolve({ data: [] }),
+        isManager ? api.get('/shifts/users') : Promise.resolve({ data: [] }),
         api.get('/shifts/requests/my')
       ]);
       setShifts(shiftsRes.data || []);
       setMyShift(myRes.data?.current_shift || null);
-      setAssignments(assignmentsRes.data || []);
+      setUsersList(usersRes.data || []);
       setRequests(reqRes.data || []);
     } catch (err) {
       toast.error('خطا در بارگذاری شیفت‌ها');
@@ -75,8 +77,18 @@ export default function Shifts() {
     }
   };
 
+  const toggleWorkType = async (userId, currentType) => {
+    const nextType = currentType === 'shift' ? 'normal' : 'shift';
+    try {
+      await api.put(`/shifts/work-type/${userId}`, { work_type: nextType });
+      toast.success('وضعیت کاری کاربر با موفقیت تغییر یافت');
+      loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'خطا در تغییر وضعیت کاری');
+    }
+  };
+
   const assignShift = async (userId, shiftId) => {
-    if (!isManager) return;
     try {
       await api.post('/shifts/assignments', { user_id: userId, shift_id: shiftId });
       toast.success('شیفت کاربر تنظیم شد');
@@ -178,22 +190,60 @@ export default function Shifts() {
       </div>
 
       {isManager && (
-        <div className="bg-white rounded-2xl p-6 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-800 mb-4">اختصاص شیفت به کارمندان</h2>
-          <div className="space-y-3">
-            {assignments.map(item => (
-              <div key={item.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border rounded-xl p-3">
-                <div>
-                  <p className="font-bold">{item.full_name}</p>
-                  <p className="text-sm text-gray-500">{item.department_name || 'بدون واحد'} | شیفت فعلی: {item.shift_name}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <select defaultValue={item.shift_id || ''} onChange={(e) => assignShift(item.user_id, e.target.value)} className="border rounded-xl px-3 py-2 text-sm">
-                    {shifts.map(shift => <option key={shift.id} value={shift.id}>{shift.name}</option>)}
-                  </select>
-                </div>
-              </div>
-            ))}
+        <div className="bg-white rounded-2xl p-6 shadow-sm space-y-4">
+          <div className="border-b pb-3">
+            <h2 className="text-lg font-bold text-gray-800">مدیریت وضعیت کاری و تخصیص شیفت کارکنان</h2>
+            <p className="text-xs text-gray-500 mt-1">تغییر نوع پرسنل بین «عادی‌کار» و «شیفتی» و انتساب به شیفت‌های فعال</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-right">
+              <thead className="bg-gray-50 text-gray-700 font-semibold">
+                <tr>
+                  <th className="p-3">نام و نام خانوادگی</th>
+                  <th className="p-3">واحد</th>
+                  <th className="p-3">نوع وضعیت کاری</th>
+                  <th className="p-3">شیفت انتسابی</th>
+                  <th className="p-3">عملیات تغییر وضعیت</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {usersList.map(u => (
+                  <tr key={u.id} className="hover:bg-gray-50/50">
+                    <td className="p-3 font-bold text-gray-800">{u.full_name}</td>
+                    <td className="p-3 text-gray-500">{u.department_name || 'بدون واحد'}</td>
+                    <td className="p-3">
+                      <span className={`px-2.5 py-1 rounded-xl text-xs font-semibold ${u.work_type === 'shift' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
+                        {u.work_type === 'shift' ? '👤 شیفتی' : '👔 عادی کار'}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      {u.work_type === 'shift' ? (
+                        <select
+                          value={u.shift_id || ''}
+                          onChange={(e) => assignShift(u.id, e.target.value)}
+                          className="border rounded-xl px-3 py-1.5 text-xs bg-white focus:ring-2 focus:ring-primary-500 outline-none"
+                        >
+                          <option value="">بدون شیفت (انتخاب کنید)</option>
+                          {shifts.map(shift => (
+                            <option key={shift.id} value={shift.id}>{shift.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-gray-400 text-xs">— (عادی کار)</span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      <button
+                        onClick={() => toggleWorkType(u.id, u.work_type)}
+                        className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm ${u.work_type === 'shift' ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
+                      >
+                        {u.work_type === 'shift' ? 'تبدیل به عادی کار' : 'تبدیل به شیفتی'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

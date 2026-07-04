@@ -9,8 +9,19 @@ module.exports = function(db) {
     db.prepare('INSERT INTO notifications (user_id, title, body, link) VALUES (?, ?, ?, ?)').run(userId, title, body, link);
   }
 
+  function hasShiftPerm(user, key) {
+    if (user.role === 'admin') return true;
+    const p = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(user.id, key);
+    if (p) return p.is_enabled === 1;
+    if (user.department_id) {
+      const dp = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND module_key = ? AND user_id IS NULL').get(user.department_id, key);
+      if (dp) return dp.is_enabled === 1;
+    }
+    return false;
+  }
+
   function isShiftManager(user) {
-    return ['admin', 'manager', 'supervisor'].includes(user.role);
+    return user.role === 'admin' || hasShiftPerm(user, 'shifts_manage');
   }
 
   function getCurrentShift(userId) {
@@ -142,6 +153,47 @@ module.exports = function(db) {
       `).run(user_id, shift_id);
 
       res.json({ id: result.lastInsertRowid, message: 'شیفت کاربر با موفقیت تنظیم شد' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/users', (req, res) => {
+    if (!isShiftManager(req.user)) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+    }
+    try {
+      const users = db.prepare(`
+        SELECT u.id, u.full_name, u.role, u.department_id, u.work_type,
+               d.name AS department_name,
+               sa.shift_id, s.name AS shift_name, s.color AS shift_color
+        FROM users u
+        LEFT JOIN departments d ON u.department_id = d.id
+        LEFT JOIN user_shift_assignments sa ON u.id = sa.user_id AND sa.is_active = 1
+        LEFT JOIN work_shifts s ON sa.shift_id = s.id
+        WHERE u.is_active = 1
+        ORDER BY d.name, u.full_name
+      `).all();
+      res.json(users);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.put('/work-type/:userId', (req, res) => {
+    if (!isShiftManager(req.user)) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+    }
+    try {
+      const { work_type } = req.body;
+      if (!['normal', 'shift'].includes(work_type)) {
+        return res.status(400).json({ error: 'نوع وضعیت کاری نامعتبر است' });
+      }
+      db.prepare('UPDATE users SET work_type = ? WHERE id = ?').run(work_type, req.params.userId);
+      if (work_type === 'normal') {
+        db.prepare('UPDATE user_shift_assignments SET is_active = 0 WHERE user_id = ?').run(req.params.userId);
+      }
+      res.json({ message: 'وضعیت کاری کاربر با موفقیت بروزرسانی شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

@@ -472,12 +472,22 @@ export default function Leave() {
             </p>
           )}
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2 rounded-xl font-medium transition-colors"
-        >
-          + درخواست جدید
-        </button>
+        {user?.work_type === 'shift' ? (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-sm leading-relaxed flex items-start gap-3 w-full md:w-auto">
+            <span className="text-xl">⚠️</span>
+            <div>
+              <p className="font-bold">وضعیت کاری شما «شیفتی» تنظیم شده است</p>
+              <p className="mt-0.5 text-xs text-amber-700">پرسنل شیفتی مجاز به ثبت درخواست مرخصی جدید نیستند. تاریخچه درخواست‌های ثبت‌شده قبلی شما در بخش‌های زیر جهت اطلاع محفوظ است.</p>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowForm(true)}
+            className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2 rounded-xl font-medium transition-colors"
+          >
+            + درخواست جدید
+          </button>
+        )}
       </div>
 
       {showForm && (

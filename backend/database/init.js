@@ -285,6 +285,7 @@ async function initDatabase() {
       full_name TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'user',
       department_id INTEGER,
+      work_type TEXT DEFAULT 'normal',
       is_active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (department_id) REFERENCES departments(id)
@@ -536,6 +537,7 @@ async function initDatabase() {
     "ALTER TABLE leave_requests ADD COLUMN edited_at TEXT",
     "ALTER TABLE leave_requests ADD COLUMN edit_reason TEXT",
     "ALTER TABLE leave_balance ALTER COLUMN total_days TYPE DOUBLE PRECISION",
+    "ALTER TABLE users ADD COLUMN work_type TEXT DEFAULT 'normal'",
   ];
   for (const sql of alterStatements) {
     try { db.exec(sql); } catch (e) {}
