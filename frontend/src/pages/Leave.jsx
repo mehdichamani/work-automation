@@ -15,7 +15,7 @@ const statusMap = {
 };
 
 export default function Leave() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [tab, setTab] = useState('my');
   const [myRequests, setMyRequests] = useState([]);
   const [pendingSupervisor, setPendingSupervisor] = useState([]);
@@ -359,7 +359,7 @@ export default function Leave() {
     }
   };
 
-  const isSecurityUser = user.role === 'admin' || user.department_name?.includes('حراست');
+  const isSecurityUser = hasPermission('leave_security_view');
 
   const tabs = [
     { id: 'my', label: 'درخواست‌های من' },
@@ -743,6 +743,11 @@ export default function Leave() {
                           <span className="font-medium">تایید مدیر ({leave.manager_name || 'نامشخص'}):</span> {leave.manager_comment}
                         </div>
                       )}
+                      {leave.status === 'seen_security' && (
+                        <div className="text-purple-600">
+                          <span className="font-medium">رویت حراست:</span> رویت شده توسط {leave.security_name || 'حراست'} {leave.security_date ? `در ${leave.security_date}` : ''}
+                        </div>
+                      )}
                     </td>
                     <td className="p-3">
                       {leave.status === 'pending_supervisor' && (
@@ -924,6 +929,11 @@ export default function Leave() {
                       {leave.manager_comment && (
                         <div className="text-green-600">
                           <span className="font-medium">تایید مدیر ({leave.manager_name || 'نامشخص'}):</span> {leave.manager_comment}
+                        </div>
+                      )}
+                      {leave.status === 'seen_security' && (
+                        <div className="text-purple-600">
+                          <span className="font-medium">رویت حراست:</span> رویت شده توسط {leave.security_name || 'حراست'} {leave.security_date ? `در ${leave.security_date}` : ''}
                         </div>
                       )}
                     </td>

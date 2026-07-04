@@ -10,6 +10,21 @@ module.exports = function(db) {
     db.prepare('INSERT INTO notifications (user_id, title, body, link) VALUES (?, ?, ?, ?)').run(userId, title, body, link);
   }
 
+  function hasLeavePerm(user, moduleKey) {
+    if (user.role === 'admin') return true;
+    const userPerm = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(user.id, moduleKey);
+    if (userPerm !== null && userPerm !== undefined) {
+      return userPerm.is_enabled === 1;
+    }
+    if (user.department_id) {
+      const deptPerm = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL AND module_key = ?').get(user.department_id, moduleKey);
+      if (deptPerm !== null && deptPerm !== undefined) {
+        return deptPerm.is_enabled === 1;
+      }
+    }
+    return false;
+  }
+
   function calcDays(start, end) {
     const s = moment(start, 'jYYYY/jMM/jDD');
     const e = moment(end, 'jYYYY/jMM/jDD');
@@ -132,6 +147,9 @@ module.exports = function(db) {
   });
 
   router.get('/security', (req, res) => {
+    if (!hasLeavePerm(req.user, 'leave_security_view')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی رویت حراست را ندارید' });
+    }
     try {
       const leaves = db.prepare(`
         SELECT l.*, u.full_name as user_name, d.name as user_dept,
@@ -158,24 +176,28 @@ module.exports = function(db) {
         leaves = db.prepare(`
           SELECT l.*, u.full_name as user_name, d.name as user_dept,
                  s.full_name as supervisor_name,
-                 m.full_name as manager_name
+                 m.full_name as manager_name,
+                 sec.full_name as security_name
           FROM leave_requests l
           JOIN users u ON l.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
           LEFT JOIN users s ON l.supervisor_id = s.id
           LEFT JOIN users m ON l.manager_id = m.id
+          LEFT JOIN users sec ON l.security_id = sec.id
           ORDER BY l.created_at DESC
         `).all();
       } else if (req.user.role === 'supervisor') {
         leaves = db.prepare(`
           SELECT l.*, u.full_name as user_name, d.name as user_dept,
                  s.full_name as supervisor_name,
-                 m.full_name as manager_name
+                 m.full_name as manager_name,
+                 sec.full_name as security_name
           FROM leave_requests l
           JOIN users u ON l.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
           LEFT JOIN users s ON l.supervisor_id = s.id
           LEFT JOIN users m ON l.manager_id = m.id
+          LEFT JOIN users sec ON l.security_id = sec.id
           WHERE u.department_id = ? AND u.role != 'admin'
           ORDER BY l.created_at DESC
         `).all(req.user.department_id);
@@ -523,6 +545,9 @@ module.exports = function(db) {
   });
 
   router.put('/:id/seen-security', (req, res) => {
+    if (!hasLeavePerm(req.user, 'leave_security_view')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی رویت حراست را ندارید' });
+    }
     try {
       const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND status = 'approved'").get(req.params.id);
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
