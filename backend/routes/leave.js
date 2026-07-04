@@ -77,13 +77,15 @@ module.exports = function(db) {
                u.full_name as user_name, d.name as user_dept,
                s.full_name as supervisor_name,
                m.full_name as manager_name,
-               sec.full_name as security_name
+               sec.full_name as security_name,
+               ed.full_name as editor_name
         FROM leave_requests l
         JOIN users u ON l.user_id = u.id
         LEFT JOIN departments d ON u.department_id = d.id
         LEFT JOIN users s ON l.supervisor_id = s.id
         LEFT JOIN users m ON l.manager_id = m.id
         LEFT JOIN users sec ON l.security_id = sec.id
+        LEFT JOIN users ed ON l.edited_by = ed.id
         WHERE l.user_id = ?
         ORDER BY l.created_at DESC
       `).all(req.user.id);
@@ -172,18 +174,20 @@ module.exports = function(db) {
   router.get('/all', (req, res) => {
     try {
       let leaves;
-      if (req.user.role === 'admin' || req.user.role === 'manager') {
+      if (req.user.role === 'admin' || req.user.role === 'manager' || hasLeavePerm(req.user, 'leave_edit_after_seen')) {
         leaves = db.prepare(`
           SELECT l.*, u.full_name as user_name, d.name as user_dept,
                  s.full_name as supervisor_name,
                  m.full_name as manager_name,
-                 sec.full_name as security_name
+                 sec.full_name as security_name,
+                 ed.full_name as editor_name
           FROM leave_requests l
           JOIN users u ON l.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
           LEFT JOIN users s ON l.supervisor_id = s.id
           LEFT JOIN users m ON l.manager_id = m.id
           LEFT JOIN users sec ON l.security_id = sec.id
+          LEFT JOIN users ed ON l.edited_by = ed.id
           ORDER BY l.created_at DESC
         `).all();
       } else if (req.user.role === 'supervisor') {
@@ -191,13 +195,15 @@ module.exports = function(db) {
           SELECT l.*, u.full_name as user_name, d.name as user_dept,
                  s.full_name as supervisor_name,
                  m.full_name as manager_name,
-                 sec.full_name as security_name
+                 sec.full_name as security_name,
+                 ed.full_name as editor_name
           FROM leave_requests l
           JOIN users u ON l.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
           LEFT JOIN users s ON l.supervisor_id = s.id
           LEFT JOIN users m ON l.manager_id = m.id
           LEFT JOIN users sec ON l.security_id = sec.id
+          LEFT JOIN users ed ON l.edited_by = ed.id
           WHERE u.department_id = ? AND u.role != 'admin'
           ORDER BY l.created_at DESC
         `).all(req.user.department_id);
@@ -830,6 +836,10 @@ module.exports = function(db) {
         return res.status(400).json({ error: 'ویرایش مرخصی فقط پس از رویت حراست امکان‌پذیر است' });
       }
       
+      if (leave.edited_by) {
+        return res.status(400).json({ error: 'این مرخصی قبلاً اصلاح شده است و اصلاح مجدد آن امکان‌پذیر نیست' });
+      }
+      
       const oldVal = JSON.stringify({
         end_date: leave.end_date,
         end_time: leave.end_hour,
@@ -846,9 +856,10 @@ module.exports = function(db) {
       
       db.prepare(`
         UPDATE leave_requests 
-        SET end_date = ?, end_hour = ?, hours_count = ?, reason = ?
+        SET end_date = ?, end_hour = ?, hours_count = ?, reason = ?,
+            edited_by = ?, edited_at = datetime('now'), edit_reason = ?
         WHERE id = ?
-      `).run(end_date, end_time, hours_count, reason || leave.reason || '', leaveId);
+      `).run(end_date, end_time, hours_count, reason || leave.reason || '', req.user.id, reason || '', leaveId);
       
       // Log the change
       db.prepare(`

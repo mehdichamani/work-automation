@@ -307,11 +307,15 @@ async function initDatabase() {
       manager_date TEXT,
       security_id INTEGER,
       security_date TEXT,
+      edited_by INTEGER,
+      edited_at TEXT,
+      edit_reason TEXT,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (supervisor_id) REFERENCES users(id) ON DELETE SET NULL,
       FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL,
-      FOREIGN KEY (security_id) REFERENCES users(id) ON DELETE SET NULL
+      FOREIGN KEY (security_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (edited_by) REFERENCES users(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS leave_balance (
@@ -528,6 +532,9 @@ async function initDatabase() {
     "ALTER TABLE letters ADD COLUMN central_date TEXT",
     "ALTER TABLE letters ADD COLUMN selected_manager_id INTEGER",
     "ALTER TABLE announcements ADD COLUMN image_path TEXT",
+    "ALTER TABLE leave_requests ADD COLUMN edited_by INTEGER",
+    "ALTER TABLE leave_requests ADD COLUMN edited_at TEXT",
+    "ALTER TABLE leave_requests ADD COLUMN edit_reason TEXT",
   ];
   for (const sql of alterStatements) {
     try { db.exec(sql); } catch (e) {}

@@ -45,7 +45,8 @@ export default function Leave() {
   const [showForm, setShowForm] = useState(false);
   const [requestFor, setRequestFor] = useState('self'); // 'self' or 'subordinate'
   const [editingQuotaUserId, setEditingQuotaUserId] = useState(null);
-  const [editQuotaTotalDays, setEditQuotaTotalDays] = useState(0);
+  const [editQuotaDaysVal, setEditQuotaDaysVal] = useState(0);
+  const [editQuotaHoursVal, setEditQuotaHoursVal] = useState(0);
   const [modifyingLeave, setModifyingLeave] = useState(null);
   const [modForm, setModForm] = useState({ end_date: '', end_hour: '', hours_count: 0, reason: '', showEndCal: false });
   const [comments, setComments] = useState({}); // { [leaveId]: 'some comment' }
@@ -281,8 +282,9 @@ export default function Leave() {
 
   const saveQuotaInline = async (userId) => {
     try {
+      const calculatedTotalDays = Number(editQuotaDaysVal) + (Number(editQuotaHoursVal) / 8);
       await api.put(`/leave/balance/${userId}`, {
-        total_days: Number(editQuotaTotalDays),
+        total_days: calculatedTotalDays,
       });
       toast.success('سهمیه با موفقیت بروزرسانی شد');
       setEditingQuotaUserId(null);
@@ -444,9 +446,9 @@ export default function Leave() {
     ...(isSecurityUser ? [
       { id: 'security', label: `رویت حراست (${securityList.length})` },
     ] : []),
-    ...((user.role === 'supervisor' || user.role === 'manager' || user.role === 'admin') ? [
-      { id: 'all', label: user.role === 'supervisor' ? 'وضعیت مرخصی پرسنل واحد' : 'همه درخواست‌ها' },
-      { id: 'balance', label: user.role === 'supervisor' ? 'مانده مرخصی پرسنل واحد' : 'مانده مرخصی کارکنان' },
+    ...((user.role === 'supervisor' || user.role === 'manager' || user.role === 'admin' || hasPermission('leave_edit_after_seen')) ? [
+      { id: 'all', label: (user.role === 'supervisor' && !hasPermission('leave_edit_after_seen')) ? 'وضعیت مرخصی پرسنل واحد' : 'همه درخواست‌ها' },
+      { id: 'balance', label: (user.role === 'supervisor' && !hasPermission('leave_edit_after_seen')) ? 'مانده مرخصی پرسنل واحد' : 'مانده مرخصی کارکنان' },
     ] : []),
     ...((user.role === 'admin' || hasPermission('leave_quota_manage')) ? [
       { id: 'quota_manage', label: 'مدیریت سهمیه‌ها' }
@@ -1015,7 +1017,7 @@ export default function Leave() {
                         >
                           🔍 نمایش جزئیات
                         </button>
-                        {(leave.status === 'seen_security' && (user.role === 'admin' || hasPermission('leave_edit_after_seen'))) && (
+                        {(leave.status === 'seen_security' && !leave.edited_by && (user.role === 'admin' || hasPermission('leave_edit_after_seen'))) && (
                           <button 
                             onClick={() => openModifyLeave(leave)} 
                             className="bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border border-yellow-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
@@ -1101,23 +1103,43 @@ export default function Leave() {
                 </thead>
                 <tbody>
                   {balanceAll.map(b => {
-                    const isEditing = b.user_id === editingQuotaUserId;
+                    const isEditing = Number(b.user_id) == Number(editingQuotaUserId);
+                    const totalDaysOnly = Math.floor(b.total_days || 0);
+                    const totalHoursOnly = Math.round(((b.total_days || 0) % 1) * 8 * 10) / 10;
                     return (
                       <tr key={b.user_id} className="border-t hover:bg-gray-50">
                         <td className="p-3 font-bold">{b.full_name}</td>
                         <td className="p-3">{b.department_name || 'بدون واحد'}</td>
                         <td className="p-3">
                           {isEditing ? (
-                            <input
-                              type="number"
-                              min="0"
-                              value={editQuotaTotalDays}
-                              onChange={(e) => setEditQuotaTotalDays(Number(e.target.value))}
-                              className="w-24 px-2 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-                              required
-                            />
+                            <div className="flex gap-2 items-center">
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="روز"
+                                value={editQuotaDaysVal}
+                                onChange={(e) => setEditQuotaDaysVal(Number(e.target.value))}
+                                className="w-16 px-2 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                                required
+                              />
+                              <span className="text-xs text-gray-500">روز و</span>
+                              <input
+                                type="number"
+                                min="0"
+                                max="7.5"
+                                step="0.5"
+                                placeholder="ساعت"
+                                value={editQuotaHoursVal}
+                                onChange={(e) => setEditQuotaHoursVal(Number(e.target.value))}
+                                className="w-20 px-2 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                                required
+                              />
+                              <span className="text-xs text-gray-500">ساعت</span>
+                            </div>
                           ) : (
-                            <span className="font-semibold">{b.total_days} روز</span>
+                            <span className="font-semibold">
+                              {totalDaysOnly} روز{totalHoursOnly > 0 ? ` و ${totalHoursOnly} ساعت` : ''}
+                            </span>
                           )}
                         </td>
                         <td className="p-3 text-red-500 font-medium">
@@ -1147,7 +1169,8 @@ export default function Leave() {
                             <button
                               onClick={() => {
                                 setEditingQuotaUserId(b.user_id);
-                                setEditQuotaTotalDays(b.total_days || 0);
+                                setEditQuotaDaysVal(Math.floor(b.total_days || 0));
+                                setEditQuotaHoursVal(Math.round(((b.total_days || 0) % 1) * 8 * 10) / 10);
                               }}
                               className="bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
                             >
@@ -1426,6 +1449,22 @@ export default function Leave() {
                       );
                     })()}
                   </div>
+                  {selectedLeave.edited_by && (
+                    <div className="relative">
+                      <div className="absolute right-[-31px] top-1.5 w-4 h-4 rounded-full bg-amber-500 border-4 border-white shadow"></div>
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">اصلاح و کاهش مدت مرخصی</p>
+                        <p className="text-xs text-gray-500 mt-0.5">کارکرد مرخصی پس از رویت حراست اصلاح گردید</p>
+                        <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-200 mt-2 text-xs space-y-1">
+                          <p><span className="text-gray-400">اصلاح‌کننده:</span> <span className="font-medium text-gray-800">{selectedLeave.editor_name || 'نامشخص'}</span></p>
+                          <p><span className="text-gray-400">علت اصلاح:</span> <span className="font-medium text-gray-800">{selectedLeave.edit_reason}</span></p>
+                          {selectedLeave.edited_at && (
+                            <p><span className="text-gray-400">تاریخ و ساعت اصلاح:</span> <span className="font-medium text-gray-800 font-mono bg-white px-1.5 py-0.5 rounded border" dir="ltr">{formatDateTime(selectedLeave.edited_at)}</span></p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
