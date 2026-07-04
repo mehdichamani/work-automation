@@ -14,6 +14,17 @@ const statusMap = {
   seen_security: { text: 'رویت شده (حراست)', color: 'bg-purple-100 text-purple-700' },
 };
 
+// فرمت‌بندی تاریخ و ساعت از فرمت ISO/SQLite
+function formatDateTime(dt) {
+  if (!dt) return null;
+  // format: 'YYYY-MM-DD HH:MM:SS' or ISO string
+  const clean = dt.replace('T', ' ').replace('Z', '');
+  const parts = clean.split(' ');
+  const datePart = parts[0] || '';
+  const timePart = parts[1] ? parts[1].substring(0, 5) : '';
+  return timePart ? `${datePart} — ساعت ${timePart}` : datePart;
+}
+
 export default function Leave() {
   const { user, hasPermission } = useAuth();
   const [tab, setTab] = useState('my');
@@ -902,6 +913,7 @@ export default function Leave() {
                   <th className="p-3 text-right">از</th>
                   <th className="p-3 text-right">تا</th>
                   <th className="p-3 text-right">روزها</th>
+                  <th className="p-3 text-right">تاریخ ثبت</th>
                   <th className="p-3 text-right">وضعیت</th>
                   <th className="p-3 text-right">عملیات</th>
                 </tr>
@@ -915,6 +927,11 @@ export default function Leave() {
                     <td className="p-3" dir="ltr">{leave.start_date}</td>
                     <td className="p-3" dir="ltr">{leave.end_date}</td>
                     <td className="p-3 font-bold">{leave.days_count}</td>
+                    <td className="p-3 text-xs text-gray-500" dir="ltr">
+                      {leave.created_at ? (
+                        <span className="whitespace-nowrap">{formatDateTime(leave.created_at)}</span>
+                      ) : '—'}
+                    </td>
                     <td className="p-3">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusMap[leave.status]?.color}`}>
                         {statusMap[leave.status]?.text}
@@ -1116,7 +1133,7 @@ export default function Leave() {
                       <p className="text-sm font-bold text-gray-800">ثبت درخواست</p>
                       <p className="text-xs text-gray-500 mt-0.5">ثبت شده در سیستم</p>
                       {selectedLeave.created_at && (
-                        <p className="text-xs text-gray-400 mt-1" dir="ltr">{selectedLeave.created_at}</p>
+                        <p className="text-xs text-gray-400 mt-1 font-mono bg-gray-50 px-2 py-0.5 rounded inline-block" dir="ltr">{formatDateTime(selectedLeave.created_at)}</p>
                       )}
                     </div>
                   </div>
@@ -1158,7 +1175,7 @@ export default function Leave() {
                               <div className="bg-gray-50 p-3 rounded-xl border mt-2 text-xs space-y-1">
                                 <p><span className="text-gray-400">سرپرست:</span> <span className="font-medium text-gray-800">{selectedLeave.supervisor_name || 'نامشخص'}</span></p>
                                 {hasComment && <p><span className="text-gray-400">توضیح/علت:</span> <span className="font-medium text-gray-800">{hasComment}</span></p>}
-                                {hasDate && <p><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-medium text-gray-800" dir="ltr">{hasDate}</span></p>}
+                                {hasDate && <p><span className="text-gray-400">تاریخ و ساعت اقدام:</span> <span className="font-medium text-gray-800 font-mono bg-white px-1.5 py-0.5 rounded border" dir="ltr">{formatDateTime(hasDate)}</span></p>}
                               </div>
                             )}
                           </div>
@@ -1202,7 +1219,7 @@ export default function Leave() {
                               <div className="bg-gray-50 p-3 rounded-xl border mt-2 text-xs space-y-1">
                                 <p><span className="text-gray-400">مدیر:</span> <span className="font-medium text-gray-800">{selectedLeave.manager_name || 'نامشخص'}</span></p>
                                 {hasComment && <p><span className="text-gray-400">توضیح/علت:</span> <span className="font-medium text-gray-800">{hasComment}</span></p>}
-                                {hasDate && <p><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-medium text-gray-800" dir="ltr">{hasDate}</span></p>}
+                                {hasDate && <p><span className="text-gray-400">تاریخ و ساعت اقدام:</span> <span className="font-medium text-gray-800 font-mono bg-white px-1.5 py-0.5 rounded border" dir="ltr">{formatDateTime(hasDate)}</span></p>}
                               </div>
                             )}
                           </div>
@@ -1239,7 +1256,7 @@ export default function Leave() {
                             {showDetail && (
                               <div className="bg-gray-50 p-3 rounded-xl border mt-2 text-xs space-y-1">
                                 <p><span className="text-gray-400">مامور حراست:</span> <span className="font-medium text-gray-800">{selectedLeave.security_name || 'حراست'}</span></p>
-                                {selectedLeave.security_date && <p><span className="text-gray-400">زمان رویت:</span> <span className="font-medium text-gray-800" dir="ltr">{selectedLeave.security_date}</span></p>}
+                                {selectedLeave.security_date && <p><span className="text-gray-400">تاریخ و ساعت رویت:</span> <span className="font-medium text-gray-800 font-mono bg-white px-1.5 py-0.5 rounded border" dir="ltr">{formatDateTime(selectedLeave.security_date)}</span></p>}
                               </div>
                             )}
                           </div>
