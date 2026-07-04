@@ -1280,87 +1280,117 @@ export default function Leave() {
               </button>
             </div>
 
-            {/* Modal Content */}
-            <div className="p-6 space-y-6 flex-1">
-              {/* Card info */}
-              <div className="grid grid-cols-2 gap-4 bg-primary-50/40 p-4 rounded-2xl border border-primary-100 text-sm">
-                <div>
-                  <span className="text-gray-500 block mb-1">نوع مرخصی:</span>
-                  <span className="font-bold text-gray-800">{selectedLeave.leave_type}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500 block mb-1">مدت زمان درخواست:</span>
-                  <span className="font-bold text-gray-800">{selectedLeave.days_count}</span>
-                </div>
-                <div className="col-span-2 border-t pt-2 mt-2">
-                  <span className="text-gray-500 block mb-1">بازه زمانی:</span>
-                  <span className="font-bold text-gray-800" dir="ltr">
-                    {selectedLeave.start_date} ساعت {selectedLeave.start_hour} تا {selectedLeave.end_date} ساعت {selectedLeave.end_hour}
+             {/* Modal Content */}
+             <div className="p-6 space-y-6 flex-1">
+              {/* Beautiful Summary Card */}
+              <div className="bg-gradient-to-br from-gray-50 to-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+                <div className="flex justify-between items-center pb-3 border-b border-gray-100">
+                  <div className="flex items-center gap-3">
+                    <span className="w-2.5 h-2.5 rounded-full bg-primary-500 animate-pulse"></span>
+                    <span className="font-bold text-gray-800 text-base">{selectedLeave.leave_type}</span>
+                  </div>
+                  <span className="bg-primary-50 text-primary-700 px-3 py-1 rounded-xl text-xs font-bold border border-primary-100">
+                    مدت: {selectedLeave.days_count}
                   </span>
                 </div>
-                {selectedLeave.reason && (
-                  <div className="col-span-2 border-t pt-2 mt-2">
-                    <span className="text-gray-500 block mb-1">دلیل ثبت‌شده کاربر:</span>
-                    <span className="text-gray-800 font-medium bg-white px-3 py-1.5 rounded-lg border inline-block w-full">{selectedLeave.reason}</span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="space-y-1 bg-gray-50/50 p-3 rounded-xl border border-gray-100">
+                    <span className="text-gray-400 block font-medium">بازه زمانی مرخصی:</span>
+                    <span className="font-bold text-gray-700 block" dir="ltr">
+                      {selectedLeave.start_date} — ساعت {selectedLeave.start_hour}
+                    </span>
+                    <span className="text-gray-400 block text-[10px]">تا</span>
+                    <span className="font-bold text-gray-700 block" dir="ltr">
+                      {selectedLeave.end_date} — ساعت {selectedLeave.end_hour}
+                    </span>
                   </div>
-                )}
+                  {selectedLeave.reason && (
+                    <div className="space-y-1 bg-gray-50/50 p-3 rounded-xl border border-gray-100 flex flex-col justify-between">
+                      <div>
+                        <span className="text-gray-400 block font-medium mb-1">علت و توضیحات درخواست:</span>
+                        <span className="text-gray-600 font-medium leading-relaxed block">{selectedLeave.reason}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Timeline */}
-              <div className="space-y-4">
-                <h4 className="font-bold text-gray-700 text-sm mb-4">مراحل تایید و چرخه درخواست</h4>
+              <div className="space-y-4 pt-2">
+                <h4 className="font-bold text-gray-800 text-sm flex items-center gap-2 mb-4">
+                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                  مراحل تایید و چرخه درخواست
+                </h4>
                 
-                <div className="relative border-r-2 border-gray-100 mr-3 pr-6 space-y-6">
+                <div className="relative border-r-2 border-gray-100 mr-4 pr-6 space-y-6">
                   {/* Step 1: Request Submission */}
-                  <div className="relative">
-                    <div className="absolute right-[-31px] top-1.5 w-4 h-4 rounded-full bg-blue-500 border-4 border-white shadow"></div>
-                    <div>
-                      <p className="text-sm font-bold text-gray-800">ثبت درخواست</p>
-                      <p className="text-xs text-gray-500 mt-0.5">ثبت شده در سیستم</p>
+                  <div className="relative group">
+                    <div className="absolute right-[-32px] top-1 w-4 h-4 rounded-full bg-blue-500 border-4 border-white shadow transition-all group-hover:scale-110"></div>
+                    <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-blue-200 transition-all">
+                      <div className="flex justify-between items-center">
+                        <p className="text-sm font-bold text-gray-800">۱. ثبت درخواست</p>
+                        <span className="bg-blue-50 text-blue-700 text-[10px] px-2 py-0.5 rounded-lg font-bold">انجام شده</span>
+                      </div>
+                      <p className="text-xs text-gray-500">درخواست توسط کاربر در سیستم ثبت گردید.</p>
                       {selectedLeave.created_at && (
-                        <p className="text-xs text-gray-400 mt-1 font-mono bg-gray-50 px-2 py-0.5 rounded inline-block" dir="ltr">{formatDateTime(selectedLeave.created_at)}</p>
+                        <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mt-2 font-mono bg-gray-50 px-2 py-1 rounded-lg border w-fit" dir="ltr">
+                          <span>📅</span> {formatDateTime(selectedLeave.created_at)}
+                        </div>
                       )}
                     </div>
                   </div>
 
                   {/* Step 2: Supervisor Approval */}
-                  <div className="relative">
+                  <div className="relative group">
                     {(() => {
                       const hasComment = selectedLeave.supervisor_comment;
                       const hasDate = selectedLeave.supervisor_date;
                       let statusText = 'در انتظار بررسی سرپرست';
                       let statusColor = 'bg-gray-300';
+                      let badgeColor = 'bg-gray-50 text-gray-500';
+                      let badgeText = 'در انتظار اقدام';
                       let showDetail = false;
 
                       if (selectedLeave.status === 'pending_supervisor') {
-                        statusText = 'در انتظار بررسی سرپرست';
+                        statusText = 'در انتظار بررسی سرپرست واحد';
                         statusColor = 'bg-yellow-500';
+                        badgeColor = 'bg-yellow-50 text-yellow-700';
+                        badgeText = 'در حال بررسی';
                       } else {
                         if (selectedLeave.supervisor_id || hasDate || hasComment) {
-                          statusText = 'بررسی و تایید شده توسط سرپرست';
+                          statusText = 'بررسی و تایید شده توسط سرپرست واحد';
                           statusColor = 'bg-green-500';
+                          badgeColor = 'bg-green-50 text-green-700';
+                          badgeText = 'تایید شده';
                           showDetail = true;
                         } else if (selectedLeave.status === 'rejected' && !selectedLeave.manager_id) {
-                          statusText = 'رد شده توسط سرپرست';
+                          statusText = 'رد شده توسط سرپرست واحد';
                           statusColor = 'bg-red-500';
+                          badgeColor = 'bg-red-50 text-red-700';
+                          badgeText = 'رد شده';
                           showDetail = true;
                         } else {
                           statusText = 'عبور از مرحله سرپرست (ثبت مستقیم توسط مدیریت)';
                           statusColor = 'bg-blue-400';
+                          badgeColor = 'bg-blue-50 text-blue-700';
+                          badgeText = 'تایید مستقیم';
                         }
                       }
 
                       return (
                         <>
-                          <div className={`absolute right-[-31px] top-1.5 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow`}></div>
-                          <div>
-                            <p className="text-sm font-bold text-gray-800">بررسی سرپرست واحد</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{statusText}</p>
+                          <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
+                          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
+                            <div className="flex justify-between items-center">
+                              <p className="text-sm font-bold text-gray-800">۲. بررسی سرپرست واحد</p>
+                              <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
+                            </div>
+                            <p className="text-xs text-gray-500">{statusText}</p>
                             {showDetail && (
-                              <div className="bg-gray-50 p-3 rounded-xl border mt-2 text-xs space-y-1">
-                                <p><span className="text-gray-400">سرپرست:</span> <span className="font-medium text-gray-800">{selectedLeave.supervisor_name || 'نامشخص'}</span></p>
-                                {hasComment && <p><span className="text-gray-400">توضیح/علت:</span> <span className="font-medium text-gray-800">{hasComment}</span></p>}
-                                {hasDate && <p><span className="text-gray-400">تاریخ و ساعت اقدام:</span> <span className="font-medium text-gray-800 font-mono bg-white px-1.5 py-0.5 rounded border" dir="ltr">{formatDateTime(hasDate)}</span></p>}
+                              <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
+                                <p><span className="text-gray-400">نام سرپرست:</span> <span className="font-semibold text-gray-700">{selectedLeave.supervisor_name || 'نامشخص'}</span></p>
+                                {hasComment && <p><span className="text-gray-400">علت/توضیح:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
+                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{formatDateTime(hasDate)}</span></p>}
                               </div>
                             )}
                           </div>
@@ -1370,41 +1400,54 @@ export default function Leave() {
                   </div>
 
                   {/* Step 3: Manager Approval */}
-                  <div className="relative">
+                  <div className="relative group">
                     {(() => {
                       const hasComment = selectedLeave.manager_comment;
                       const hasDate = selectedLeave.manager_date;
                       let statusText = 'در انتظار بررسی مدیر';
                       let statusColor = 'bg-gray-300';
+                      let badgeColor = 'bg-gray-50 text-gray-500';
+                      let badgeText = 'در انتظار اقدام';
                       let showDetail = false;
 
                       if (selectedLeave.status === 'pending_supervisor') {
                         statusText = 'در انتظار تایید سرپرست (پیش‌نیاز)';
                         statusColor = 'bg-gray-200';
+                        badgeColor = 'bg-gray-50 text-gray-400';
+                        badgeText = 'غیرفعال';
                       } else if (selectedLeave.status === 'pending_manager') {
-                        statusText = 'در انتظار بررسی مدیر';
+                        statusText = 'در انتظار بررسی مدیر نهایی';
                         statusColor = 'bg-yellow-500';
+                        badgeColor = 'bg-yellow-50 text-yellow-700';
+                        badgeText = 'در حال بررسی';
                       } else if (selectedLeave.status === 'approved' || selectedLeave.status === 'seen_security') {
                         statusText = 'تایید شده نهایی توسط مدیر';
                         statusColor = 'bg-green-500';
+                        badgeColor = 'bg-green-50 text-green-700';
+                        badgeText = 'تایید شده';
                         showDetail = true;
                       } else if (selectedLeave.status === 'rejected' && (selectedLeave.manager_id || hasComment)) {
                         statusText = 'رد شده نهایی توسط مدیر';
                         statusColor = 'bg-red-500';
+                        badgeColor = 'bg-red-50 text-red-700';
+                        badgeText = 'رد شده';
                         showDetail = true;
                       }
 
                       return (
                         <>
-                          <div className={`absolute right-[-31px] top-1.5 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow`}></div>
-                          <div>
-                            <p className="text-sm font-bold text-gray-800">بررسی مدیریت</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{statusText}</p>
+                          <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
+                          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
+                            <div className="flex justify-between items-center">
+                              <p className="text-sm font-bold text-gray-800">۳. بررسی مدیریت</p>
+                              <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
+                            </div>
+                            <p className="text-xs text-gray-500">{statusText}</p>
                             {showDetail && (
-                              <div className="bg-gray-50 p-3 rounded-xl border mt-2 text-xs space-y-1">
-                                <p><span className="text-gray-400">مدیر:</span> <span className="font-medium text-gray-800">{selectedLeave.manager_name || 'نامشخص'}</span></p>
-                                {hasComment && <p><span className="text-gray-400">توضیح/علت:</span> <span className="font-medium text-gray-800">{hasComment}</span></p>}
-                                {hasDate && <p><span className="text-gray-400">تاریخ و ساعت اقدام:</span> <span className="font-medium text-gray-800 font-mono bg-white px-1.5 py-0.5 rounded border" dir="ltr">{formatDateTime(hasDate)}</span></p>}
+                              <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
+                                <p><span className="text-gray-400">نام مدیر:</span> <span className="font-semibold text-gray-700">{selectedLeave.manager_name || 'نامشخص'}</span></p>
+                                {hasComment && <p><span className="text-gray-400">توضیح/علت:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
+                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{formatDateTime(hasDate)}</span></p>}
                               </div>
                             )}
                           </div>
@@ -1414,34 +1457,45 @@ export default function Leave() {
                   </div>
 
                   {/* Step 4: Security View */}
-                  <div className="relative">
+                  <div className="relative group">
                     {(() => {
                       let statusText = 'در انتظار رویت حراست';
                       let statusColor = 'bg-gray-300';
+                      let badgeColor = 'bg-gray-50 text-gray-500';
+                      let badgeText = 'در انتظار اقدام';
                       let showDetail = false;
 
                       if (selectedLeave.status === 'seen_security') {
                         statusText = 'رویت و تایید شده توسط حراست (ثبت خروج)';
                         statusColor = 'bg-purple-500';
+                        badgeColor = 'bg-purple-50 text-purple-700';
+                        badgeText = 'رویت شده';
                         showDetail = true;
                       } else if (selectedLeave.status === 'approved') {
                         statusText = 'در انتظار رویت حراست (گیت خروجی)';
                         statusColor = 'bg-yellow-500';
+                        badgeColor = 'bg-yellow-50 text-yellow-700';
+                        badgeText = 'در انتظار خروج';
                       } else {
                         statusText = 'در انتظار تایید نهایی مرخصی (پیش‌نیاز)';
                         statusColor = 'bg-gray-200';
+                        badgeColor = 'bg-gray-50 text-gray-400';
+                        badgeText = 'غیرفعال';
                       }
 
                       return (
                         <>
-                          <div className={`absolute right-[-31px] top-1.5 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow`}></div>
-                          <div>
-                            <p className="text-sm font-bold text-gray-800">رویت حراست / گیت خروج</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{statusText}</p>
+                          <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
+                          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
+                            <div className="flex justify-between items-center">
+                              <p className="text-sm font-bold text-gray-800">۴. رویت حراست / گیت خروج</p>
+                              <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
+                            </div>
+                            <p className="text-xs text-gray-500">{statusText}</p>
                             {showDetail && (
-                              <div className="bg-gray-50 p-3 rounded-xl border mt-2 text-xs space-y-1">
-                                <p><span className="text-gray-400">مامور حراست:</span> <span className="font-medium text-gray-800">{selectedLeave.security_name || 'حراست'}</span></p>
-                                {selectedLeave.security_date && <p><span className="text-gray-400">تاریخ و ساعت رویت:</span> <span className="font-medium text-gray-800 font-mono bg-white px-1.5 py-0.5 rounded border" dir="ltr">{formatDateTime(selectedLeave.security_date)}</span></p>}
+                              <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
+                                <p><span className="text-gray-400">مامور حراست:</span> <span className="font-semibold text-gray-700">{selectedLeave.security_name || 'حراست'}</span></p>
+                                {selectedLeave.security_date && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ رویت:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{formatDateTime(selectedLeave.security_date)}</span></p>}
                               </div>
                             )}
                           </div>
@@ -1449,17 +1503,22 @@ export default function Leave() {
                       );
                     })()}
                   </div>
+
+                  {/* Step 5: Leave Correction (Optional) */}
                   {selectedLeave.edited_by && (
-                    <div className="relative">
-                      <div className="absolute right-[-31px] top-1.5 w-4 h-4 rounded-full bg-amber-500 border-4 border-white shadow"></div>
-                      <div>
-                        <p className="text-sm font-bold text-gray-800">اصلاح و کاهش مدت مرخصی</p>
-                        <p className="text-xs text-gray-500 mt-0.5">کارکرد مرخصی پس از رویت حراست اصلاح گردید</p>
-                        <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-200 mt-2 text-xs space-y-1">
-                          <p><span className="text-gray-400">اصلاح‌کننده:</span> <span className="font-medium text-gray-800">{selectedLeave.editor_name || 'نامشخص'}</span></p>
-                          <p><span className="text-gray-400">علت اصلاح:</span> <span className="font-medium text-gray-800">{selectedLeave.edit_reason}</span></p>
+                    <div className="relative group">
+                      <div className="absolute right-[-32px] top-1 w-4 h-4 rounded-full bg-amber-500 border-4 border-white shadow transition-all group-hover:scale-110"></div>
+                      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-amber-200 transition-all">
+                        <div className="flex justify-between items-center">
+                          <p className="text-sm font-bold text-gray-800">۵. اصلاح و کاهش مدت مرخصی</p>
+                          <span className="bg-amber-50 text-amber-700 text-[10px] px-2 py-0.5 rounded-lg font-bold">اصلاح شده</span>
+                        </div>
+                        <p className="text-xs text-gray-500">کارکرد مرخصی پس از رویت حراست اصلاح گردید.</p>
+                        <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-200 mt-2 text-xs space-y-1.5">
+                          <p><span className="text-gray-400">اصلاح‌کننده:</span> <span className="font-semibold text-gray-700">{selectedLeave.editor_name || 'نامشخص'}</span></p>
+                          <p><span className="text-gray-400">علت اصلاح:</span> <span className="font-semibold text-gray-700">{selectedLeave.edit_reason}</span></p>
                           {selectedLeave.edited_at && (
-                            <p><span className="text-gray-400">تاریخ و ساعت اصلاح:</span> <span className="font-medium text-gray-800 font-mono bg-white px-1.5 py-0.5 rounded border" dir="ltr">{formatDateTime(selectedLeave.edited_at)}</span></p>
+                            <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اصلاح:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{formatDateTime(selectedLeave.edited_at)}</span></p>
                           )}
                         </div>
                       </div>
@@ -1545,9 +1604,14 @@ export default function Leave() {
                       className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
                     >
                       <option value="">انتخاب ساعت</option>
-                      {Array.from({ length: 9 }, (_, i) => i + 8).map(h => (
-                        <option key={h} value={`${String(h).padStart(2, '0')}:00`}>{String(h).padStart(2, '0')}:00</option>
-                      ))}
+                      {Array.from({ length: 19 }, (_, i) => {
+                        const h = Math.floor(i / 2) + 8;
+                        const m = i % 2 === 0 ? '00' : '30';
+                        const time = `${String(h).padStart(2, '0')}:${m}`;
+                        return (
+                          <option key={time} value={time}>{time}</option>
+                        );
+                      })}
                     </select>
                   </div>
 
@@ -1585,6 +1649,7 @@ export default function Leave() {
                     <input
                       type="number"
                       min="0"
+                      step="any"
                       value={modForm.hours_count}
                       onChange={(e) => setModForm({ ...modForm, hours_count: Number(e.target.value) })}
                       className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none font-semibold text-center text-lg"
