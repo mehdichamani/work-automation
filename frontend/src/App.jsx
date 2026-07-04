@@ -14,11 +14,12 @@ const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 const JobApplication = lazy(() => import('./pages/JobApplication'));
 const Shifts = lazy(() => import('./pages/Shifts'));
 
-function PrivateRoute({ children, allowedRoles }) {
-  const { user, loading } = useAuth();
+function PrivateRoute({ children, allowedRoles, requiredPermission }) {
+  const { user, loading, hasPermission } = useAuth();
   if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-lg">در حال بارگذاری...</div></div>;
   if (!user) return <Navigate to="/login" />;
   if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/" />;
+  if (requiredPermission && !hasPermission(requiredPermission)) return <Navigate to="/" />;
   return <Layout>{children}</Layout>;
 }
 
@@ -37,7 +38,7 @@ function App() {
           <Route path="/restaurant" element={<PrivateRoute><Restaurant /></PrivateRoute>} />
           <Route path="/admin" element={<PrivateRoute allowedRoles={['admin']}><AdminPanel /></PrivateRoute>} />
           <Route path="/job-application" element={<PrivateRoute><JobApplication /></PrivateRoute>} />
-          <Route path="/shifts" element={<PrivateRoute><Shifts /></PrivateRoute>} />
+          <Route path="/shifts" element={<PrivateRoute requiredPermission="shifts_manage"><Shifts /></PrivateRoute>} />
         </Routes>
         </Suspense>
       </BrowserRouter>
