@@ -396,7 +396,12 @@ export default function Leave() {
           <h2 className="text-xl font-bold">مدیریت مرخصی</h2>
           {balance && (
             <p className="text-sm text-gray-500 mt-1">
-              مانده مرخصی شما: <span className="font-bold text-green-600">{balance.remaining_days} روز و {balance.remaining_hours_only} ساعت</span> از {balance.total_days} روز
+              مانده مرخصی شما:{' '}
+              <span className={`font-bold ${balance.is_negative ? 'text-red-600' : 'text-green-600'}`}>
+                {balance.is_negative ? 'منفی ' : ''}
+                {Math.abs(balance.remaining_days)} روز و {balance.remaining_hours_only} ساعت
+              </span>{' '}
+              از {balance.total_days} روز
             </p>
           )}
         </div>
@@ -971,7 +976,7 @@ export default function Leave() {
               ], balanceAll.map(b => ({
                 ...b,
                 used_days: `${b.used_days_display} روز و ${b.used_hours_display} ساعت`,
-                remaining_days: `${b.remaining_days} روز و ${b.remaining_hours_only} ساعت`
+                remaining_days: `${b.is_negative ? 'منفی ' : ''}${Math.abs(b.remaining_days)} روز و ${b.remaining_hours_only} ساعت`
               })))} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
                 چاپ
@@ -994,7 +999,10 @@ export default function Leave() {
                     <td className="p-3">{b.department_name}</td>
                     <td className="p-3">{b.total_days}</td>
                     <td className="p-3 text-red-500">{b.used_days_display} روز و {b.used_hours_display} ساعت</td>
-                    <td className="p-3 text-green-600 font-bold">{b.remaining_days} روز و {b.remaining_hours_only} ساعت</td>
+                    <td className={`p-3 font-bold ${b.is_negative ? 'text-red-500' : 'text-green-600'}`}>
+                      {b.is_negative ? 'منفی ' : ''}
+                      {Math.abs(b.remaining_days)} روز و {b.remaining_hours_only} ساعت
+                    </td>
                   </tr>
                 ))}
               </tbody>

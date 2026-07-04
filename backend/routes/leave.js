@@ -300,15 +300,8 @@ module.exports = function(db) {
       }
 
       const balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(targetUserId);
-      if (balance) {
-        const totalHours = balance.total_days * 8;
-        if ((balance.used_hours + leaveHours) > totalHours) {
-          const rem = totalHours - balance.used_hours;
-          const remDays = Math.floor(rem / 8);
-          const remHrs = rem % 8;
-          const userMsg = targetUserId === req.user.id ? 'شما' : 'کاربر';
-          return res.status(400).json({ error: `مانده مرخصی کافی نیست. مانده ${userMsg}: ${remDays} روز و ${remHrs} ساعت` });
-        }
+      if (!balance) {
+        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)').run(targetUserId);
       }
 
       const result = db.prepare(`
@@ -511,6 +504,10 @@ module.exports = function(db) {
         WHERE id = ?
       `).run(req.user.id, comment || '', req.params.id);
 
+      const balanceExists = db.prepare('SELECT 1 FROM leave_balance WHERE user_id = ?').get(leave.user_id);
+      if (!balanceExists) {
+        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)').run(leave.user_id);
+      }
       db.prepare('UPDATE leave_balance SET used_hours = used_hours + ? WHERE user_id = ?').run(leave.hours_count, leave.user_id);
 
       notify(leave.user_id, 'تایید نهایی مرخصی', `مرخصی شما توسط مدیر تایید شد`, '/leave');
@@ -717,12 +714,15 @@ module.exports = function(db) {
       
       const totalHours = balance.total_days * 8;
       const remainingHours = totalHours - balance.used_hours;
+      const isNegative = remainingHours < 0;
+      const absRemaining = Math.abs(remainingHours);
       
       res.json({
         total_days: balance.total_days,
         used_hours: balance.used_hours,
-        remaining_days: Math.floor(remainingHours / 8),
-        remaining_hours_only: remainingHours % 8,
+        remaining_days: isNegative ? -Math.floor(absRemaining / 8) : Math.floor(absRemaining / 8),
+        remaining_hours_only: absRemaining % 8,
+        is_negative: isNegative ? 1 : 0,
         used_days_display: Math.floor(balance.used_hours / 8),
         used_hours_display: balance.used_hours % 8
       });
@@ -759,10 +759,13 @@ module.exports = function(db) {
       res.json(balances.map(b => {
         const totalHours = b.total_days * 8;
         const remainingHours = totalHours - b.used_hours;
+        const isNegative = remainingHours < 0;
+        const absRemaining = Math.abs(remainingHours);
         return {
           ...b,
-          remaining_days: Math.floor(remainingHours / 8),
-          remaining_hours_only: remainingHours % 8,
+          remaining_days: isNegative ? -Math.floor(absRemaining / 8) : Math.floor(absRemaining / 8),
+          remaining_hours_only: absRemaining % 8,
+          is_negative: isNegative ? 1 : 0,
           used_days_display: Math.floor(b.used_hours / 8),
           used_hours_display: b.used_hours % 8
         };
