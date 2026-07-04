@@ -359,11 +359,15 @@ export default function Leave() {
     }
   };
 
+  const isSecurityUser = user.role === 'admin' || user.department_name?.includes('حراست');
+
   const tabs = [
     { id: 'my', label: 'درخواست‌های من' },
     ...((user.role === 'supervisor' || user.role === 'admin') ? [{ id: 'supervisor', label: `تایید سرپرست (${pendingSupervisor.length})` }] : []),
     ...((user.role === 'manager' || user.role === 'admin') ? [
       { id: 'manager', label: `تایید مدیر (${pendingManager.length})` },
+    ] : []),
+    ...(isSecurityUser ? [
       { id: 'security', label: `رویت حراست (${securityList.length})` },
     ] : []),
     ...((user.role === 'supervisor' || user.role === 'manager' || user.role === 'admin') ? [
