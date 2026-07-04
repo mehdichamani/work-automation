@@ -721,7 +721,23 @@ export default function Leave() {
                         {statusMap[leave.status]?.text}
                       </span>
                     </td>
-                    <td className="p-3 text-gray-500 text-xs">{leave.supervisor_comment || leave.manager_comment || leave.reason}</td>
+                    <td className="p-3 text-gray-500 text-xs space-y-1">
+                      {leave.reason && (
+                        <div>
+                          <span className="font-medium text-gray-600">دلیل:</span> {leave.reason}
+                        </div>
+                      )}
+                      {leave.supervisor_comment && (
+                        <div className="text-blue-600">
+                          <span className="font-medium">تایید سرپرست ({leave.supervisor_name || 'نامشخص'}):</span> {leave.supervisor_comment}
+                        </div>
+                      )}
+                      {leave.manager_comment && (
+                        <div className="text-green-600">
+                          <span className="font-medium">تایید مدیر ({leave.manager_name || 'نامشخص'}):</span> {leave.manager_comment}
+                        </div>
+                      )}
+                    </td>
                     <td className="p-3">
                       {leave.status === 'pending_supervisor' && (
                         <div className="flex gap-2">
@@ -777,7 +793,11 @@ export default function Leave() {
                     <p className="font-bold">{leave.user_name}</p>
                     <p className="text-sm text-gray-500">{leave.user_dept} | سرپرست: {leave.supervisor_name}</p>
                     <p className="text-sm mt-2">{leave.leave_type} - {leave.days_count} روز ({leave.start_date} تا {leave.end_date})</p>
-                    {leave.supervisor_comment && <p className="text-xs text-blue-500 mt-1">نظر سرپرست: {leave.supervisor_comment}</p>}
+                    {leave.supervisor_comment && (
+                      <p className="text-xs text-blue-500 mt-1">
+                        نظر سرپرست ({leave.supervisor_name || 'نامشخص'}): {leave.supervisor_comment}
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     <input type="text" placeholder="توضیحات" value={comments[leave.id] || ''} onChange={(e) => setComments({ ...comments, [leave.id]: e.target.value })} className="px-3 py-2 border rounded-lg text-sm w-40" />
@@ -798,6 +818,23 @@ export default function Leave() {
                 <div>
                   <p className="font-bold">{leave.user_name} - {leave.user_dept}</p>
                   <p className="text-sm text-gray-500">{leave.leave_type} ({leave.start_date} تا {leave.end_date})</p>
+                  <div className="text-xs text-gray-500 mt-2 space-y-1">
+                    {leave.reason && (
+                      <div>
+                        <span className="font-medium text-gray-600">دلیل:</span> {leave.reason}
+                      </div>
+                    )}
+                    {leave.supervisor_comment && (
+                      <div className="text-blue-600">
+                        <span className="font-medium">تایید سرپرست ({leave.supervisor_name || 'نامشخص'}):</span> {leave.supervisor_comment}
+                      </div>
+                    )}
+                    {leave.manager_comment && (
+                      <div className="text-green-600">
+                        <span className="font-medium">تایید مدیر ({leave.manager_name || 'نامشخص'}):</span> {leave.manager_comment}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <button onClick={() => seenSecurity(leave.id)} className="bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-medium">رویت شد</button>
               </div>
@@ -824,6 +861,7 @@ export default function Leave() {
                   <th className="p-3 text-right">از</th>
                   <th className="p-3 text-right">تا</th>
                   <th className="p-3 text-right">روزها</th>
+                  <th className="p-3 text-right">توضیحات</th>
                   <th className="p-3 text-right">وضعیت</th>
                   {user.role === 'admin' && <th className="p-3 text-right">عملیات</th>}
                 </tr>
@@ -837,6 +875,23 @@ export default function Leave() {
                     <td className="p-3" dir="ltr">{leave.start_date}</td>
                     <td className="p-3" dir="ltr">{leave.end_date}</td>
                     <td className="p-3 font-bold">{leave.days_count}</td>
+                    <td className="p-3 text-gray-500 text-xs space-y-1">
+                      {leave.reason && (
+                        <div>
+                          <span className="font-medium text-gray-600">دلیل:</span> {leave.reason}
+                        </div>
+                      )}
+                      {leave.supervisor_comment && (
+                        <div className="text-blue-600">
+                          <span className="font-medium">تایید سرپرست ({leave.supervisor_name || 'نامشخص'}):</span> {leave.supervisor_comment}
+                        </div>
+                      )}
+                      {leave.manager_comment && (
+                        <div className="text-green-600">
+                          <span className="font-medium">تایید مدیر ({leave.manager_name || 'نامشخص'}):</span> {leave.manager_comment}
+                        </div>
+                      )}
+                    </td>
                     <td className="p-3">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusMap[leave.status]?.color}`}>
                         {statusMap[leave.status]?.text}

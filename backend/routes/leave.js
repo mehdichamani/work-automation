@@ -127,10 +127,14 @@ module.exports = function(db) {
   router.get('/security', (req, res) => {
     try {
       const leaves = db.prepare(`
-        SELECT l.*, u.full_name as user_name, d.name as user_dept
+        SELECT l.*, u.full_name as user_name, d.name as user_dept,
+               s.full_name as supervisor_name,
+               m.full_name as manager_name
         FROM leave_requests l
         JOIN users u ON l.user_id = u.id
         LEFT JOIN departments d ON u.department_id = d.id
+        LEFT JOIN users s ON l.supervisor_id = s.id
+        LEFT JOIN users m ON l.manager_id = m.id
         WHERE l.status = 'approved'
         ORDER BY l.created_at DESC
       `).all();
@@ -145,18 +149,26 @@ module.exports = function(db) {
       let leaves;
       if (req.user.role === 'admin' || req.user.role === 'manager') {
         leaves = db.prepare(`
-          SELECT l.*, u.full_name as user_name, d.name as user_dept
+          SELECT l.*, u.full_name as user_name, d.name as user_dept,
+                 s.full_name as supervisor_name,
+                 m.full_name as manager_name
           FROM leave_requests l
           JOIN users u ON l.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
+          LEFT JOIN users s ON l.supervisor_id = s.id
+          LEFT JOIN users m ON l.manager_id = m.id
           ORDER BY l.created_at DESC
         `).all();
       } else if (req.user.role === 'supervisor') {
         leaves = db.prepare(`
-          SELECT l.*, u.full_name as user_name, d.name as user_dept
+          SELECT l.*, u.full_name as user_name, d.name as user_dept,
+                 s.full_name as supervisor_name,
+                 m.full_name as manager_name
           FROM leave_requests l
           JOIN users u ON l.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
+          LEFT JOIN users s ON l.supervisor_id = s.id
+          LEFT JOIN users m ON l.manager_id = m.id
           WHERE u.department_id = ? AND u.role != 'admin'
           ORDER BY l.created_at DESC
         `).all(req.user.department_id);
