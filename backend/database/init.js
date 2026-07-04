@@ -535,6 +535,7 @@ async function initDatabase() {
     "ALTER TABLE leave_requests ADD COLUMN edited_by INTEGER",
     "ALTER TABLE leave_requests ADD COLUMN edited_at TEXT",
     "ALTER TABLE leave_requests ADD COLUMN edit_reason TEXT",
+    "ALTER TABLE leave_balance ALTER COLUMN total_days TYPE DOUBLE PRECISION",
   ];
   for (const sql of alterStatements) {
     try { db.exec(sql); } catch (e) {}
