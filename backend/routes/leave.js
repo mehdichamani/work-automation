@@ -245,7 +245,8 @@ module.exports = function(db) {
           const rem = totalHours - balance.used_hours;
           const remDays = Math.floor(rem / 8);
           const remHrs = rem % 8;
-          return res.status(400).json({ error: `مانده مرخصی کافی نیست. مانده شما: ${remDays} روز و ${remHrs} ساعت` });
+          const userMsg = targetUserId === req.user.id ? 'شما' : 'کاربر';
+          return res.status(400).json({ error: `مانده مرخصی کافی نیست. مانده ${userMsg}: ${remDays} روز و ${remHrs} ساعت` });
         }
       }
 
@@ -269,6 +270,10 @@ module.exports = function(db) {
         managerId,
         managerDate
       );
+
+      if (initialStatus === 'approved') {
+        db.prepare('UPDATE leave_balance SET used_hours = used_hours + ? WHERE user_id = ?').run(leaveHours, targetUserId);
+      }
 
       // Notifications
       if (targetUserId !== req.user.id) {

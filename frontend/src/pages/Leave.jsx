@@ -31,7 +31,8 @@ export default function Leave() {
   const [calculation, setCalculation] = useState(null);
   const [editCalculation, setEditCalculation] = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [comment, setComment] = useState('');
+  const [requestFor, setRequestFor] = useState('self'); // 'self' or 'subordinate'
+  const [comments, setComments] = useState({}); // { [leaveId]: 'some comment' }
   const [form, setForm] = useState({ user_id: '', start_date: '', start_hour: '', end_date: '', end_hour: '', reason: '' });
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({ start_date: '', start_hour: '', end_date: '', end_hour: '', reason: '' });
@@ -191,9 +192,19 @@ export default function Leave() {
     e.target.value = '';
   };
 
+  const closeForm = () => {
+    setShowForm(false);
+    setRequestFor('self');
+    setForm({ user_id: '', start_date: '', start_hour: '', end_date: '', end_hour: '', reason: '' });
+  };
+
   const submitRequest = async (e) => {
     e.preventDefault();
     try {
+      if (requestFor === 'subordinate' && !form.user_id) {
+        toast.error('لطفاً یکی از پرسنل زیرمجموعه را انتخاب کنید');
+        return;
+      }
       if (!form.start_date || !form.start_hour || !form.end_date || !form.end_hour) {
         toast.error('پر کردن تمام فیلدهای تاریخ و ساعت الزامی است');
         return;
@@ -204,7 +215,7 @@ export default function Leave() {
         return;
       }
       await api.post('/leave', {
-        user_id: form.user_id,
+        user_id: requestFor === 'subordinate' ? form.user_id : '',
         start_date: form.start_date,
         start_time: form.start_hour,
         end_date: form.end_date,
@@ -212,8 +223,7 @@ export default function Leave() {
         reason: form.reason
       });
       toast.success('درخواست مرخصی ثبت شد');
-      setShowForm(false);
-      setForm({ user_id: '', start_date: '', start_hour: '', end_date: '', end_hour: '', reason: '' });
+      closeForm();
       loadData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا در ثبت درخواست');
@@ -277,9 +287,14 @@ export default function Leave() {
 
   const approveSupervisor = async (id) => {
     try {
-      await api.put(`/leave/${id}/approve-supervisor`, { comment });
+      const currentComment = comments[id] || '';
+      await api.put(`/leave/${id}/approve-supervisor`, { comment: currentComment });
       toast.success('تایید شد');
-      setComment('');
+      setComments(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       loadData();
     } catch (err) {
       toast.error('خطا');
@@ -288,9 +303,14 @@ export default function Leave() {
 
   const rejectSupervisor = async (id) => {
     try {
-      await api.put(`/leave/${id}/reject-supervisor`, { comment: comment || 'رد شده' });
+      const currentComment = comments[id] || '';
+      await api.put(`/leave/${id}/reject-supervisor`, { comment: currentComment || 'رد شده' });
       toast.success('رد شد');
-      setComment('');
+      setComments(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       loadData();
     } catch (err) {
       toast.error('خطا');
@@ -299,9 +319,14 @@ export default function Leave() {
 
   const approveManager = async (id) => {
     try {
-      await api.put(`/leave/${id}/approve-manager`, { comment });
+      const currentComment = comments[id] || '';
+      await api.put(`/leave/${id}/approve-manager`, { comment: currentComment });
       toast.success('تایید نهایی شد');
-      setComment('');
+      setComments(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       loadData();
     } catch (err) {
       toast.error('خطا');
@@ -310,9 +335,14 @@ export default function Leave() {
 
   const rejectManager = async (id) => {
     try {
-      await api.put(`/leave/${id}/reject-manager`, { comment: comment || 'رد شده توسط مدیر' });
+      const currentComment = comments[id] || '';
+      await api.put(`/leave/${id}/reject-manager`, { comment: currentComment || 'رد شده توسط مدیر' });
       toast.success('رد شد');
-      setComment('');
+      setComments(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       loadData();
     } catch (err) {
       toast.error('خطا');
@@ -368,20 +398,58 @@ export default function Leave() {
             <h3 className="text-lg font-bold mb-6">درخواست مرخصی جدید</h3>
             <form onSubmit={submitRequest} className="space-y-4">
               {subordinates.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">پرسنل مورد نظر</label>
-                  <select
-                    value={form.user_id}
-                    onChange={(e) => setForm({...form, user_id: e.target.value})}
-                    className="w-full px-4 py-3 border rounded-xl"
-                  >
-                    <option value="">ثبت برای خود ({user.full_name})</option>
-                    {subordinates.map(sub => (
-                      <option key={sub.id} value={sub.id}>
-                        {sub.full_name}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">درخواست مرخصی برای:</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="requestFor"
+                          value="self"
+                          checked={requestFor === 'self'}
+                          onChange={() => {
+                            setRequestFor('self');
+                            setForm({ ...form, user_id: '' });
+                          }}
+                          className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span>خودم ({user.full_name})</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="requestFor"
+                          value="subordinate"
+                          checked={requestFor === 'subordinate'}
+                          onChange={() => {
+                            setRequestFor('subordinate');
+                          }}
+                          className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span>نیروهای زیرمجموعه</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {requestFor === 'subordinate' && (
+                    <div className="animate-fade-in">
+                      <label className="block text-sm font-medium mb-1">انتخاب نیرو</label>
+                      <select
+                        value={form.user_id}
+                        onChange={(e) => setForm({ ...form, user_id: e.target.value })}
+                        className="w-full px-4 py-3 border rounded-xl"
+                        required={requestFor === 'subordinate'}
+                      >
+                        <option value="">انتخاب پرسنل...</option>
+                        {subordinates.map((sub) => (
+                          <option key={sub.id} value={sub.id}>
+                            {sub.full_name} ({sub.role === 'supervisor' ? 'سرپرست' : sub.role === 'manager' ? 'مدیر' : 'کاربر'})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="grid grid-cols-2 gap-4">
@@ -470,7 +538,7 @@ export default function Leave() {
 
               {calculation && (
                 <div className="bg-primary-50 p-4 rounded-xl text-primary-700 text-sm font-medium border border-primary-100">
-                  در صورت تائید این مرخصی {calculation.days} روز و {calculation.remaining_hours} ساعت از سهمیه شما کم خواهد شد
+                  در صورت تائید این مرخصی {calculation.days} روز و {calculation.remaining_hours} ساعت از سهمیه {requestFor === 'subordinate' ? 'پرسنل مورد نظر' : 'شما'} کم خواهد شد
                 </div>
               )}
 
@@ -485,7 +553,7 @@ export default function Leave() {
               </div>
               <div className="flex gap-4">
                 <button type="submit" className="flex-1 bg-primary-500 text-white py-3 rounded-xl font-bold">ثبت درخواست</button>
-                <button type="button" onClick={() => setShowForm(false)} className="flex-1 bg-gray-200 py-3 rounded-xl font-bold">انصراف</button>
+                <button type="button" onClick={closeForm} className="flex-1 bg-gray-200 py-3 rounded-xl font-bold">انصراف</button>
               </div>
             </form>
           </div>
@@ -686,8 +754,8 @@ export default function Leave() {
                     <input
                       type="text"
                       placeholder="توضیحات"
-                      value={comment}
-                      onChange={(e) => setComment(e.target.value)}
+                      value={comments[leave.id] || ''}
+                      onChange={(e) => setComments({ ...comments, [leave.id]: e.target.value })}
                       className="px-3 py-2 border rounded-lg text-sm w-40"
                     />
                     <button onClick={() => approveSupervisor(leave.id)} className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium">تایید</button>
@@ -712,7 +780,7 @@ export default function Leave() {
                     {leave.supervisor_comment && <p className="text-xs text-blue-500 mt-1">نظر سرپرست: {leave.supervisor_comment}</p>}
                   </div>
                   <div className="flex gap-2">
-                    <input type="text" placeholder="توضیحات" value={comment} onChange={(e) => setComment(e.target.value)} className="px-3 py-2 border rounded-lg text-sm w-40" />
+                    <input type="text" placeholder="توضیحات" value={comments[leave.id] || ''} onChange={(e) => setComments({ ...comments, [leave.id]: e.target.value })} className="px-3 py-2 border rounded-lg text-sm w-40" />
                     <button onClick={() => approveManager(leave.id)} className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium">تایید</button>
                     <button onClick={() => rejectManager(leave.id)} className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium">رد</button>
                   </div>
