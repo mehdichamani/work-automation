@@ -43,7 +43,7 @@ module.exports = function(db) {
       
       const existingBalance = db.prepare('SELECT id FROM leave_balance WHERE user_id = ?').get(targetId);
       if (!existingBalance) {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)').run(targetId);
+        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(targetId);
       }
       
       res.json({ id: targetId, message: 'کاربر با موفقیت ایجاد شد' });

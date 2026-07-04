@@ -317,7 +317,7 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS leave_balance (
       id SERIAL PRIMARY KEY,
       user_id INTEGER UNIQUE NOT NULL,
-      total_days INTEGER DEFAULT 26,
+      total_days INTEGER DEFAULT 0,
       used_hours REAL DEFAULT 0,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
@@ -548,13 +548,13 @@ async function initDatabase() {
     db.prepare("INSERT INTO users (id, password, full_name, role, department_id) VALUES (?, ?, ?, ?, ?)").run(1000, hash, 'مدیر سیستم', 'admin', 1);
     
     // Also create a leave balance for the admin
-    db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)').run(1000);
+    db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(1000);
   }
 
   const existingBalance = db.prepare('SELECT id FROM leave_balance LIMIT 1').get();
   if (!existingBalance) {
     const allUsers = db.prepare("SELECT id FROM users WHERE role != 'admin'").all();
-    const insertBal = db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)');
+    const insertBal = db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)');
     for (const u of allUsers) {
       insertBal.run(u.id);
     }

@@ -99,7 +99,7 @@ module.exports = function(db) {
       if (req.user.role === 'admin') {
         leaves = db.prepare(`
           SELECT l.*, u.full_name as user_name, d.name as user_dept,
-                 COALESCE(lb.total_days, 26) as total_days, COALESCE(lb.used_hours, 0) as used_hours
+                 COALESCE(lb.total_days, 0) as total_days, COALESCE(lb.used_hours, 0) as used_hours
           FROM leave_requests l
           JOIN users u ON l.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
@@ -110,7 +110,7 @@ module.exports = function(db) {
       } else {
         leaves = db.prepare(`
           SELECT l.*, u.full_name as user_name, d.name as user_dept,
-                 COALESCE(lb.total_days, 26) as total_days, COALESCE(lb.used_hours, 0) as used_hours
+                 COALESCE(lb.total_days, 0) as total_days, COALESCE(lb.used_hours, 0) as used_hours
           FROM leave_requests l
           JOIN users u ON l.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
@@ -130,7 +130,7 @@ module.exports = function(db) {
       const leaves = db.prepare(`
         SELECT l.*, u.full_name as user_name, d.name as user_dept,
                s.full_name as supervisor_name, s_dept.name as supervisor_dept,
-               COALESCE(lb.total_days, 26) as total_days, COALESCE(lb.used_hours, 0) as used_hours
+               COALESCE(lb.total_days, 0) as total_days, COALESCE(lb.used_hours, 0) as used_hours
         FROM leave_requests l
         JOIN users u ON l.user_id = u.id
         LEFT JOIN departments d ON u.department_id = d.id
@@ -301,7 +301,7 @@ module.exports = function(db) {
 
       const balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(targetUserId);
       if (!balance) {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)').run(targetUserId);
+        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(targetUserId);
       }
 
       const result = db.prepare(`
@@ -506,7 +506,7 @@ module.exports = function(db) {
 
       const balanceExists = db.prepare('SELECT 1 FROM leave_balance WHERE user_id = ?').get(leave.user_id);
       if (!balanceExists) {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)').run(leave.user_id);
+        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(leave.user_id);
       }
       db.prepare('UPDATE leave_balance SET used_hours = used_hours + ? WHERE user_id = ?').run(leave.hours_count, leave.user_id);
 
@@ -708,8 +708,8 @@ module.exports = function(db) {
     try {
       let balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(req.user.id);
       if (!balance) {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 26, 0)').run(req.user.id);
-        balance = { total_days: 26, used_hours: 0 };
+        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(req.user.id);
+        balance = { total_days: 0, used_hours: 0 };
       }
       
       const totalHours = balance.total_days * 8;
@@ -776,6 +776,9 @@ module.exports = function(db) {
   });
 
   router.put('/balance/:userId', (req, res) => {
+    if (req.user.role !== 'admin' && !hasLeavePerm(req.user, 'leave_quota_manage')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی مدیریت سهمیه مرخصی پرسنل را ندارید' });
+    }
     try {
       const { total_days, used_hours } = req.body;
       const existing = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(req.params.userId);

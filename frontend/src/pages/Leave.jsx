@@ -44,6 +44,8 @@ export default function Leave() {
   const [editCalculation, setEditCalculation] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [requestFor, setRequestFor] = useState('self'); // 'self' or 'subordinate'
+  const [editingQuota, setEditingQuota] = useState(null);
+  const [quotaForm, setQuotaForm] = useState({ total_days: 0, used_days: 0, used_hours: 0 });
   const [comments, setComments] = useState({}); // { [leaveId]: 'some comment' }
   const [form, setForm] = useState({ user_id: '', start_date: '', start_hour: '', end_date: '', end_hour: '', reason: '' });
   const [editId, setEditId] = useState(null);
@@ -123,7 +125,7 @@ export default function Leave() {
       } else if (tab === 'all') {
         const allRes = await api.get('/leave/all');
         setAllLeaves(allRes.data);
-      } else if (tab === 'balance') {
+      } else if (tab === 'balance' || tab === 'quota_manage') {
         const balAllRes = await api.get('/leave/balance-all');
         setBalanceAll(balAllRes.data);
       } else if (tab === 'holidays') {
@@ -275,6 +277,31 @@ export default function Leave() {
     }
   };
 
+  const openEditQuota = (b) => {
+    setEditingQuota(b);
+    setQuotaForm({
+      total_days: b.total_days || 0,
+      used_days: b.used_days_display || 0,
+      used_hours: b.used_hours_display || 0,
+    });
+  };
+
+  const submitQuotaEdit = async (e) => {
+    e.preventDefault();
+    try {
+      const calculatedUsedHours = (Number(quotaForm.used_days) * 8) + Number(quotaForm.used_hours);
+      await api.put(`/leave/balance/${editingQuota.user_id}`, {
+        total_days: Number(quotaForm.total_days),
+        used_hours: calculatedUsedHours,
+      });
+      toast.success('سهمیه با موفقیت بروزرسانی شد');
+      setEditingQuota(null);
+      loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'خطا در ویرایش سهمیه');
+    }
+  };
+
   const deleteRequest = async (id) => {
     if (!confirm('آیا از حذف درخواست مطمئن هستید؟')) return;
     try {
@@ -385,6 +412,9 @@ export default function Leave() {
     ...((user.role === 'supervisor' || user.role === 'manager' || user.role === 'admin') ? [
       { id: 'all', label: user.role === 'supervisor' ? 'وضعیت مرخصی پرسنل واحد' : 'همه درخواست‌ها' },
       { id: 'balance', label: user.role === 'supervisor' ? 'مانده مرخصی پرسنل واحد' : 'مانده مرخصی کارکنان' },
+    ] : []),
+    ...((user.role === 'admin' || hasPermission('leave_quota_manage')) ? [
+      { id: 'quota_manage', label: 'مدیریت سهمیه‌ها' }
     ] : []),
     ...((user.role === 'admin') ? [{ id: 'holidays', label: 'مدیریت تعطیلات رسمی' }] : []),
   ];
@@ -1009,6 +1039,51 @@ export default function Leave() {
             </table>
           </div>
         )}
+        {tab === 'quota_manage' && (
+          <div className="p-6">
+            <div className="flex justify-between items-center mb-4">
+              <p className="text-sm text-gray-500">{balanceAll.length} نفر</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="p-3 text-right">نام</th>
+                    <th className="p-3 text-right">واحد</th>
+                    <th className="p-3 text-right">کل سهمیه (روز)</th>
+                    <th className="p-3 text-right">استفاده شده</th>
+                    <th className="p-3 text-right">مانده</th>
+                    <th className="p-3 text-right">عملیات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {balanceAll.map(b => (
+                    <tr key={b.user_id} className="border-t hover:bg-gray-50">
+                      <td className="p-3 font-bold">{b.full_name}</td>
+                      <td className="p-3">{b.department_name || 'بدون واحد'}</td>
+                      <td className="p-3 font-semibold">{b.total_days} روز</td>
+                      <td className="p-3 text-red-500 font-medium">
+                        {b.used_days_display} روز و {b.used_hours_display} ساعت
+                      </td>
+                      <td className={`p-3 font-bold ${b.is_negative ? 'text-red-500' : 'text-green-600'}`}>
+                        {b.is_negative ? 'منفی ' : ''}
+                        {Math.abs(b.remaining_days)} روز و {b.remaining_hours_only} ساعت
+                      </td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => openEditQuota(b)}
+                          className="bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
+                        >
+                          ✏️ ویرایش سهمیه
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {tab === 'holidays' && (
           <div className="p-6">
@@ -1285,6 +1360,85 @@ export default function Leave() {
                 بستن
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {editingQuota && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-gray-100 flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-6 border-b flex justify-between items-center bg-gray-50/50">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">ویرایش سهمیه مرخصی</h3>
+                <p className="text-xs text-gray-500 mt-1">کاربر: {editingQuota.full_name}</p>
+              </div>
+              <button 
+                onClick={() => setEditingQuota(null)}
+                className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-full transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <form onSubmit={submitQuotaEdit}>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">کل سهمیه سالانه (روز):</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={quotaForm.total_days}
+                    onChange={(e) => setQuotaForm({ ...quotaForm, total_days: Number(e.target.value) })}
+                    className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">مرخصی استفاده شده (روز):</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={quotaForm.used_days}
+                      onChange={(e) => setQuotaForm({ ...quotaForm, used_days: Number(e.target.value) })}
+                      className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">مرخصی استفاده شده (ساعت):</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="7"
+                      value={quotaForm.used_hours}
+                      onChange={(e) => setQuotaForm({ ...quotaForm, used_hours: Number(e.target.value) })}
+                      className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
+                <button 
+                  type="button"
+                  onClick={() => setEditingQuota(null)}
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-6 py-2 rounded-xl text-sm font-bold transition-colors"
+                >
+                  انصراف
+                </button>
+                <button 
+                  type="submit"
+                  className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2 rounded-xl text-sm font-bold transition-colors"
+                >
+                  ثبت تغییرات
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
