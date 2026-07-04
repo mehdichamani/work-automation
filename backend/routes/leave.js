@@ -709,22 +709,23 @@ module.exports = function(db) {
       let balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(req.user.id);
       if (!balance) {
         db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(req.user.id);
-        balance = { total_days: 0, used_hours: 0 };
+        balance = { total_days: 0 };
       }
       
+      const usedHours = db.prepare("SELECT COALESCE(SUM(hours_count), 0) as used FROM leave_requests WHERE user_id = ? AND status IN ('approved', 'seen_security')").get(req.user.id).used;
       const totalHours = balance.total_days * 8;
-      const remainingHours = totalHours - balance.used_hours;
+      const remainingHours = totalHours - usedHours;
       const isNegative = remainingHours < 0;
       const absRemaining = Math.abs(remainingHours);
       
       res.json({
         total_days: balance.total_days,
-        used_hours: balance.used_hours,
+        used_hours: usedHours,
         remaining_days: isNegative ? -Math.floor(absRemaining / 8) : Math.floor(absRemaining / 8),
         remaining_hours_only: absRemaining % 8,
         is_negative: isNegative ? 1 : 0,
-        used_days_display: Math.floor(balance.used_hours / 8),
-        used_hours_display: balance.used_hours % 8
+        used_days_display: Math.floor(usedHours / 8),
+        used_hours_display: usedHours % 8
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -734,9 +735,10 @@ module.exports = function(db) {
   router.get('/balance-all', (req, res) => {
     try {
       let balances;
-      if (req.user.role === 'admin' || req.user.role === 'manager') {
+      if (req.user.role === 'admin' || req.user.role === 'manager' || hasLeavePerm(req.user, 'leave_quota_manage')) {
         balances = db.prepare(`
-          SELECT lb.*, u.full_name, u.department_id, d.name as department_name
+          SELECT lb.user_id, lb.total_days, u.full_name, u.department_id, d.name as department_name,
+                 COALESCE((SELECT SUM(hours_count) FROM leave_requests WHERE user_id = u.id AND status IN ('approved', 'seen_security')), 0) as used_hours
           FROM leave_balance lb
           JOIN users u ON lb.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
@@ -745,7 +747,8 @@ module.exports = function(db) {
         `).all();
       } else if (req.user.role === 'supervisor') {
         balances = db.prepare(`
-          SELECT lb.*, u.full_name, u.department_id, d.name as department_name
+          SELECT lb.user_id, lb.total_days, u.full_name, u.department_id, d.name as department_name,
+                 COALESCE((SELECT SUM(hours_count) FROM leave_requests WHERE user_id = u.id AND status IN ('approved', 'seen_security')), 0) as used_hours
           FROM leave_balance lb
           JOIN users u ON lb.user_id = u.id
           LEFT JOIN departments d ON u.department_id = d.id
@@ -780,16 +783,86 @@ module.exports = function(db) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی مدیریت سهمیه مرخصی پرسنل را ندارید' });
     }
     try {
-      const { total_days, used_hours } = req.body;
-      const existing = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(req.params.userId);
+      const { total_days } = req.body;
+      const targetUserId = req.params.userId;
+      
+      const existing = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(targetUserId);
+      const oldTotal = existing ? existing.total_days : 0;
+      
       if (existing) {
-        db.prepare('UPDATE leave_balance SET total_days = ?, used_hours = ? WHERE user_id = ?')
-          .run(total_days, used_hours, req.params.userId);
+        db.prepare('UPDATE leave_balance SET total_days = ? WHERE user_id = ?')
+          .run(total_days, targetUserId);
       } else {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, ?, ?)')
-          .run(req.params.userId, total_days, used_hours);
+        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, ?, 0)')
+          .run(targetUserId, total_days);
       }
-      res.json({ message: 'مانده مرخصی بروزرسانی شد' });
+      
+      // Log the change
+      db.prepare(`
+        INSERT INTO leave_change_logs (action_by, action_type, target_id, old_value, new_value, details)
+        VALUES (?, 'quota_edit', ?, ?, ?, ?)
+      `).run(
+        req.user.id,
+        targetUserId,
+        String(oldTotal),
+        String(total_days),
+        `ویرایش سهمیه اولیه پرسنل به ${total_days} روز`
+      );
+      
+      res.json({ message: 'سهمیه اولیه بروزرسانی شد' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.put('/:id/edit-after-seen', (req, res) => {
+    if (req.user.role !== 'admin' && !hasLeavePerm(req.user, 'leave_edit_after_seen')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی ویرایش مرخصی پس از رویت را ندارید' });
+    }
+    try {
+      const { end_date, end_time, hours_count, reason } = req.body;
+      const leaveId = req.params.id;
+      
+      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ?").get(leaveId);
+      if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
+      
+      if (leave.status !== 'seen_security') {
+        return res.status(400).json({ error: 'ویرایش مرخصی فقط پس از رویت حراست امکان‌پذیر است' });
+      }
+      
+      const oldVal = JSON.stringify({
+        end_date: leave.end_date,
+        end_time: leave.end_hour,
+        hours_count: leave.hours_count,
+        reason: leave.reason
+      });
+      
+      const newVal = JSON.stringify({
+        end_date,
+        end_time,
+        hours_count,
+        reason: reason || leave.reason
+      });
+      
+      db.prepare(`
+        UPDATE leave_requests 
+        SET end_date = ?, end_hour = ?, hours_count = ?, reason = ?
+        WHERE id = ?
+      `).run(end_date, end_time, hours_count, reason || leave.reason || '', leaveId);
+      
+      // Log the change
+      db.prepare(`
+        INSERT INTO leave_change_logs (action_by, action_type, target_id, old_value, new_value, details)
+        VALUES (?, 'leave_edit', ?, ?, ?, ?)
+      `).run(
+        req.user.id,
+        leaveId,
+        oldVal,
+        newVal,
+        `ویرایش مرخصی کاربر (کاهش مدت یا اصلاح پس از رویت). کارکرد جدید: ${hours_count} ساعت.`
+      );
+      
+      res.json({ message: 'درخواست مرخصی با موفقیت ویرایش و لاگ شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

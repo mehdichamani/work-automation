@@ -322,6 +322,18 @@ async function initDatabase() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS leave_change_logs (
+      id SERIAL PRIMARY KEY,
+      action_by INTEGER NOT NULL,
+      action_type TEXT NOT NULL, -- 'quota_edit' or 'leave_edit'
+      target_id INTEGER NOT NULL, -- user_id or leave_id
+      old_value TEXT,
+      new_value TEXT,
+      details TEXT,
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+      FOREIGN KEY (action_by) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS official_holidays (
       id SERIAL PRIMARY KEY,
       holiday_date TEXT UNIQUE NOT NULL,

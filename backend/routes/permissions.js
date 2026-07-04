@@ -9,6 +9,7 @@ const MODULES = [
   { key: 'leave_manager_approve', label: 'تایید مرخصی (مدیر)', group: 'مرخصی' },
   { key: 'leave_security_view', label: 'رویت حراست (مرخصی)', group: 'مرخصی' },
   { key: 'leave_quota_manage', label: 'مدیریت سهمیه مرخصی پرسنل', group: 'مرخصی' },
+  { key: 'leave_edit_after_seen', label: 'ویرایش مرخصی پس از رویت حراست', group: 'مرخصی' },
   { key: 'letters_send', label: 'ارسال نامه', group: 'نامه‌ها' },
   { key: 'letters_approve', label: 'تایید نامه (مدیر)', group: 'نامه‌ها' },
   { key: 'restaurant_menu', label: 'مدیریت منوی رستوران', group: 'رستوران' },

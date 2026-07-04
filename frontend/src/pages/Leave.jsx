@@ -44,8 +44,10 @@ export default function Leave() {
   const [editCalculation, setEditCalculation] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [requestFor, setRequestFor] = useState('self'); // 'self' or 'subordinate'
-  const [editingQuota, setEditingQuota] = useState(null);
-  const [quotaForm, setQuotaForm] = useState({ total_days: 0, used_days: 0, used_hours: 0 });
+  const [editingQuotaUserId, setEditingQuotaUserId] = useState(null);
+  const [editQuotaTotalDays, setEditQuotaTotalDays] = useState(0);
+  const [modifyingLeave, setModifyingLeave] = useState(null);
+  const [modForm, setModForm] = useState({ end_date: '', end_hour: '', hours_count: 0, reason: '', showEndCal: false });
   const [comments, setComments] = useState({}); // { [leaveId]: 'some comment' }
   const [form, setForm] = useState({ user_id: '', start_date: '', start_hour: '', end_date: '', end_hour: '', reason: '' });
   const [editId, setEditId] = useState(null);
@@ -277,28 +279,61 @@ export default function Leave() {
     }
   };
 
-  const openEditQuota = (b) => {
-    setEditingQuota(b);
-    setQuotaForm({
-      total_days: b.total_days || 0,
-      used_days: b.used_days_display || 0,
-      used_hours: b.used_hours_display || 0,
-    });
-  };
-
-  const submitQuotaEdit = async (e) => {
-    e.preventDefault();
+  const saveQuotaInline = async (userId) => {
     try {
-      const calculatedUsedHours = (Number(quotaForm.used_days) * 8) + Number(quotaForm.used_hours);
-      await api.put(`/leave/balance/${editingQuota.user_id}`, {
-        total_days: Number(quotaForm.total_days),
-        used_hours: calculatedUsedHours,
+      await api.put(`/leave/balance/${userId}`, {
+        total_days: Number(editQuotaTotalDays),
       });
       toast.success('سهمیه با موفقیت بروزرسانی شد');
-      setEditingQuota(null);
+      setEditingQuotaUserId(null);
       loadData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا در ویرایش سهمیه');
+    }
+  };
+
+  const openModifyLeave = (leave) => {
+    setModifyingLeave(leave);
+    setModForm({
+      end_date: leave.end_date,
+      end_hour: leave.end_hour || '',
+      hours_count: leave.hours_count || 0,
+      reason: '',
+      showEndCal: false,
+    });
+  };
+
+  useEffect(() => {
+    if (modifyingLeave && modForm.end_date && modForm.end_hour) {
+      api.get('/leave/calculate', {
+        params: {
+          start_date: modifyingLeave.start_date,
+          start_time: modifyingLeave.start_hour,
+          end_date: modForm.end_date,
+          end_time: modForm.end_hour
+        }
+      })
+      .then(res => {
+        setModForm(prev => ({ ...prev, hours_count: res.data.total_hours }));
+      })
+      .catch(err => console.error('Error calculating hours', err));
+    }
+  }, [modForm.end_date, modForm.end_hour]);
+
+  const submitLeaveModification = async (e) => {
+    e.preventDefault();
+    try {
+      await api.put(`/leave/${modifyingLeave.id}/edit-after-seen`, {
+        end_date: modForm.end_date,
+        end_time: modForm.end_hour,
+        hours_count: Number(modForm.hours_count),
+        reason: modForm.reason,
+      });
+      toast.success('مرخصی با موفقیت اصلاح و ثبت شد');
+      setModifyingLeave(null);
+      loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'خطا در اصلاح مرخصی');
     }
   };
 
@@ -980,6 +1015,14 @@ export default function Leave() {
                         >
                           🔍 نمایش جزئیات
                         </button>
+                        {(leave.status === 'seen_security' && (user.role === 'admin' || hasPermission('leave_edit_after_seen'))) && (
+                          <button 
+                            onClick={() => openModifyLeave(leave)} 
+                            className="bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border border-yellow-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
+                          >
+                            🔧 اصلاح مرخصی
+                          </button>
+                        )}
                         {user.role === 'admin' && (
                           <button onClick={() => adminDeleteLeave(leave.id)} className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm">حذف</button>
                         )}
@@ -1057,28 +1100,64 @@ export default function Leave() {
                   </tr>
                 </thead>
                 <tbody>
-                  {balanceAll.map(b => (
-                    <tr key={b.user_id} className="border-t hover:bg-gray-50">
-                      <td className="p-3 font-bold">{b.full_name}</td>
-                      <td className="p-3">{b.department_name || 'بدون واحد'}</td>
-                      <td className="p-3 font-semibold">{b.total_days} روز</td>
-                      <td className="p-3 text-red-500 font-medium">
-                        {b.used_days_display} روز و {b.used_hours_display} ساعت
-                      </td>
-                      <td className={`p-3 font-bold ${b.is_negative ? 'text-red-500' : 'text-green-600'}`}>
-                        {b.is_negative ? 'منفی ' : ''}
-                        {Math.abs(b.remaining_days)} روز و {b.remaining_hours_only} ساعت
-                      </td>
-                      <td className="p-3">
-                        <button
-                          onClick={() => openEditQuota(b)}
-                          className="bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
-                        >
-                          ✏️ ویرایش سهمیه
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {balanceAll.map(b => {
+                    const isEditing = b.user_id === editingQuotaUserId;
+                    return (
+                      <tr key={b.user_id} className="border-t hover:bg-gray-50">
+                        <td className="p-3 font-bold">{b.full_name}</td>
+                        <td className="p-3">{b.department_name || 'بدون واحد'}</td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              min="0"
+                              value={editQuotaTotalDays}
+                              onChange={(e) => setEditQuotaTotalDays(Number(e.target.value))}
+                              className="w-24 px-2 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                              required
+                            />
+                          ) : (
+                            <span className="font-semibold">{b.total_days} روز</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-red-500 font-medium">
+                          {b.used_days_display} روز و {b.used_hours_display} ساعت
+                        </td>
+                        <td className={`p-3 font-bold ${b.is_negative ? 'text-red-500' : 'text-green-600'}`}>
+                          {b.is_negative ? 'منفی ' : ''}
+                          {Math.abs(b.remaining_days)} روز و {b.remaining_hours_only} ساعت
+                        </td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => saveQuotaInline(b.user_id)}
+                                className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
+                              >
+                                ✓ ذخیره
+                              </button>
+                              <button
+                                onClick={() => setEditingQuotaUserId(null)}
+                                className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
+                              >
+                                انصراف
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditingQuotaUserId(b.user_id);
+                                setEditQuotaTotalDays(b.total_days || 0);
+                              }}
+                              className="bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
+                            >
+                              ✏️ ویرایش سهمیه
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1363,17 +1442,17 @@ export default function Leave() {
           </div>
         </div>
       )}
-      {editingQuota && (
+      {modifyingLeave && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in p-4">
           <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-gray-100 flex flex-col overflow-hidden">
             {/* Modal Header */}
             <div className="p-6 border-b flex justify-between items-center bg-gray-50/50">
               <div>
-                <h3 className="text-lg font-bold text-gray-800">ویرایش سهمیه مرخصی</h3>
-                <p className="text-xs text-gray-500 mt-1">کاربر: {editingQuota.full_name}</p>
+                <h3 className="text-lg font-bold text-gray-800">اصلاح و کاهش مدت مرخصی</h3>
+                <p className="text-xs text-gray-500 mt-1">پرسنل: {modifyingLeave.user_name}</p>
               </div>
               <button 
-                onClick={() => setEditingQuota(null)}
+                onClick={() => setModifyingLeave(null)}
                 className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-full transition-all"
               >
                 ✕
@@ -1381,41 +1460,108 @@ export default function Leave() {
             </div>
 
             {/* Modal Content */}
-            <form onSubmit={submitQuotaEdit}>
-              <div className="p-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">کل سهمیه سالانه (روز):</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={quotaForm.total_days}
-                    onChange={(e) => setQuotaForm({ ...quotaForm, total_days: Number(e.target.value) })}
-                    className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
-                    required
-                  />
+            <form onSubmit={submitLeaveModification}>
+              <div className="p-6 space-y-4 text-sm">
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-xs leading-relaxed">
+                  ⚠️ در این بخش می‌توانید تاریخ پایان مرخصی را تغییر دهید (مثلاً به علت بازگشت زودتر) یا کارکرد آن را صفر کنید. تاریخچه تایید و چرخه مرخصی حفظ خواهد شد.
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1">مرخصی استفاده شده (روز):</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={quotaForm.used_days}
-                      onChange={(e) => setQuotaForm({ ...quotaForm, used_days: Number(e.target.value) })}
-                      className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
-                      required
-                    />
+                    <span className="text-gray-400 block text-xs mb-0.5">تاریخ شروع (غیرقابل تغییر):</span>
+                    <span className="font-semibold">{modifyingLeave.start_date} ساعت {modifyingLeave.start_hour}</span>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">مرخصی استفاده شده (ساعت):</label>
+                    <span className="text-gray-400 block text-xs mb-0.5">کارکرد قبلی:</span>
+                    <span className="font-semibold text-red-600">{modifyingLeave.days_count}</span>
+                  </div>
+                </div>
+
+                <div className="border-t pt-3 space-y-3">
+                  <div className="relative">
+                    <label className="block text-sm font-medium mb-1">تاریخ پایان جدید:</label>
+                    <button
+                      type="button"
+                      onClick={() => setModForm({ ...modForm, showEndCal: !modForm.showEndCal })}
+                      className="w-full px-4 py-2.5 bg-white border rounded-xl text-right"
+                      dir="ltr"
+                    >
+                      {modForm.end_date || 'انتخاب تاریخ'}
+                    </button>
+                    {modForm.showEndCal && (
+                      <div className="absolute mt-1 z-10 shadow-lg border rounded-xl bg-white">
+                        <JalaliCalendar
+                          selectedDate={modForm.end_date}
+                          onSelect={(d) => setModForm({ ...modForm, end_date: d, showEndCal: false })}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">ساعت پایان جدید:</label>
+                    <select
+                      value={modForm.end_hour}
+                      onChange={(e) => setModForm({ ...modForm, end_hour: e.target.value })}
+                      className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
+                    >
+                      <option value="">انتخاب ساعت</option>
+                      {Array.from({ length: 9 }, (_, i) => i + 8).map(h => (
+                        <option key={h} value={`${String(h).padStart(2, '0')}:00`}>{String(h).padStart(2, '0')}:00</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2 py-1">
+                    <input
+                      type="checkbox"
+                      id="zero_out"
+                      checked={Number(modForm.hours_count) === 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setModForm({ ...modForm, hours_count: 0 });
+                        } else {
+                          // trigger recalculation based on current dates
+                          api.get('/leave/calculate', {
+                            params: {
+                              start_date: modifyingLeave.start_date,
+                              start_time: modifyingLeave.start_hour,
+                              end_date: modForm.end_date,
+                              end_time: modForm.end_hour
+                            }
+                          }).then(res => {
+                            setModForm(prev => ({ ...prev, hours_count: res.data.total_hours }));
+                          });
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-primary-600 focus:ring-primary-500"
+                    />
+                    <label htmlFor="zero_out" className="text-sm font-medium text-red-600 cursor-pointer">
+                      صفر کردن کامل کارکرد این مرخصی
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">کارکرد نهایی جدید (ساعت):</label>
                     <input
                       type="number"
                       min="0"
-                      max="7"
-                      value={quotaForm.used_hours}
-                      onChange={(e) => setQuotaForm({ ...quotaForm, used_hours: Number(e.target.value) })}
-                      className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
+                      value={modForm.hours_count}
+                      onChange={(e) => setModForm({ ...modForm, hours_count: Number(e.target.value) })}
+                      className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none font-semibold text-center text-lg"
+                    />
+                    <span className="text-xs text-gray-400 block mt-1 text-center">
+                      (هر ۸ ساعت معادل ۱ روز مرخصی می‌باشد)
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">علت اصلاح مرخصی:</label>
+                    <textarea
+                      value={modForm.reason}
+                      onChange={(e) => setModForm({ ...modForm, reason: e.target.value })}
+                      placeholder="علت اصلاح مرخصی (مانند: بازگشت زودتر از موعد)"
+                      className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none h-20 resize-none text-sm"
                       required
                     />
                   </div>
@@ -1426,16 +1572,16 @@ export default function Leave() {
               <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
                 <button 
                   type="button"
-                  onClick={() => setEditingQuota(null)}
+                  onClick={() => setModifyingLeave(null)}
                   className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-6 py-2 rounded-xl text-sm font-bold transition-colors"
                 >
                   انصراف
                 </button>
                 <button 
                   type="submit"
-                  className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2 rounded-xl text-sm font-bold transition-colors"
+                  className="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-2 rounded-xl text-sm font-bold transition-colors"
                 >
-                  ثبت تغییرات
+                  ثبت و اعمال تغییرات
                 </button>
               </div>
             </form>
