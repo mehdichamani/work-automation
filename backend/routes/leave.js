@@ -248,8 +248,28 @@ module.exports = function(db) {
       }
 
       const today = moment().format('jYYYY/jMM/jDD');
-      if (start_date < today) {
+      if (start_date < today && req.user.role !== 'admin') {
         return res.status(400).json({ error: 'امکان ثبت مرخصی برای تاریخ گذشته وجود ندارد' });
+      }
+
+      // Check for overlapping/duplicate leave requests
+      const existingRequests = db.prepare(`
+        SELECT id, start_date, start_hour, end_date, end_hour, status
+        FROM leave_requests
+        WHERE user_id = ? AND status != 'rejected'
+      `).all(targetUserId);
+
+      const newStart = moment(`${start_date} ${start_time}`, 'jYYYY/jMM/jDD HH:mm');
+      const newEnd = moment(`${end_date} ${end_time}`, 'jYYYY/jMM/jDD HH:mm');
+
+      for (const reqOfUser of existingRequests) {
+        const reqStart = moment(`${reqOfUser.start_date} ${reqOfUser.start_hour}`, 'jYYYY/jMM/jDD HH:mm');
+        const reqEnd = moment(`${reqOfUser.end_date} ${reqOfUser.end_hour}`, 'jYYYY/jMM/jDD HH:mm');
+        
+        if (newStart.isBefore(reqEnd) && reqStart.isBefore(newEnd)) {
+          const userMsg = targetUserId === req.user.id ? 'قبلی شما' : 'قبلی این کاربر';
+          return res.status(400).json({ error: `این درخواست با یکی از مرخصی‌های ${userMsg} همپوشانی دارد (${reqOfUser.start_date} تا ${reqOfUser.end_date})` });
+        }
       }
 
       const leaveHours = calculateLeaveHours(start_date, start_time, end_date, end_time);
@@ -334,8 +354,27 @@ module.exports = function(db) {
       }
 
       const today = moment().format('jYYYY/jMM/jDD');
-      if (start_date < today) {
+      if (start_date < today && req.user.role !== 'admin') {
         return res.status(400).json({ error: 'امکان ثبت مرخصی برای تاریخ گذشته وجود ندارد' });
+      }
+
+      // Check for overlapping/duplicate leave requests (excluding current request)
+      const existingRequests = db.prepare(`
+        SELECT id, start_date, start_hour, end_date, end_hour
+        FROM leave_requests
+        WHERE user_id = ? AND status != 'rejected' AND id != ?
+      `).all(req.user.id, req.params.id);
+
+      const newStart = moment(`${start_date} ${start_time}`, 'jYYYY/jMM/jDD HH:mm');
+      const newEnd = moment(`${end_date} ${end_time}`, 'jYYYY/jMM/jDD HH:mm');
+
+      for (const reqOfUser of existingRequests) {
+        const reqStart = moment(`${reqOfUser.start_date} ${reqOfUser.start_hour}`, 'jYYYY/jMM/jDD HH:mm');
+        const reqEnd = moment(`${reqOfUser.end_date} ${reqOfUser.end_hour}`, 'jYYYY/jMM/jDD HH:mm');
+        
+        if (newStart.isBefore(reqEnd) && reqStart.isBefore(newEnd)) {
+          return res.status(400).json({ error: `این تغییر با یکی از مرخصی‌های قبلی شما همپوشانی دارد (${reqOfUser.start_date} تا ${reqOfUser.end_date})` });
+        }
       }
 
       const leaveHours = calculateLeaveHours(start_date, start_time, end_date, end_time);

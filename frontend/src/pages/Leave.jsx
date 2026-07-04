@@ -210,7 +210,7 @@ export default function Leave() {
         return;
       }
       const today = moment().format('jYYYY/jMM/jDD');
-      if (form.start_date < today) {
+      if (form.start_date < today && user.role !== 'admin') {
         toast.error('امکان ثبت مرخصی برای تاریخ گذشته وجود ندارد');
         return;
       }
@@ -467,6 +467,7 @@ export default function Leave() {
                       <JalaliCalendar
                         selectedDate={form.start_date}
                         onSelect={(d) => { setForm({...form, start_date: d}); setShowStartCal(false); }}
+                        showPast={user.role === 'admin'}
                       />
                     </div>
                   )}
@@ -509,6 +510,7 @@ export default function Leave() {
                       <JalaliCalendar
                         selectedDate={form.end_date}
                         onSelect={(d) => { setForm({...form, end_date: d}); setShowEndCal(false); }}
+                        showPast={user.role === 'admin'}
                       />
                     </div>
                   )}
