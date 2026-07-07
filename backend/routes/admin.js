@@ -6,7 +6,10 @@ module.exports = function(db) {
   const router = express.Router();
   router.use(authMiddleware);
 
-  router.get('/users', roleGuard('admin'), (req, res) => {
+  router.get('/users', (req, res) => {
+    if (req.user.role !== 'admin' && !hasAdminPerm(req.user, 'user_import_csv')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+    }
     try {
       const users = db.prepare(`
         SELECT u.id, u.id as username, u.full_name, u.role, u.department_id, u.is_active, u.created_at,
@@ -250,6 +253,72 @@ module.exports = function(db) {
       `).all();
 
       res.json({ totalUsers, totalDepts, pendingLeaves, pendingLetters, pendingCardex, roleStats, deptStats });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  function hasAdminPerm(user, key) {
+    if (user.role === 'admin') return true;
+    const p = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(user.id, key);
+    if (p) return p.is_enabled === 1;
+    if (user.department_id) {
+      const dp = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND module_key = ? AND user_id IS NULL').get(user.department_id, key);
+      if (dp) return dp.is_enabled === 1;
+    }
+    return false;
+  }
+
+  router.post('/users/import-csv', (req, res) => {
+    if (req.user.role !== 'admin' && !hasAdminPerm(req.user, 'user_import_csv')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی ورود گروهی کاربران را ندارید' });
+    }
+    try {
+      const { users } = req.body;
+      if (!Array.isArray(users) || users.length === 0) {
+        return res.status(400).json({ error: 'لیست کاربران برای ثبت نامعتبر است' });
+      }
+
+      const insertUser = db.prepare(`
+        INSERT INTO users (id, password, full_name, role, department_id, work_type)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      
+      const insertBalance = db.prepare(`
+        INSERT INTO leave_balance (user_id, total_days, used_hours)
+        VALUES (?, ?, 0)
+      `);
+
+      const checkUser = db.prepare('SELECT id FROM users WHERE id = ?');
+
+      db.transaction(() => {
+        for (const u of users) {
+          const userId = parseInt(u.id || u.personal_code, 10);
+          if (!userId || !u.full_name || !u.role) continue;
+          
+          const pass = u.password || String(userId);
+          const hash = bcrypt.hashSync(pass, 10);
+          
+          const existing = checkUser.get(userId);
+          if (existing) {
+            db.prepare('UPDATE users SET password = ?, full_name = ?, role = ?, department_id = ?, work_type = ?, is_active = 1 WHERE id = ?')
+              .run(hash, u.full_name, u.role, u.department_id || null, u.work_type || 'normal', userId);
+            
+            const balanceExists = db.prepare('SELECT id FROM leave_balance WHERE user_id = ?').get(userId);
+            if (balanceExists) {
+              db.prepare('UPDATE leave_balance SET total_days = ? WHERE user_id = ?')
+                .run(Number(u.total_days || 0), userId);
+            } else {
+              insertBalance.run(userId, Number(u.total_days || 0));
+            }
+          } else {
+            insertUser.run(userId, hash, u.full_name, u.role, u.department_id || null, u.work_type || 'normal');
+            insertBalance.run(userId, Number(u.total_days || 0));
+          }
+        }
+      })();
+
+      res.json({ message: 'کاربران با موفقیت وارد و ثبت شدند' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

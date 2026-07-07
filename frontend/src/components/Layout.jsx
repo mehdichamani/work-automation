@@ -12,6 +12,7 @@ const menuItems = [
   { path: '/restaurant', label: 'رستوران', icon: '🍽️', roles: ['admin','manager','supervisor','user'] },
   { path: '/shifts', label: 'شیفت‌های کاری', icon: '🕒', permission: 'shifts_manage' },
   { path: '/job-application', label: 'پرسشنامه استخدامی', icon: '📋', permission: 'job_application_fill' },
+  { path: '/admin/import-users', label: 'ورود گروهی کاربران', icon: '👥', permission: 'user_import_csv' },
   { path: '/admin', label: 'پنل مدیریت', icon: '⚙️', roles: ['admin'] },
 ];
 

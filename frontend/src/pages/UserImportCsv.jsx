@@ -1,0 +1,396 @@
+import { useState, useEffect } from 'react';
+import api from '../api/axios';
+import toast from 'react-hot-toast';
+
+export default function UserImportCsv() {
+  const [users, setUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [csvData, setCsvData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(null); // { total, valid, invalid, rows }
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const [usersRes, deptRes] = await Promise.all([
+        api.get('/admin/users'),
+        api.get('/admin/departments')
+      ]);
+      setUsers(usersRes.data || []);
+      setDepartments(deptRes.data || []);
+    } catch (err) {
+      toast.error('خطا در بارگذاری اطلاعات اولیه کاربران و واحدها');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.csv')) {
+      toast.error('لطفاً فقط فایل با فرمت CSV انتخاب کنید');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target.result;
+      parseCSV(text);
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const roleMap = {
+    'admin': 'admin',
+    'manager': 'manager',
+    'supervisor': 'supervisor',
+    'user': 'user',
+    'مدیر سیستم': 'admin',
+    'مدیر': 'manager',
+    'سرپرست': 'supervisor',
+    'کاربر': 'user',
+    'عادی': 'user'
+  };
+
+  const workTypeMap = {
+    'normal': 'normal',
+    'shift': 'shift',
+    'عادی': 'normal',
+    'عادی کار': 'normal',
+    'شیفتی': 'shift',
+    'شیفت': 'shift'
+  };
+
+  const parseCSV = (text) => {
+    // Split by newlines, clean empty lines
+    const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+    if (lines.length < 2) {
+      toast.error('فایل CSV خالی است یا ردیف داده ندارد');
+      return;
+    }
+
+    // Parse header and detect columns
+    // We support both comma (,) and semicolon (;) separators
+    const separator = lines[0].includes(';') ? ';' : ',';
+    
+    // Clean quotes from headers
+    const headers = lines[0].split(separator).map(h => h.replace(/^["']|["']$/g, '').trim().toLowerCase());
+
+    const rows = [];
+    const csvIds = new Set();
+
+    for (let i = 1; i < lines.length; i++) {
+      const columns = lines[i].split(separator).map(c => c.replace(/^["']|["']$/g, '').trim());
+      const rowObj = {};
+      
+      headers.forEach((header, index) => {
+        rowObj[header] = columns[index] || '';
+      });
+
+      // Try to normalize headers (English & Persian)
+      const idStr = rowObj['id'] || rowObj['personal_code'] || rowObj['کد پرسنلی'] || rowObj['شناسه'] || '';
+      const fullName = rowObj['full_name'] || rowObj['name'] || rowObj['نام کامل'] || rowObj['نام'] || '';
+      const rawRole = rowObj['role'] || rowObj['نقش'] || rowObj['سمت'] || '';
+      const rawDeptId = rowObj['department_id'] || rowObj['شناسه واحد'] || rowObj['واحد'] || '';
+      const quotaStr = rowObj['total_days'] || rowObj['quota'] || rowObj['سهمیه'] || rowObj['سهمیه مرخصی'] || '0';
+      const rawWorkType = rowObj['work_type'] || rowObj['وضعیت کاری'] || '';
+      const password = rowObj['password'] || rowObj['کلمه عبور'] || rowObj['رمز'] || '';
+
+      const id = parseInt(idStr, 10);
+      const quota = parseFloat(quotaStr) || 0;
+      const role = roleMap[rawRole.toLowerCase()] || '';
+      const work_type = workTypeMap[rawWorkType.toLowerCase()] || 'normal';
+      const department_id = parseInt(rawDeptId, 10) || null;
+
+      // Validation
+      const errors = [];
+      if (!idStr) {
+        errors.push('کد پرسنلی خالی است');
+      } else if (isNaN(id)) {
+        errors.push('کد پرسنلی باید عدد باشد');
+      } else {
+        if (csvIds.has(id)) {
+          errors.push('کد پرسنلی تکراری در فایل CSV');
+        }
+        csvIds.add(id);
+
+        const existsInDb = users.some(u => parseInt(u.id, 10) === id);
+        if (existsInDb) {
+          errors.push('کد پرسنلی قبلاً در سیستم ثبت شده است (ویرایش خواهد شد)');
+        }
+      }
+
+      if (!fullName) {
+        errors.push('نام کامل خالی است');
+      }
+
+      if (!rawRole) {
+        errors.push('نقش کاربر تعیین نشده است');
+      } else if (!role) {
+        errors.push(`نقش نامعتبر است (${rawRole}) - باید یکی از مقادیر admin، manager، supervisor یا user باشد`);
+      }
+
+      if (rawDeptId && isNaN(department_id)) {
+        errors.push('شناسه واحد باید عدد باشد');
+      } else if (department_id) {
+        const deptExists = departments.some(d => d.id === department_id);
+        if (!deptExists) {
+          errors.push(`واحد با شناسه ${department_id} یافت نشد`);
+        }
+      }
+
+      rows.push({
+        rowNum: i + 1,
+        id: id || idStr,
+        full_name: fullName,
+        role: role || rawRole,
+        department_id,
+        total_days: quota,
+        work_type,
+        password,
+        errors,
+        isValid: errors.filter(e => !e.includes('ویرایش خواهد شد')).length === 0,
+        isOverwrite: errors.some(e => e.includes('ویرایش خواهد شد'))
+      });
+    }
+
+    const validCount = rows.filter(r => r.isValid).length;
+    const invalidCount = rows.length - validCount;
+
+    setPreview({
+      total: rows.length,
+      valid: validCount,
+      invalid: invalidCount,
+      rows
+    });
+  };
+
+  const handleImport = async () => {
+    if (!preview || preview.valid === 0) {
+      toast.error('هیچ ردیف معتبری برای وارد کردن وجود ندارد');
+      return;
+    }
+
+    const validUsers = preview.rows.filter(r => r.isValid);
+
+    try {
+      setUploading(true);
+      const res = await api.post('/admin/users/import-csv', { users: validUsers });
+      toast.success(res.data.message || 'کاربران با موفقیت ثبت شدند');
+      setPreview(null);
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'خطا در ثبت گروهی کاربران');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const getRoleLabel = (role) => {
+    const labels = {
+      admin: 'مدیر سیستم',
+      manager: 'مدیر',
+      supervisor: 'سرپرست',
+      user: 'کاربر'
+    };
+    return labels[role] || role;
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Title section with soft gradient background */}
+      <div className="bg-gradient-to-r from-primary-500 to-indigo-600 rounded-3xl p-6 md:p-8 text-white shadow-lg relative overflow-hidden">
+        <div className="absolute inset-0 bg-white/5 opacity-10 backdrop-blur-2xl"></div>
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">وارد کردن گروهی کاربران</h1>
+            <p className="text-white/80 text-sm mt-1">ایجاد و به‌روزرسانی سریع پرسنل به همراه ثبت سهمیه اولیه از طریق فایل CSV</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                const sampleText = "کد پرسنلی,نام کامل,نقش,شناسه واحد,سهمیه,وضعیت کاری,کلمه عبور\n1005,رضا محمدی,user,1,26,normal,1005\n1006,علی علوی,supervisor,1,20,shift,pass123";
+                const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), sampleText], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'sample_users.csv';
+                a.click();
+              }}
+              className="bg-white/20 hover:bg-white/30 border border-white/30 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all"
+            >
+              📥 دانلود فایل نمونه CSV
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left instructions block */}
+        <div className="lg:col-span-1 space-y-6">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-4">
+            <h3 className="font-bold text-gray-800 text-base">راهنمای ستون‌های فایل CSV</h3>
+            <div className="space-y-3 text-xs text-gray-600 leading-relaxed">
+              <p>فایل ارسالی باید دارای ردیف سربرگ (Header) با عناوین زیر باشد:</p>
+              <ul className="list-disc pr-4 space-y-1.5">
+                <li><strong className="text-gray-900">کد پرسنلی / ID</strong>: عدد منحصربه‌فرد (اجباری)</li>
+                <li><strong className="text-gray-900">نام کامل / full_name</strong>: نام و نام خانوادگی (اجباری)</li>
+                <li><strong className="text-gray-900">نقش / role</strong>: مقادیر <code className="bg-gray-100 px-1 py-0.5 rounded">admin</code>، <code className="bg-gray-100 px-1 py-0.5 rounded">manager</code>، <code className="bg-gray-100 px-1 py-0.5 rounded">supervisor</code>، یا <code className="bg-gray-100 px-1 py-0.5 rounded">user</code></li>
+                <li><strong className="text-gray-900">شناسه واحد / department_id</strong>: شناسه عددی واحد اداری (اختیاری)</li>
+                <li><strong className="text-gray-900">سهمیه / total_days</strong>: سهمیه اولیه سالانه مرخصی (عدد اعشاری - اختیاری)</li>
+                <li><strong className="text-gray-900">وضعیت کاری / work_type</strong>: مقادیر <code className="bg-gray-100 px-1 py-0.5 rounded">normal</code> (عادی کار) یا <code className="bg-gray-100 px-1 py-0.5 rounded">shift</code> (شیفتی)</li>
+                <li><strong className="text-gray-900">کلمه عبور / password</strong>: رمز عبور ورود (اختیاری - در صورت خالی بودن، کد پرسنلی به عنوان رمز قرار می‌گیرد)</li>
+              </ul>
+              <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-blue-800 text-xs">
+                💡 در صورتی که کد پرسنلی از قبل در سیستم وجود داشته باشد، اطلاعات کاربری و سهمیه او بدون تغییر در مرخصی‌های قبلی، <strong>بروزرسانی (Overwrite)</strong> خواهد شد.
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-3">
+            <h3 className="font-bold text-gray-800 text-base">شناسه واحدهای فعال</h3>
+            <div className="max-h-60 overflow-y-auto divide-y text-xs">
+              {departments.length === 0 ? (
+                <p className="text-gray-400 p-2 text-center">هیچ واحدی تعریف نشده است.</p>
+              ) : (
+                departments.map(d => (
+                  <div key={d.id} className="py-2 flex justify-between items-center hover:bg-gray-50/50 px-1">
+                    <span className="font-bold text-gray-700">{d.name}</span>
+                    <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg font-mono">ID: {d.id}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right main upload and preview block */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 py-10">
+            <span className="text-4xl mb-3">📄</span>
+            <p className="text-sm font-bold text-gray-700">فایل CSV خود را اینجا رها کنید یا انتخاب کنید</p>
+            <p className="text-xs text-gray-400 mt-1">پشتیبانی از جداکننده‌های کاما (,) و نقطه‌ویرایش (;)</p>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleFileUpload}
+              className="hidden"
+              id="csv-file-picker"
+            />
+            <label
+              htmlFor="csv-file-picker"
+              className="mt-4 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold px-6 py-2.5 rounded-xl cursor-pointer shadow-sm transition-all"
+            >
+              انتخاب فایل CSV
+            </label>
+          </div>
+
+          {preview && (
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-3">
+                <div>
+                  <h3 className="font-bold text-gray-800 text-lg">پیش‌نمایش داده‌های پردازش شده</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">بررسی وضعیت خطاها، تداخل‌ها و صحت ردیف‌ها قبل از ثبت نهایی</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleImport}
+                    disabled={preview.valid === 0 || uploading}
+                    className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-xs font-bold px-5 py-2 rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+                  >
+                    {uploading ? 'در حال ثبت...' : '✅ تایید و ثبت نهایی ردیف‌های معتبر'}
+                  </button>
+                  <button
+                    onClick={() => setPreview(null)}
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold px-4 py-2 rounded-xl transition-all"
+                  >
+                    انصراف
+                  </button>
+                </div>
+              </div>
+
+              {/* Stats Cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-blue-50 border border-blue-100 p-3 rounded-2xl text-center">
+                  <p className="text-xs text-blue-700">کل ردیف‌ها</p>
+                  <p className="text-xl font-bold text-blue-900 mt-1">{preview.total}</p>
+                </div>
+                <div className="bg-green-50 border border-green-100 p-3 rounded-2xl text-center">
+                  <p className="text-xs text-green-700">معتبر و آماده ثبت</p>
+                  <p className="text-xl font-bold text-green-900 mt-1">{preview.valid}</p>
+                </div>
+                <div className="bg-red-50 border border-red-100 p-3 rounded-2xl text-center">
+                  <p className="text-xs text-red-700">ردیف‌های دارای خطا</p>
+                  <p className="text-xl font-bold text-red-900 mt-1">{preview.invalid}</p>
+                </div>
+              </div>
+
+              {/* Preview Table */}
+              <div className="overflow-x-auto border rounded-2xl max-h-96">
+                <table className="w-full text-right text-xs">
+                  <thead className="bg-gray-50 text-gray-700 font-bold border-b sticky top-0">
+                    <tr>
+                      <th className="p-3">ردیف</th>
+                      <th className="p-3">کد پرسنلی</th>
+                      <th className="p-3">نام کامل</th>
+                      <th className="p-3">نقش</th>
+                      <th className="p-3">واحد</th>
+                      <th className="p-3">سهمیه</th>
+                      <th className="p-3">وضعیت کاری</th>
+                      <th className="p-3">وضعیت بررسی</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {preview.rows.map((row, idx) => (
+                      <tr key={idx} className={`hover:bg-gray-50/50 ${row.errors.length > 0 && !row.isValid ? 'bg-red-50/20' : ''}`}>
+                        <td className="p-3 text-gray-400 font-mono">{row.rowNum}</td>
+                        <td className="p-3 font-bold font-mono">{row.id}</td>
+                        <td className="p-3 text-gray-800">{row.full_name}</td>
+                        <td className="p-3">
+                          <span className="bg-gray-100 text-gray-800 px-2 py-0.5 rounded font-mono text-[10px]">
+                            {getRoleLabel(row.role)}
+                          </span>
+                        </td>
+                        <td className="p-3 text-gray-500">
+                          {row.department_id ? (
+                            departments.find(d => d.id === row.department_id)?.name || `واحد ${row.department_id}`
+                          ) : '—'}
+                        </td>
+                        <td className="p-3 font-bold font-mono">{row.total_days} روز</td>
+                        <td className="p-3 text-gray-500 font-mono">{row.work_type === 'shift' ? 'شیفتی' : 'عادی'}</td>
+                        <td className="p-3">
+                          {row.errors.length === 0 ? (
+                            <span className="text-green-600 font-bold flex items-center gap-1">🟢 معتبر (جدید)</span>
+                          ) : row.isValid ? (
+                            <div className="space-y-0.5">
+                              <span className="text-blue-600 font-bold flex items-center gap-1">🔵 معتبر (بروزرسانی)</span>
+                              <p className="text-[9px] text-blue-500">کد پرسنلی از قبل در سیستم وجود دارد.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <span className="text-red-600 font-bold flex items-center gap-1">🔴 غیرقابل ثبت</span>
+                              {row.errors.map((e, ei) => (
+                                <p key={ei} className="text-[9px] text-red-500 font-medium">⚠️ {e}</p>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

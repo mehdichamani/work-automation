@@ -11,6 +11,7 @@ const MODULES = [
   { key: 'leave_quota_manage', label: 'مدیریت سهمیه مرخصی پرسنل', group: 'مرخصی' },
   { key: 'leave_edit_after_seen', label: 'ویرایش مرخصی پس از رویت حراست', group: 'مرخصی' },
   { key: 'shifts_manage', label: 'مدیریت و تغییر وضعیت شیفت کارکنان', group: 'شیفت‌های کاری' },
+  { key: 'user_import_csv', label: 'وارد کردن گروهی پرسنل از CSV', group: 'مدیریت کاربران' },
   { key: 'letters_send', label: 'ارسال نامه', group: 'نامه‌ها' },
   { key: 'letters_approve', label: 'تایید نامه (مدیر)', group: 'نامه‌ها' },
   { key: 'restaurant_menu', label: 'مدیریت منوی رستوران', group: 'رستوران' },

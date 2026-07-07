@@ -13,6 +13,7 @@ const Restaurant = lazy(() => import('./pages/Restaurant'));
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 const JobApplication = lazy(() => import('./pages/JobApplication'));
 const Shifts = lazy(() => import('./pages/Shifts'));
+const UserImportCsv = lazy(() => import('./pages/UserImportCsv'));
 
 function PrivateRoute({ children, allowedRoles, requiredPermission }) {
   const { user, loading, hasPermission } = useAuth();
@@ -39,6 +40,7 @@ function App() {
           <Route path="/admin" element={<PrivateRoute allowedRoles={['admin']}><AdminPanel /></PrivateRoute>} />
           <Route path="/job-application" element={<PrivateRoute><JobApplication /></PrivateRoute>} />
           <Route path="/shifts" element={<PrivateRoute requiredPermission="shifts_manage"><Shifts /></PrivateRoute>} />
+          <Route path="/admin/import-users" element={<PrivateRoute requiredPermission="user_import_csv"><UserImportCsv /></PrivateRoute>} />
         </Routes>
         </Suspense>
       </BrowserRouter>
