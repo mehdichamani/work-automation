@@ -295,6 +295,45 @@ module.exports = function(db) {
         for (const u of users) {
           const userId = parseInt(u.id || u.personal_code, 10);
           if (!userId || !u.full_name || !u.role) continue;
+
+          let role = u.role;
+          const roleMap = {
+            'admin': 'admin',
+            'manager': 'manager',
+            'supervisor': 'supervisor',
+            'user': 'user',
+            'مدیر سیستم': 'admin',
+            'مدیرسیستم': 'admin',
+            'مدیر': 'manager',
+            'سرپرست': 'supervisor',
+            'کاربر': 'user',
+            'عادی': 'user',
+            'کاربر عادی': 'user'
+          };
+          if (roleMap[role]) {
+            role = roleMap[role];
+          }
+
+          let departmentId = null;
+          if (u.department_name && u.department_name.trim()) {
+            const deptName = u.department_name.trim();
+            const dept = db.prepare('SELECT id FROM departments WHERE LOWER(name) = LOWER(?) AND is_active = 1').get(deptName);
+            if (dept) {
+              departmentId = dept.id;
+            } else {
+              const res = db.prepare('INSERT INTO departments (name) VALUES (?)').run(deptName);
+              departmentId = res.lastInsertRowid;
+            }
+          } else if (u.department_id) {
+            departmentId = u.department_id;
+          }
+
+          let totalDays = 0;
+          if (u.total_hours !== undefined) {
+            totalDays = Number(u.total_hours) / 8;
+          } else if (u.total_days !== undefined) {
+            totalDays = Number(u.total_days);
+          }
           
           const pass = u.password || String(userId);
           const hash = bcrypt.hashSync(pass, 10);
@@ -302,18 +341,18 @@ module.exports = function(db) {
           const existing = checkUser.get(userId);
           if (existing) {
             db.prepare('UPDATE users SET password = ?, full_name = ?, role = ?, department_id = ?, work_type = ?, is_active = 1 WHERE id = ?')
-              .run(hash, u.full_name, u.role, u.department_id || null, u.work_type || 'normal', userId);
+              .run(hash, u.full_name, role, departmentId, u.work_type || 'normal', userId);
             
             const balanceExists = db.prepare('SELECT id FROM leave_balance WHERE user_id = ?').get(userId);
             if (balanceExists) {
               db.prepare('UPDATE leave_balance SET total_days = ? WHERE user_id = ?')
-                .run(Number(u.total_days || 0), userId);
+                .run(totalDays, userId);
             } else {
-              insertBalance.run(userId, Number(u.total_days || 0));
+              insertBalance.run(userId, totalDays);
             }
           } else {
-            insertUser.run(userId, hash, u.full_name, u.role, u.department_id || null, u.work_type || 'normal');
-            insertBalance.run(userId, Number(u.total_days || 0));
+            insertUser.run(userId, hash, u.full_name, role, departmentId, u.work_type || 'normal');
+            insertBalance.run(userId, totalDays);
           }
         }
       })();

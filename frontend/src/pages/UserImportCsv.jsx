@@ -53,10 +53,12 @@ export default function UserImportCsv() {
     'supervisor': 'supervisor',
     'user': 'user',
     'مدیر سیستم': 'admin',
+    'مدیرسیستم': 'admin',
     'مدیر': 'manager',
     'سرپرست': 'supervisor',
     'کاربر': 'user',
-    'عادی': 'user'
+    'عادی': 'user',
+    'کاربر عادی': 'user'
   };
 
   const workTypeMap = {
@@ -64,23 +66,19 @@ export default function UserImportCsv() {
     'shift': 'shift',
     'عادی': 'normal',
     'عادی کار': 'normal',
+    'عادی‌کار': 'normal',
     'شیفتی': 'shift',
     'شیفت': 'shift'
   };
 
   const parseCSV = (text) => {
-    // Split by newlines, clean empty lines
     const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
     if (lines.length < 2) {
       toast.error('فایل CSV خالی است یا ردیف داده ندارد');
       return;
     }
 
-    // Parse header and detect columns
-    // We support both comma (,) and semicolon (;) separators
     const separator = lines[0].includes(';') ? ';' : ',';
-    
-    // Clean quotes from headers
     const headers = lines[0].split(separator).map(h => h.replace(/^["']|["']$/g, '').trim().toLowerCase());
 
     const rows = [];
@@ -94,22 +92,19 @@ export default function UserImportCsv() {
         rowObj[header] = columns[index] || '';
       });
 
-      // Try to normalize headers (English & Persian)
       const idStr = rowObj['id'] || rowObj['personal_code'] || rowObj['کد پرسنلی'] || rowObj['شناسه'] || '';
       const fullName = rowObj['full_name'] || rowObj['name'] || rowObj['نام کامل'] || rowObj['نام'] || '';
       const rawRole = rowObj['role'] || rowObj['نقش'] || rowObj['سمت'] || '';
-      const rawDeptId = rowObj['department_id'] || rowObj['شناسه واحد'] || rowObj['واحد'] || '';
-      const quotaStr = rowObj['total_days'] || rowObj['quota'] || rowObj['سهمیه'] || rowObj['سهمیه مرخصی'] || '0';
+      const deptName = rowObj['department'] || rowObj['department_name'] || rowObj['واحد'] || rowObj['نام واحد'] || '';
+      const quotaStr = rowObj['total_hours'] || rowObj['total_days'] || rowObj['quota'] || rowObj['سهمیه'] || rowObj['سهمیه (ساعت)'] || rowObj['سهمیه مرخصی'] || '0';
       const rawWorkType = rowObj['work_type'] || rowObj['وضعیت کاری'] || '';
       const password = rowObj['password'] || rowObj['کلمه عبور'] || rowObj['رمز'] || '';
 
       const id = parseInt(idStr, 10);
-      const quota = parseFloat(quotaStr) || 0;
-      const role = roleMap[rawRole.toLowerCase()] || '';
-      const work_type = workTypeMap[rawWorkType.toLowerCase()] || 'normal';
-      const department_id = parseInt(rawDeptId, 10) || null;
+      const quotaHours = parseFloat(quotaStr) || 0;
+      const role = roleMap[rawRole.trim()] || roleMap[rawRole.toLowerCase().trim()] || '';
+      const work_type = workTypeMap[rawWorkType.trim()] || workTypeMap[rawWorkType.toLowerCase().trim()] || 'normal';
 
-      // Validation
       const errors = [];
       if (!idStr) {
         errors.push('کد پرسنلی خالی است');
@@ -134,15 +129,14 @@ export default function UserImportCsv() {
       if (!rawRole) {
         errors.push('نقش کاربر تعیین نشده است');
       } else if (!role) {
-        errors.push(`نقش نامعتبر است (${rawRole}) - باید یکی از مقادیر admin، manager، supervisor یا user باشد`);
+        errors.push(`نقش نامعتبر است (${rawRole}) - باید یکی از مقادیر «مدیر سیستم»، «مدیر»، «سرپرست» یا «کاربر عادی» باشد`);
       }
 
-      if (rawDeptId && isNaN(department_id)) {
-        errors.push('شناسه واحد باید عدد باشد');
-      } else if (department_id) {
-        const deptExists = departments.some(d => d.id === department_id);
+      let deptMessage = '';
+      if (deptName.trim()) {
+        const deptExists = departments.some(d => d.name.toLowerCase() === deptName.trim().toLowerCase());
         if (!deptExists) {
-          errors.push(`واحد با شناسه ${department_id} یافت نشد`);
+          deptMessage = 'واحد جدید ایجاد خواهد شد';
         }
       }
 
@@ -151,11 +145,12 @@ export default function UserImportCsv() {
         id: id || idStr,
         full_name: fullName,
         role: role || rawRole,
-        department_id,
-        total_days: quota,
+        department_name: deptName.trim(),
+        total_hours: quotaHours,
         work_type,
         password,
         errors,
+        deptMessage,
         isValid: errors.filter(e => !e.includes('ویرایش خواهد شد')).length === 0,
         isOverwrite: errors.some(e => e.includes('ویرایش خواهد شد'))
       });
@@ -203,6 +198,15 @@ export default function UserImportCsv() {
     return labels[role] || role;
   };
 
+  const formatHoursToDays = (hours) => {
+    const d = Math.floor(hours / 8);
+    const h = hours % 8;
+    let res = '';
+    if (d > 0) res += `${d} روز`;
+    if (h > 0) res += `${res ? ' و ' : ''}${h} ساعت`;
+    return res || '0 ساعت';
+  };
+
   return (
     <div className="space-y-6">
       {/* Title section with soft gradient background */}
@@ -211,12 +215,12 @@ export default function UserImportCsv() {
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">وارد کردن گروهی کاربران</h1>
-            <p className="text-white/80 text-sm mt-1">ایجاد و به‌روزرسانی سریع پرسنل به همراه ثبت سهمیه اولیه از طریق فایل CSV</p>
+            <p className="text-white/80 text-sm mt-1">ایجاد و به‌روزرسانی سریع پرسنل به همراه ثبت سهمیه اولیه به ساعت از طریق فایل CSV</p>
           </div>
           <div className="flex gap-2">
             <button
               onClick={() => {
-                const sampleText = "کد پرسنلی,نام کامل,نقش,شناسه واحد,سهمیه,وضعیت کاری,کلمه عبور\n1005,رضا محمدی,user,1,26,normal,1005\n1006,علی علوی,supervisor,1,20,shift,pass123";
+                const sampleText = "کد پرسنلی,نام کامل,نقش,واحد,سهمیه (ساعت),وضعیت کاری,کلمه عبور\n1005,رضا محمدی,کاربر عادی,اداری,82,عادی,1005\n1006,علی علوی,سرپرست,فناوری اطلاعات,60,عادی,pass123\n1007,حسن حسینی,کاربر عادی,واحد جدید,40,شیفتی,1007";
                 const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), sampleText], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -240,13 +244,13 @@ export default function UserImportCsv() {
             <div className="space-y-3 text-xs text-gray-600 leading-relaxed">
               <p>فایل ارسالی باید دارای ردیف سربرگ (Header) با عناوین زیر باشد:</p>
               <ul className="list-disc pr-4 space-y-1.5">
-                <li><strong className="text-gray-900">کد پرسنلی / ID</strong>: عدد منحصربه‌فرد (اجباری)</li>
-                <li><strong className="text-gray-900">نام کامل / full_name</strong>: نام و نام خانوادگی (اجباری)</li>
-                <li><strong className="text-gray-900">نقش / role</strong>: مقادیر <code className="bg-gray-100 px-1 py-0.5 rounded">admin</code>، <code className="bg-gray-100 px-1 py-0.5 rounded">manager</code>، <code className="bg-gray-100 px-1 py-0.5 rounded">supervisor</code>، یا <code className="bg-gray-100 px-1 py-0.5 rounded">user</code></li>
-                <li><strong className="text-gray-900">شناسه واحد / department_id</strong>: شناسه عددی واحد اداری (اختیاری)</li>
-                <li><strong className="text-gray-900">سهمیه / total_days</strong>: سهمیه اولیه سالانه مرخصی (عدد اعشاری - اختیاری)</li>
-                <li><strong className="text-gray-900">وضعیت کاری / work_type</strong>: مقادیر <code className="bg-gray-100 px-1 py-0.5 rounded">normal</code> (عادی کار) یا <code className="bg-gray-100 px-1 py-0.5 rounded">shift</code> (شیفتی)</li>
-                <li><strong className="text-gray-900">کلمه عبور / password</strong>: رمز عبور ورود (اختیاری - در صورت خالی بودن، کد پرسنلی به عنوان رمز قرار می‌گیرد)</li>
+                <li><strong className="text-gray-900">کد پرسنلی</strong>: عدد منحصربه‌فرد (اجباری)</li>
+                <li><strong className="text-gray-900">نام کامل</strong>: نام و نام خانوادگی (اجباری)</li>
+                <li><strong className="text-gray-900">نقش</strong>: مقادیر فارسی مانند <code className="bg-gray-100 px-1 py-0.5 rounded">مدیر سیستم</code>، <code className="bg-gray-100 px-1 py-0.5 rounded">مدیر</code>، <code className="bg-gray-100 px-1 py-0.5 rounded">سرپرست</code> یا <code className="bg-gray-100 px-1 py-0.5 rounded">کاربر عادی</code></li>
+                <li><strong className="text-gray-900">واحد</strong>: نام واحد سازمانی (اختیاری - در صورت عدم وجود، واحد جدید به طور خودکار ایجاد خواهد شد)</li>
+                <li><strong className="text-gray-900">سهمیه (ساعت)</strong>: سهمیه سالانه به ساعت - مثلاً <code className="bg-gray-100 px-1 py-0.5 rounded">82</code> ساعت معادل ۱۰ روز و ۲ ساعت مرخصی (اختیاری)</li>
+                <li><strong className="text-gray-900">وضعیت کاری</strong>: مقادیر فارسی مانند <code className="bg-gray-100 px-1 py-0.5 rounded">عادی</code> یا <code className="bg-gray-100 px-1 py-0.5 rounded">شیفتی</code></li>
+                <li><strong className="text-gray-900">کلمه عبور</strong>: رمز عبور ورود (اختیاری - در صورت خالی بودن، کد پرسنلی به عنوان رمز قرار می‌گیرد)</li>
               </ul>
               <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-blue-800 text-xs">
                 💡 در صورتی که کد پرسنلی از قبل در سیستم وجود داشته باشد، اطلاعات کاربری و سهمیه او بدون تغییر در مرخصی‌های قبلی، <strong>بروزرسانی (Overwrite)</strong> خواهد شد.
@@ -255,15 +259,15 @@ export default function UserImportCsv() {
           </div>
 
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-3">
-            <h3 className="font-bold text-gray-800 text-base">شناسه واحدهای فعال</h3>
+            <h3 className="font-bold text-gray-800 text-base">واحدهای اداری فعال</h3>
             <div className="max-h-60 overflow-y-auto divide-y text-xs">
               {departments.length === 0 ? (
                 <p className="text-gray-400 p-2 text-center">هیچ واحدی تعریف نشده است.</p>
               ) : (
                 departments.map(d => (
-                  <div key={d.id} className="py-2 flex justify-between items-center hover:bg-gray-50/50 px-1">
+                  <div key={d.id} className="py-2.5 flex justify-between items-center hover:bg-gray-50/50 px-1">
                     <span className="font-bold text-gray-700">{d.name}</span>
-                    <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg font-mono">ID: {d.id}</span>
+                    <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded-lg text-[10px]">موجود در سیستم</span>
                   </div>
                 ))
               )}
@@ -342,7 +346,7 @@ export default function UserImportCsv() {
                       <th className="p-3">نام کامل</th>
                       <th className="p-3">نقش</th>
                       <th className="p-3">واحد</th>
-                      <th className="p-3">سهمیه</th>
+                      <th className="p-3">سهمیه (ساعت)</th>
                       <th className="p-3">وضعیت کاری</th>
                       <th className="p-3">وضعیت بررسی</th>
                     </tr>
@@ -358,12 +362,22 @@ export default function UserImportCsv() {
                             {getRoleLabel(row.role)}
                           </span>
                         </td>
-                        <td className="p-3 text-gray-500">
-                          {row.department_id ? (
-                            departments.find(d => d.id === row.department_id)?.name || `واحد ${row.department_id}`
+                        <td className="p-3 text-gray-600 font-semibold">
+                          {row.department_name ? (
+                            <div className="space-y-0.5">
+                              <span>{row.department_name}</span>
+                              {row.deptMessage && (
+                                <p className="text-[9px] text-amber-600 font-bold">✨ {row.deptMessage}</p>
+                              )}
+                            </div>
                           ) : '—'}
                         </td>
-                        <td className="p-3 font-bold font-mono">{row.total_days} روز</td>
+                        <td className="p-3 font-semibold text-gray-700 font-mono">
+                          <div className="space-y-0.5">
+                            <span>{row.total_hours} ساعت</span>
+                            <p className="text-[9px] text-gray-400">({formatHoursToDays(row.total_hours)})</p>
+                          </div>
+                        </td>
                         <td className="p-3 text-gray-500 font-mono">{row.work_type === 'shift' ? 'شیفتی' : 'عادی'}</td>
                         <td className="p-3">
                           {row.errors.length === 0 ? (
