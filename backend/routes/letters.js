@@ -57,15 +57,29 @@ module.exports = function(db) {
 
   function isSantral(user) {
     if (user.role === 'admin') return true;
-    const dept = db.prepare('SELECT name FROM departments WHERE id = ?').get(user.department_id);
-    return dept && dept.name.includes('سانترال');
+    const userPerm = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(user.id, 'letters_central');
+    if (userPerm !== null && userPerm !== undefined) {
+      return userPerm.is_enabled === 1;
+    }
+    if (user.department_id) {
+      const deptPerm = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL AND module_key = ?').get(user.department_id, 'letters_central');
+      if (deptPerm !== null && deptPerm !== undefined) {
+        return deptPerm.is_enabled === 1;
+      }
+    }
+    return false;
   }
 
   function getSantralUsers() {
     return db.prepare(`
-      SELECT u.id FROM users u
-      JOIN departments d ON u.department_id = d.id
-      WHERE d.name LIKE '%سانترال%' AND u.is_active = 1
+      SELECT DISTINCT u.id FROM users u
+      LEFT JOIN permissions p_user ON u.id = p_user.user_id AND p_user.module_key = 'letters_central'
+      LEFT JOIN permissions p_dept ON u.department_id = p_dept.department_id AND p_dept.user_id IS NULL AND p_dept.module_key = 'letters_central'
+      WHERE u.is_active = 1 AND (
+        u.role = 'admin' OR
+        p_user.is_enabled = 1 OR
+        (p_user.id IS NULL AND p_dept.is_enabled = 1)
+      )
     `).all();
   }
 
@@ -288,10 +302,10 @@ module.exports = function(db) {
 
       const manager = db.prepare('SELECT full_name FROM users WHERE id = ?').get(manager_id);
 
-      db.prepare("UPDATE letters SET status = 'pending_manager', selected_manager_id = ?, central_id = ?, central_date = datetime('now') WHERE id = ?")
-        .run(manager_id, req.user.id, req.params.id);
+      db.prepare("UPDATE letters SET status = 'pending_manager', selected_manager_id = ?, central_id = ?, central_date = datetime('now'), central_comment = ? WHERE id = ?")
+        .run(manager_id, req.user.id, comment || '', req.params.id);
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'sent_to_manager', `ارسال به مدیر: ${manager?.full_name}`);
+      addHistory(req.params.id, req.user.id, req.user.full_name, 'sent_to_manager', `ارسال به مدیر: ${manager?.full_name}${comment ? ` - توضیح: ${comment}` : ''}`);
       notify(manager_id, 'نامه جدید', `نامه "${letter.subject}" برای شما ارسال شده`, '/letters');
 
       res.json({ message: 'نامه به مدیر ارسال شد' });

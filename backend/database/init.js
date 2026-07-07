@@ -361,6 +361,7 @@ async function initDatabase() {
       signature_data TEXT,
       attachment_name TEXT,
       attachment_path TEXT,
+      central_comment TEXT,
       created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
       FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (sender_unit_id) REFERENCES departments(id) ON DELETE CASCADE,
@@ -538,6 +539,7 @@ async function initDatabase() {
     "ALTER TABLE leave_requests ADD COLUMN edit_reason TEXT",
     "ALTER TABLE leave_balance ALTER COLUMN total_days TYPE DOUBLE PRECISION",
     "ALTER TABLE users ADD COLUMN work_type TEXT DEFAULT 'normal'",
+    "ALTER TABLE letters ADD COLUMN central_comment TEXT",
   ];
   for (const sql of alterStatements) {
     try { db.exec(sql); } catch (e) {}

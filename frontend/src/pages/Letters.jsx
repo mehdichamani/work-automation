@@ -31,7 +31,7 @@ const historyActions = {
 };
 
 export default function Letters() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [tab, setTab] = useState('my');
   const [myLetters, setMyLetters] = useState([]);
   const [pendingCentral, setPendingCentral] = useState([]);
@@ -55,7 +55,7 @@ export default function Letters() {
   const [form, setForm] = useState({ subject: '', body: '', priority: 'normal' });
   const [nextNumber, setNextNumber] = useState('');
 
-  const isSantral = user.department_name?.includes('سانترال') || user.role === 'admin';
+  const isSantral = hasPermission('letters_central');
   const isManager = user.role === 'manager' || user.role === 'admin';
 
   const filteredArchived = archivedLetters.filter(l => !letterSearch || (l.letter_number && l.letter_number.includes(letterSearch)));
@@ -567,6 +567,11 @@ export default function Letters() {
                     <h4 className="font-bold text-sm">{l.subject}</h4>
                     <p className="text-xs text-gray-500 mt-1">شماره: {l.letter_number || '-'} | فرستنده: {l.sender_name} ({l.sender_unit_name})</p>
                     <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap">{l.body?.substring(0, 300)}</p>
+                    {l.central_comment && (
+                      <p className="text-xs text-amber-800 mt-2 bg-amber-50 p-2 rounded-lg border border-amber-100 font-medium">
+                        توضیحات دبیرخانه: {l.central_comment}
+                      </p>
+                    )}
                     {l.attachment_name && <div className="mt-2"><FileBadge name={l.attachment_name} link={l.attachment_path} /></div>}
                   </div>
                 </div>

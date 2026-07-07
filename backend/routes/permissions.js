@@ -14,6 +14,7 @@ const MODULES = [
   { key: 'user_import_csv', label: 'وارد کردن گروهی پرسنل از CSV', group: 'مدیریت کاربران' },
   { key: 'letters_send', label: 'ارسال نامه', group: 'نامه‌ها' },
   { key: 'letters_approve', label: 'تایید نامه (مدیر)', group: 'نامه‌ها' },
+  { key: 'letters_central', label: 'دبیرخانه / سانترال (مدیریت نامه‌ها)', group: 'نامه‌ها' },
   { key: 'restaurant_menu', label: 'مدیریت منوی رستوران', group: 'رستوران' },
   { key: 'restaurant_monitoring', label: 'مانیتورینگ رستوران', group: 'رستوران' },
   { key: 'announcements_manage', label: 'مدیریت اطلاعیه‌ها', group: 'اطلاعیه' },

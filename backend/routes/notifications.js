@@ -75,8 +75,18 @@ module.exports = function(db) {
       }
 
       let centralCount = 0;
-      const dept = db.prepare('SELECT name FROM departments WHERE id = ?').get(req.user.department_id);
-      const isSantral = req.user.role === 'admin' || (dept && dept.name.includes('سانترال'));
+      let isSantral = req.user.role === 'admin';
+      if (!isSantral) {
+        const userPerm = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(req.user.id, 'letters_central');
+        if (userPerm !== null && userPerm !== undefined) {
+          isSantral = userPerm.is_enabled === 1;
+        } else if (req.user.department_id) {
+          const deptPerm = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL AND module_key = ?').get(req.user.department_id, 'letters_central');
+          if (deptPerm !== null && deptPerm !== undefined) {
+            isSantral = deptPerm.is_enabled === 1;
+          }
+        }
+      }
       if (isSantral) {
         const r = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status = 'pending_central'").get();
         centralCount = parseInt(r.count, 10) || 0;
