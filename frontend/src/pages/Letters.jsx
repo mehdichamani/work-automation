@@ -436,6 +436,11 @@ export default function Letters() {
                     <h4 className="font-bold text-sm">{l.subject}</h4>
                     <p className="text-xs text-gray-500 mt-1">شماره: {l.letter_number || '-'} | {l.created_at?.split('T')[0]}</p>
                     {l.manager_name && <p className="text-xs text-gray-400 mt-0.5">مدیر: {l.manager_name}</p>}
+                    {l.manager_comment && (
+                      <p className={`text-xs mt-1 p-2 rounded-lg ${l.status === 'rejected' ? 'bg-red-50 text-red-700 font-medium border border-red-100' : 'bg-blue-50 text-blue-700'}`}>
+                        {l.status === 'rejected' ? 'علت رد: ' : 'توضیح مدیر: '}{l.manager_comment}
+                      </p>
+                    )}
                     {l.attachment_name && <div className="mt-2"><FileBadge name={l.attachment_name} link={l.attachment_path} /></div>}
                   </div>
                   <div className="flex gap-2">
