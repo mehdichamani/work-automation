@@ -24,6 +24,10 @@ const MODULES = [
   { key: 'announcements_manage', label: 'مدیریت اطلاعیه‌ها', group: 'اطلاعیه' },
   { key: 'job_application_fill', label: 'تکمیل پرسشنامه استخدامی', group: 'استخدام' },
   { key: 'job_application_review', label: 'بررسی پرسشنامه‌های استخدامی', group: 'استخدام' },
+  { key: 'leave_request', label: 'درخواست مرخصی', group: 'دسترسی‌های پایه' },
+  { key: 'overtime_request', label: 'درخواست اضافه کار', group: 'دسترسی‌های پایه' },
+  { key: 'inventory_view', label: 'کارتکس انبار', group: 'دسترسی‌های پایه' },
+  { key: 'restaurant_view', label: 'رستوران', group: 'دسترسی‌های پایه' },
 ];
 
 module.exports = function (db) {

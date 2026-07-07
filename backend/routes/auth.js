@@ -42,7 +42,8 @@ module.exports = function(db) {
           full_name: user.full_name,
           role: user.role,
           department_id: user.department_id,
-          department_name: dept?.name || ''
+          department_name: dept?.name || '',
+          must_change_password: user.must_change_password
         }
       });
     } catch (err) {
@@ -60,7 +61,7 @@ module.exports = function(db) {
       }
 
       const hash = bcrypt.hashSync(newPassword, 10);
-      db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, req.user.id);
+      db.prepare('UPDATE users SET password = ?, must_change_password = 0 WHERE id = ?').run(hash, req.user.id);
       res.json({ message: 'رمز عبور با موفقیت تغییر کرد' });
     } catch (err) {
       res.status(500).json({ error: 'خطای سرور: ' + err.message });

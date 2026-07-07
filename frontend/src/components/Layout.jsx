@@ -3,14 +3,15 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import { io } from 'socket.io-client';
+import toast from 'react-hot-toast';
 
 const menuItems = [
   { path: '/', label: 'داشبورد', icon: '📊', roles: ['admin','manager','supervisor','user'] },
-  { path: '/leave', label: 'مرخصی', icon: '🏖️', roles: ['admin','manager','supervisor','user'] },
-  { path: '/overtime', label: 'اضافه کار', icon: '⏰', roles: ['admin','manager','supervisor','user'] },
+  { path: '/leave', label: 'مرخصی', icon: '🏖️', permission: 'leave_request' },
+  { path: '/overtime', label: 'اضافه کار', icon: '⏰', permission: 'overtime_request' },
   { path: '/letters', label: 'نامه‌ها', icon: '📨', roles: ['admin','manager','supervisor','user'] },
-  { path: '/inventory', label: 'کارتکس انبار', icon: '📦', roles: ['admin','manager','supervisor','user'] },
-  { path: '/restaurant', label: 'رستوران', icon: '🍽️', roles: ['admin','manager','supervisor','user'] },
+  { path: '/inventory', label: 'کارتکس انبار', icon: '📦', permission: 'inventory_view' },
+  { path: '/restaurant', label: 'رستوران', icon: '🍽️', permission: 'restaurant_view' },
   { path: '/shifts', label: 'شیفت‌های کاری', icon: '🕒', permission: 'shifts_manage' },
   { path: '/job-application', label: 'پرسشنامه استخدامی', icon: '📋', permission: 'job_application_fill' },
   { path: '/admin/import-users', label: 'ورود گروهی کاربران', icon: '👥', permission: 'user_import_csv' },
@@ -26,10 +27,43 @@ const roleLabels = {
 };
 
 export default function Layout({ children }) {
-  const { user, logout, hasPermission } = useAuth();
+  const { user, logout, hasPermission, updateUserFields } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [changePasswordForm, setChangePasswordForm] = useState({ oldPassword: '', newPassword: '', confirmNewPassword: '' });
+  const [changePasswordLoading, setChangePasswordLoading] = useState(false);
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (changePasswordForm.newPassword !== changePasswordForm.confirmNewPassword) {
+      toast.error('رمز جدید و تکرار آن یکسان نیستند');
+      return;
+    }
+    if (changePasswordForm.newPassword.length < 4) {
+      toast.error('رمز عبور جدید باید حداقل ۴ کاراکتر باشد');
+      return;
+    }
+    setChangePasswordLoading(true);
+    try {
+      await api.post('/auth/change-password', {
+        oldPassword: changePasswordForm.oldPassword,
+        newPassword: changePasswordForm.newPassword
+      });
+      toast.success('رمز عبور با موفقیت تغییر کرد');
+      setShowChangePasswordModal(false);
+      setChangePasswordForm({ oldPassword: '', newPassword: '', confirmNewPassword: '' });
+      if (user?.must_change_password) {
+        updateUserFields({ must_change_password: 0 });
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'خطا در تغییر رمز عبور');
+    } finally {
+      setChangePasswordLoading(false);
+    }
+  };
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -239,6 +273,12 @@ export default function Layout({ children }) {
               </div>
             </div>
             <button 
+              onClick={() => setShowChangePasswordModal(true)}
+              className="text-xs text-blue-500 hover:text-blue-700 font-medium ml-3 flex items-center gap-1"
+            >
+              🔑 تغییر رمز
+            </button>
+            <button 
               onClick={() => { logout(); navigate('/login'); }}
               className="text-xs text-red-500 hover:text-red-700 font-medium"
             >
@@ -251,6 +291,123 @@ export default function Layout({ children }) {
           {children}
         </div>
       </main>
+
+      {/* Forced Password Change Modal (must_change_password === 1) */}
+      {user?.must_change_password === 1 && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-fade-in text-right">
+            <h3 className="text-lg font-bold text-red-600 mb-2">⚠️ تغییر رمز عبور اجباری</h3>
+            <p className="text-sm text-gray-500 mb-6 leading-6">
+              به دلیل استفاده از رمز عبور پیش‌فرض (کد پرسنلی)، جهت حفظ امنیت حساب کاربری خود، لطفاً ابتدا رمز عبور جدیدی تعیین نمایید.
+            </p>
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور فعلی (کد پرسنلی)</label>
+                <input
+                  type="password"
+                  value={changePasswordForm.oldPassword}
+                  onChange={(e) => setChangePasswordForm({ ...changePasswordForm, oldPassword: e.target.value })}
+                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور جدید</label>
+                <input
+                  type="password"
+                  value={changePasswordForm.newPassword}
+                  onChange={(e) => setChangePasswordForm({ ...changePasswordForm, newPassword: e.target.value })}
+                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700">تکرار رمز عبور جدید</label>
+                <input
+                  type="password"
+                  value={changePasswordForm.confirmNewPassword}
+                  onChange={(e) => setChangePasswordForm({ ...changePasswordForm, confirmNewPassword: e.target.value })}
+                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  required
+                />
+              </div>
+              <div className="pt-2 flex gap-4">
+                <button
+                  type="submit"
+                  disabled={changePasswordLoading}
+                  className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50"
+                >
+                  {changePasswordLoading ? 'در حال ثبت...' : 'تغییر رمز و ورود'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { logout(); navigate('/login'); }}
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-3 rounded-xl font-bold transition-colors"
+                >
+                  خروج
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Optional Password Change Modal */}
+      {showChangePasswordModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[5000] p-4">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-fade-in text-right">
+            <h3 className="text-lg font-bold text-gray-800 mb-6">🔑 تغییر رمز عبور</h3>
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور فعلی</label>
+                <input
+                  type="password"
+                  value={changePasswordForm.oldPassword}
+                  onChange={(e) => setChangePasswordForm({ ...changePasswordForm, oldPassword: e.target.value })}
+                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور جدید</label>
+                <input
+                  type="password"
+                  value={changePasswordForm.newPassword}
+                  onChange={(e) => setChangePasswordForm({ ...changePasswordForm, newPassword: e.target.value })}
+                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700">تکرار رمز عبور جدید</label>
+                <input
+                  type="password"
+                  value={changePasswordForm.confirmNewPassword}
+                  onChange={(e) => setChangePasswordForm({ ...changePasswordForm, confirmNewPassword: e.target.value })}
+                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  required
+                />
+              </div>
+              <div className="pt-2 flex gap-4">
+                <button
+                  type="submit"
+                  disabled={changePasswordLoading}
+                  className="flex-1 bg-primary-500 hover:bg-primary-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50"
+                >
+                  {changePasswordLoading ? 'در حال ثبت...' : 'تغییر رمز'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowChangePasswordModal(false); setChangePasswordForm({ oldPassword: '', newPassword: '', confirmNewPassword: '' }); }}
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-xl font-bold transition-colors"
+                >
+                  انصراف
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

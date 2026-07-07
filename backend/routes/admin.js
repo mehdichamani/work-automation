@@ -43,12 +43,14 @@ module.exports = function(db) {
         return res.status(400).json({ error: 'کد پرسنلی تکراری است' });
       }
       const pass = password || String(targetId);
+      const mustChange = password ? 0 : 1;
       const hash = bcrypt.hashSync(pass, 10);
       if (existing && !existing.is_active) {
-        db.prepare('UPDATE users SET password = ?, full_name = ?, role = ?, department_id = ?, is_active = 1 WHERE id = ?')
-          .run(hash, full_name, role, department_id || null, targetId);
+        db.prepare('UPDATE users SET password = ?, full_name = ?, role = ?, department_id = ?, is_active = 1, must_change_password = ? WHERE id = ?')
+          .run(hash, full_name, role, department_id || null, mustChange, targetId);
       } else {
-        db.prepare('INSERT INTO users (id, password, full_name, role, department_id) VALUES (?, ?, ?, ?, ?)').run(targetId, hash, full_name, role, department_id || null);
+        db.prepare('INSERT INTO users (id, password, full_name, role, department_id, must_change_password) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(targetId, hash, full_name, role, department_id || null, mustChange);
       }
       
       const existingBalance = db.prepare('SELECT id FROM leave_balance WHERE user_id = ?').get(targetId);
@@ -292,8 +294,8 @@ module.exports = function(db) {
       }
 
       const insertUser = db.prepare(`
-        INSERT INTO users (id, password, full_name, role, department_id, work_type)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, password, full_name, role, department_id, work_type, must_change_password)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
       
       const insertBalance = db.prepare(`
@@ -352,12 +354,13 @@ module.exports = function(db) {
           }
           
           const pass = u.password || String(userId);
+          const mustChange = u.password ? 0 : 1;
           const hash = bcrypt.hashSync(pass, 10);
           
           const existing = checkUser.get(userId);
           if (existing) {
-            db.prepare('UPDATE users SET password = ?, full_name = ?, role = ?, department_id = ?, work_type = ?, is_active = 1 WHERE id = ?')
-              .run(hash, u.full_name, role, departmentId, u.work_type || 'normal', userId);
+            db.prepare('UPDATE users SET password = ?, full_name = ?, role = ?, department_id = ?, work_type = ?, is_active = 1, must_change_password = ? WHERE id = ?')
+              .run(hash, u.full_name, role, departmentId, u.work_type || 'normal', mustChange, userId);
             
             const balanceExists = db.prepare('SELECT id FROM leave_balance WHERE user_id = ?').get(userId);
             if (balanceExists) {
@@ -367,7 +370,7 @@ module.exports = function(db) {
               insertBalance.run(userId, totalDays);
             }
           } else {
-            insertUser.run(userId, hash, u.full_name, role, departmentId, u.work_type || 'normal');
+            insertUser.run(userId, hash, u.full_name, role, departmentId, u.work_type || 'normal', mustChange);
             insertBalance.run(userId, totalDays);
           }
         }

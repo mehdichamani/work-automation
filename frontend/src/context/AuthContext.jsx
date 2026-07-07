@@ -58,8 +58,17 @@ export function AuthProvider({ children }) {
     if (user) await loadPermissions(user);
   };
 
+  const updateUserFields = (fields) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, ...fields };
+      localStorage.setItem('user', JSON.stringify(next));
+      return next;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, permissions, hasPermission, login, logout, loading, refreshPermissions }}>
+    <AuthContext.Provider value={{ user, permissions, hasPermission, login, logout, loading, refreshPermissions, updateUserFields }}>
       {children}
     </AuthContext.Provider>
   );
