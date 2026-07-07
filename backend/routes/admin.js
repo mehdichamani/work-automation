@@ -1,10 +1,17 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
 const { authMiddleware, roleGuard } = require('../middleware/auth');
 
 module.exports = function(db) {
   const router = express.Router();
   router.use(authMiddleware);
+
+  const uploadDir = path.join(__dirname, '..', 'uploads', 'csv_imports');
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
 
   router.get('/users', (req, res) => {
     if (req.user.role !== 'admin' && !hasAdminPerm(req.user, 'user_import_csv')) {
@@ -274,7 +281,7 @@ module.exports = function(db) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی ورود گروهی کاربران را ندارید' });
     }
     try {
-      const { users } = req.body;
+      const { users, csv_text, file_name } = req.body;
       if (!Array.isArray(users) || users.length === 0) {
         return res.status(400).json({ error: 'لیست کاربران برای ثبت نامعتبر است' });
       }
@@ -312,6 +319,10 @@ module.exports = function(db) {
           };
           if (roleMap[role]) {
             role = roleMap[role];
+          }
+
+          if (['admin', 'manager'].includes(role)) {
+            throw new Error(`امکان ثبت نقش مدیر یا مدیر سیستم برای کاربر ${u.full_name} (${userId}) از طریق فایل گروهی وجود ندارد`);
           }
 
           let departmentId = null;
@@ -357,7 +368,53 @@ module.exports = function(db) {
         }
       })();
 
+      // Save raw CSV file to disk for audit logs
+      const safeName = file_name ? file_name.replace(/[^a-zA-Z0-9.\-_]/g, '_') : 'import.csv';
+      const fileBase = `import_${req.user.id}_${Date.now()}_${safeName}`;
+      const filePath = path.join(uploadDir, fileBase);
+      fs.writeFileSync(filePath, csv_text || '', 'utf8');
+
+      // Record in logs table
+      db.prepare('INSERT INTO csv_imports_log (file_name, file_path, imported_by, row_count) VALUES (?, ?, ?, ?)')
+        .run(safeName, filePath, req.user.id, users.length);
+
       res.json({ message: 'کاربران با موفقیت وارد و ثبت شدند' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/users/import-csv-logs', (req, res) => {
+    if (req.user.role !== 'admin' && !hasAdminPerm(req.user, 'user_import_csv')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+    }
+    try {
+      const logs = db.prepare(`
+        SELECT l.id, l.file_name, l.imported_at, l.row_count, u.full_name as importer_name
+        FROM csv_imports_log l
+        JOIN users u ON l.imported_by = u.id
+        ORDER BY l.imported_at DESC
+      `).all();
+      res.json(logs);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/users/import-csv-download/:id', (req, res) => {
+    if (req.user.role !== 'admin' && !hasAdminPerm(req.user, 'user_import_csv')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+    }
+    try {
+      const log = db.prepare('SELECT file_path, file_name FROM csv_imports_log WHERE id = ?').get(req.params.id);
+      if (!log) {
+        return res.status(404).json({ error: 'فایل مورد نظر یافت نشد' });
+      }
+      const fullPath = path.resolve(log.file_path);
+      if (!fs.existsSync(fullPath)) {
+        return res.status(404).json({ error: 'فایل فیزیکی روی سرور یافت نشد' });
+      }
+      res.download(fullPath, log.file_name);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

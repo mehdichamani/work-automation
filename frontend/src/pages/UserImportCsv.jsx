@@ -5,20 +5,24 @@ import toast from 'react-hot-toast';
 export default function UserImportCsv() {
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [csvData, setCsvData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null); // { total, valid, invalid, rows }
+  const [rawCsvText, setRawCsvText] = useState('');
+  const [rawFileName, setRawFileName] = useState('');
+  const [importLogs, setImportLogs] = useState([]);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [usersRes, deptRes] = await Promise.all([
+      const [usersRes, deptRes, logsRes] = await Promise.all([
         api.get('/admin/users'),
-        api.get('/admin/departments')
+        api.get('/admin/departments'),
+        api.get('/admin/users/import-csv-logs').catch(() => ({ data: [] }))
       ]);
       setUsers(usersRes.data || []);
       setDepartments(deptRes.data || []);
+      setImportLogs(logsRes.data || []);
     } catch (err) {
       toast.error('خطا در بارگذاری اطلاعات اولیه کاربران و واحدها');
     } finally {
@@ -39,9 +43,11 @@ export default function UserImportCsv() {
       return;
     }
 
+    setRawFileName(file.name);
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target.result;
+      setRawCsvText(text);
       parseCSV(text);
     };
     reader.readAsText(file, 'UTF-8');
@@ -130,6 +136,8 @@ export default function UserImportCsv() {
         errors.push('نقش کاربر تعیین نشده است');
       } else if (!role) {
         errors.push(`نقش نامعتبر است (${rawRole}) - باید یکی از مقادیر «مدیر سیستم»، «مدیر»، «سرپرست» یا «کاربر عادی» باشد`);
+      } else if (['admin', 'manager'].includes(role)) {
+        errors.push('به دلیل مسائل امنیتی، امکان ثبت نقش مدیر یا مدیر سیستم از طریق فایل گروهی وجود ندارد');
       }
 
       let deptMessage = '';
@@ -177,9 +185,15 @@ export default function UserImportCsv() {
 
     try {
       setUploading(true);
-      const res = await api.post('/admin/users/import-csv', { users: validUsers });
+      const res = await api.post('/admin/users/import-csv', {
+        users: validUsers,
+        csv_text: rawCsvText,
+        file_name: rawFileName
+      });
       toast.success(res.data.message || 'کاربران با موفقیت ثبت شدند');
       setPreview(null);
+      setRawCsvText('');
+      setRawFileName('');
       fetchData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا در ثبت گروهی کاربران');
@@ -205,6 +219,22 @@ export default function UserImportCsv() {
     if (d > 0) res += `${d} روز`;
     if (h > 0) res += `${res ? ' و ' : ''}${h} ساعت`;
     return res || '0 ساعت';
+  };
+
+  const downloadCsvFile = async (logId, fileName) => {
+    try {
+      const res = await api.get(`/admin/users/import-csv-download/${logId}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success('فایل با موفقیت دانلود شد');
+    } catch (err) {
+      toast.error('خطا در دانلود فایل');
+    }
   };
 
   return (
@@ -403,6 +433,51 @@ export default function UserImportCsv() {
               </div>
             </div>
           )}
+
+          {/* Audit Logs Table Section */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-4">
+            <div className="border-b pb-3">
+              <h3 className="font-bold text-gray-800 text-lg">تاریخچه و لاگ ورود‌های گروهی</h3>
+              <p className="text-xs text-gray-500 mt-0.5">آرشیو کامل فایل‌های CSV وارد شده به همراه تاریخ، تعداد رکوردها و کاربر ثبت‌کننده جهت نظارت امنیتی</p>
+            </div>
+            {importLogs.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-4">هیچ فایل ورودی تاکنون ثبت نشده است.</p>
+            ) : (
+              <div className="overflow-x-auto border rounded-2xl">
+                <table className="w-full text-right text-xs">
+                  <thead className="bg-gray-50 text-gray-700 font-bold border-b">
+                    <tr>
+                      <th className="p-3">شناسه لاگ</th>
+                      <th className="p-3">نام فایل</th>
+                      <th className="p-3">کاربر وارد کننده</th>
+                      <th className="p-3">تعداد رکورد</th>
+                      <th className="p-3">تاریخ و زمان ورود</th>
+                      <th className="p-3">عملیات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {importLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-gray-50/50">
+                        <td className="p-3 font-mono text-gray-400">{log.id}</td>
+                        <td className="p-3 font-bold text-gray-700">{log.file_name}</td>
+                        <td className="p-3 text-gray-600">{log.importer_name}</td>
+                        <td className="p-3 font-mono font-bold text-blue-700">{log.row_count} کاربر</td>
+                        <td className="p-3 font-mono text-gray-500">{log.imported_at}</td>
+                        <td className="p-3">
+                          <button
+                            onClick={() => downloadCsvFile(log.id, log.file_name)}
+                            className="bg-primary-50 hover:bg-primary-100 text-primary-700 text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all"
+                          >
+                            📥 دانلود فایل اصلی
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

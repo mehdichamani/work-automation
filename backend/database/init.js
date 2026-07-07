@@ -636,6 +636,20 @@ async function initDatabase() {
     `);
   } catch (e) {}
 
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS csv_imports_log (
+        id SERIAL PRIMARY KEY,
+        file_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        imported_by INTEGER NOT NULL,
+        imported_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        row_count INTEGER NOT NULL,
+        FOREIGN KEY (imported_by) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
 
 
   try {
