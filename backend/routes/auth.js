@@ -15,16 +15,16 @@ module.exports = function(db) {
 
       const userId = parseInt(username, 10);
       if (isNaN(userId)) {
-        return res.status(401).json({ error: 'کد پرسنلی یا رمز عبور اشتباه است' });
+        return res.status(401).json({ error: 'کد پرسنلی شما در سیستم تعریف نشده دوباره بررسی کنید' });
       }
 
       const user = db.prepare('SELECT * FROM users WHERE id = ? AND is_active = 1').get(userId);
       if (!user) {
-        return res.status(401).json({ error: 'کد پرسنلی یا رمز عبور اشتباه است' });
+        return res.status(401).json({ error: 'کد پرسنلی شما در سیستم تعریف نشده دوباره بررسی کنید' });
       }
 
       if (!bcrypt.compareSync(password, user.password)) {
-        return res.status(401).json({ error: 'کد پرسنلی یا رمز عبور اشتباه است' });
+        return res.status(401).json({ error: 'رمز عبور اشتباهه دوباره بررسی کنید' });
       }
 
       const dept = db.prepare('SELECT name FROM departments WHERE id = ?').get(user.department_id);
