@@ -108,15 +108,27 @@ module.exports = function (db) {
         return res.json(allPerms);
       }
 
-      const userPerms = db.prepare('SELECT module_key, is_enabled FROM permissions WHERE user_id = ?').all(req.user.id);
-      if (userPerms.length > 0) {
-        return res.json(userPerms);
-      }
+      const combined = {};
 
       const deptId = req.user.department_id;
-      if (!deptId) return res.json([]);
-      const deptPerms = db.prepare('SELECT module_key, is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL').all(deptId);
-      res.json(deptPerms);
+      if (deptId) {
+        const deptPerms = db.prepare('SELECT module_key, is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL').all(deptId);
+        for (const p of deptPerms) {
+          combined[p.module_key] = p.is_enabled;
+        }
+      }
+
+      const userPerms = db.prepare('SELECT module_key, is_enabled FROM permissions WHERE user_id = ?').all(req.user.id);
+      for (const p of userPerms) {
+        combined[p.module_key] = p.is_enabled;
+      }
+
+      const result = Object.keys(combined).map(key => ({
+        module_key: key,
+        is_enabled: combined[key]
+      }));
+
+      res.json(result);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
