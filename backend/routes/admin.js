@@ -95,6 +95,10 @@ module.exports = function(db) {
       db.prepare('UPDATE leave_requests SET supervisor_id = NULL WHERE supervisor_id = ?').run(userId);
       db.prepare('UPDATE leave_requests SET manager_id = NULL WHERE manager_id = ?').run(userId);
       db.prepare('UPDATE leave_requests SET security_id = NULL WHERE security_id = ?').run(userId);
+      db.prepare('DELETE FROM overtime_requests WHERE user_id = ?').run(userId);
+      db.prepare('UPDATE overtime_requests SET supervisor_id = NULL WHERE supervisor_id = ?').run(userId);
+      db.prepare('UPDATE overtime_requests SET manager_id = NULL WHERE manager_id = ?').run(userId);
+      db.prepare('UPDATE overtime_requests SET security_id = NULL WHERE security_id = ?').run(userId);
       db.prepare('UPDATE letters SET manager_id = NULL WHERE manager_id = ?').run(userId);
       db.prepare('DELETE FROM notifications WHERE user_id = ?').run(userId);
       db.prepare('DELETE FROM leave_balance WHERE user_id = ?').run(userId);
@@ -247,6 +251,7 @@ module.exports = function(db) {
       const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1').get().count;
       const totalDepts = db.prepare('SELECT COUNT(*) as count FROM departments WHERE is_active = 1').get().count;
       const pendingLeaves = db.prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status IN ('pending_supervisor','pending_manager')").get().count;
+      const pendingOvertime = db.prepare("SELECT COUNT(*) as count FROM overtime_requests WHERE status IN ('pending_supervisor','pending_manager')").get().count;
       const pendingLetters = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status IN ('pending_central','pending_manager')").get().count;
       const pendingCardex = db.prepare("SELECT COUNT(*) as count FROM cardex WHERE status = 'pending_user'").get().count;
 
@@ -259,7 +264,7 @@ module.exports = function(db) {
         GROUP BY d.id
       `).all();
 
-      res.json({ totalUsers, totalDepts, pendingLeaves, pendingLetters, pendingCardex, roleStats, deptStats });
+      res.json({ totalUsers, totalDepts, pendingLeaves, pendingOvertime, pendingLetters, pendingCardex, roleStats, deptStats });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

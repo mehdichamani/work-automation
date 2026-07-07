@@ -7,6 +7,7 @@ import Login from './pages/Login';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Leave = lazy(() => import('./pages/Leave'));
+const Overtime = lazy(() => import('./pages/Overtime'));
 const Letters = lazy(() => import('./pages/Letters'));
 const Inventory = lazy(() => import('./pages/Inventory'));
 const Restaurant = lazy(() => import('./pages/Restaurant'));
@@ -34,6 +35,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
           <Route path="/leave" element={<PrivateRoute><Leave /></PrivateRoute>} />
+          <Route path="/overtime" element={<PrivateRoute><Overtime /></PrivateRoute>} />
           <Route path="/letters" element={<PrivateRoute><Letters /></PrivateRoute>} />
           <Route path="/inventory" element={<PrivateRoute><Inventory /></PrivateRoute>} />
           <Route path="/restaurant" element={<PrivateRoute><Restaurant /></PrivateRoute>} />

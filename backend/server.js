@@ -36,6 +36,7 @@ async function startServer() {
   app.use('/api/auth', require('./routes/auth')(db));
   app.use('/api/admin', require('./routes/admin')(db));
   app.use('/api/leave', require('./routes/leave')(db));
+  app.use('/api/overtime', require('./routes/overtime')(db));
   app.use('/api/letters', require('./routes/letters')(db));
   app.use('/api/inventory', require('./routes/inventory')(db));
   app.use('/api/restaurant', require('./routes/restaurant')(db));

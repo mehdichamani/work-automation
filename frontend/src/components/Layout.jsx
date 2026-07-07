@@ -7,6 +7,7 @@ import { io } from 'socket.io-client';
 const menuItems = [
   { path: '/', label: 'داشبورد', icon: '📊', roles: ['admin','manager','supervisor','user'] },
   { path: '/leave', label: 'مرخصی', icon: '🏖️', roles: ['admin','manager','supervisor','user'] },
+  { path: '/overtime', label: 'اضافه کار', icon: '⏰', roles: ['admin','manager','supervisor','user'] },
   { path: '/letters', label: 'نامه‌ها', icon: '📨', roles: ['admin','manager','supervisor','user'] },
   { path: '/inventory', label: 'کارتکس انبار', icon: '📦', roles: ['admin','manager','supervisor','user'] },
   { path: '/restaurant', label: 'رستوران', icon: '🍽️', roles: ['admin','manager','supervisor','user'] },
@@ -33,7 +34,7 @@ export default function Layout({ children }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [activeAnnouncements, setActiveAnnouncements] = useState([]);
-  const [pendingCounts, setPendingCounts] = useState({ leave: 0, letters: 0, inventory: 0, jobApplication: 0 });
+  const [pendingCounts, setPendingCounts] = useState({ leave: 0, overtime: 0, letters: 0, inventory: 0, jobApplication: 0 });
 
   const fetchPendingCounts = async () => {
     try {
@@ -103,6 +104,7 @@ export default function Layout({ children }) {
   }).map(item => {
     let count = 0;
     if (item.path === '/leave') count = pendingCounts.leave;
+    if (item.path === '/overtime') count = pendingCounts.overtime;
     if (item.path === '/letters') count = pendingCounts.letters;
     if (item.path === '/inventory') count = pendingCounts.inventory;
     if (item.path === '/job-application') count = pendingCounts.jobApplication;

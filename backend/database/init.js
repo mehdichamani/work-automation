@@ -319,6 +319,35 @@ async function initDatabase() {
       FOREIGN KEY (edited_by) REFERENCES users(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS overtime_requests (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      start_hour TEXT,
+      end_hour TEXT,
+      hours_count REAL NOT NULL,
+      reason TEXT,
+      status TEXT DEFAULT 'pending_supervisor',
+      supervisor_id INTEGER,
+      supervisor_comment TEXT,
+      supervisor_date TEXT,
+      manager_id INTEGER,
+      manager_comment TEXT,
+      manager_date TEXT,
+      security_id INTEGER,
+      security_date TEXT,
+      edited_by INTEGER,
+      edited_at TEXT,
+      edit_reason TEXT,
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (supervisor_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (security_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (edited_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS leave_balance (
       id SERIAL PRIMARY KEY,
       user_id INTEGER UNIQUE NOT NULL,

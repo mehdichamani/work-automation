@@ -56,6 +56,7 @@ module.exports = function(db) {
     try {
       const counts = {
         leave: 0,
+        overtime: 0,
         letters: 0,
         inventory: 0,
         jobApplication: 0
@@ -64,6 +65,9 @@ module.exports = function(db) {
       if (req.user.role === 'admin' || req.user.role === 'manager') {
         const r = db.prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status = 'pending_manager'").get();
         counts.leave = parseInt(r.count, 10) || 0;
+        
+        const ro = db.prepare("SELECT COUNT(*) as count FROM overtime_requests WHERE status = 'pending_manager'").get();
+        counts.overtime = parseInt(ro.count, 10) || 0;
       } else if (req.user.role === 'supervisor') {
         const r = db.prepare(`
           SELECT COUNT(*) as count 
@@ -72,6 +76,14 @@ module.exports = function(db) {
             AND user_id IN (SELECT id FROM users WHERE department_id = ? AND role != 'admin')
         `).get(req.user.department_id);
         counts.leave = parseInt(r.count, 10) || 0;
+
+        const ro = db.prepare(`
+          SELECT COUNT(*) as count 
+          FROM overtime_requests 
+          WHERE status = 'pending_supervisor' 
+            AND user_id IN (SELECT id FROM users WHERE department_id = ? AND role != 'admin')
+        `).get(req.user.department_id);
+        counts.overtime = parseInt(ro.count, 10) || 0;
       }
 
       let centralCount = 0;
