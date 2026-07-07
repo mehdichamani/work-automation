@@ -36,6 +36,7 @@ export default function Letters() {
   const [myLetters, setMyLetters] = useState([]);
   const [pendingCentral, setPendingCentral] = useState([]);
   const [pendingManager, setPendingManager] = useState([]);
+  const [processedManager, setProcessedManager] = useState([]);
   const [returnedCentral, setReturnedCentral] = useState([]);
   const [archivedLetters, setArchivedLetters] = useState([]);
   const [unitLetters, setUnitLetters] = useState([]);
@@ -60,6 +61,21 @@ export default function Letters() {
 
   const filteredArchived = archivedLetters.filter(l => !letterSearch || (l.letter_number && l.letter_number.includes(letterSearch)));
   const filteredAll = allLetters.filter(l => !letterSearch || (l.letter_number && l.letter_number.includes(letterSearch)));
+  const filteredMy = myLetters.filter(l => 
+    !letterSearch || 
+    (l.letter_number && l.letter_number.toLowerCase().includes(letterSearch.toLowerCase())) ||
+    (l.subject && l.subject.toLowerCase().includes(letterSearch.toLowerCase()))
+  );
+  const filteredUnit = unitLetters.filter(l => 
+    !letterSearch || 
+    (l.letter_number && l.letter_number.toLowerCase().includes(letterSearch.toLowerCase())) ||
+    (l.subject && l.subject.toLowerCase().includes(letterSearch.toLowerCase()))
+  );
+  const filteredProcessedManager = processedManager.filter(l => 
+    !letterSearch || 
+    (l.letter_number && l.letter_number.toLowerCase().includes(letterSearch.toLowerCase())) ||
+    (l.subject && l.subject.toLowerCase().includes(letterSearch.toLowerCase()))
+  );
 
   useEffect(() => {
     loadData();
@@ -109,13 +125,17 @@ export default function Letters() {
           const allRes = await api.get('/letters/all');
           setAllLetters(allRes.data);
         }
-      } else if (tab === 'manager') {
+      } else if (tab === 'manager' || tab === 'manager_processed') {
         if (managers.length === 0) {
           const mgrRes = await api.get('/letters/managers');
           setManagers(mgrRes.data);
         }
-        const mgrLetters = await api.get('/letters/pending-manager');
+        const [mgrLetters, procLetters] = await Promise.all([
+          api.get('/letters/pending-manager'),
+          api.get('/letters/processed-manager')
+        ]);
         setPendingManager(mgrLetters.data);
+        setProcessedManager(procLetters.data);
       }
     } catch (err) {
       toast.error('خطا در بارگذاری');
@@ -254,6 +274,7 @@ export default function Letters() {
     ] : []),
     ...(isManager ? [
       { id: 'manager', label: `در انتظار مدیر (${pendingManager.length})` },
+      { id: 'manager_processed', label: `اقدام شده توسط من (${processedManager.length})` },
     ] : []),
   ];
 
@@ -408,8 +429,17 @@ export default function Letters() {
         {/* نامه‌های من */}
         {tab === 'my' && (
           <div className="space-y-3">
-            <div className="flex justify-between items-center mb-4">
-              <p className="text-sm text-gray-500">{myLetters.length} نامه</p>
+            <div className="flex justify-between items-center mb-4 gap-3">
+              <div className="flex items-center gap-3 flex-1">
+                <p className="text-sm text-gray-500 whitespace-nowrap">{filteredMy.length} نامه</p>
+                <input
+                  type="text"
+                  value={letterSearch}
+                  onChange={(e) => setLetterSearch(e.target.value)}
+                  placeholder="جستجو بر اساس شماره یا موضوع..."
+                  className="flex-1 max-w-xs px-4 py-2 border rounded-xl text-sm"
+                />
+              </div>
               <div className="flex gap-2">
                 <button onClick={() => printTable('نامه‌های من', [
                   { key: 'letter_number', label: 'شماره' },
@@ -417,7 +447,7 @@ export default function Letters() {
                   { key: 'priority', label: 'اولویت', render: (v) => ({normal:'عادی',important:'مهم',very_important:'خیلی مهم'}[v] || v) },
                   { key: 'status', label: 'وضعیت', render: (v) => ({pending_central:'در انتظار سانترال',pending_manager:'در انتظار مدیر',approved:'تایید شده',rejected:'رد شده',archived:'بایگانی شده',forwarded:'ارجاع شده'}[v] || v) },
                   { key: 'created_at', label: 'تاریخ', render: (v) => v?.split('T')[0] || '-' },
-                ], myLetters)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2">
+                ], filteredMy)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
                   چاپ لیست
                 </button>
@@ -460,8 +490,20 @@ export default function Letters() {
         {/* نامه‌های واحد */}
         {tab === 'unit' && (
           <div className="space-y-3">
-            {unitLetters.length === 0 && <p className="text-center text-gray-400 py-8">نامه‌ای ارجاع نشده</p>}
-            {unitLetters.map(lu => (
+            <div className="flex justify-between items-center mb-4 gap-3">
+              <div className="flex items-center gap-3 flex-1">
+                <p className="text-sm text-gray-500 whitespace-nowrap">{filteredUnit.length} نامه</p>
+                <input
+                  type="text"
+                  value={letterSearch}
+                  onChange={(e) => setLetterSearch(e.target.value)}
+                  placeholder="جستجو بر اساس شماره یا موضوع..."
+                  className="flex-1 max-w-xs px-4 py-2 border rounded-xl text-sm"
+                />
+              </div>
+            </div>
+            {filteredUnit.length === 0 && <p className="text-center text-gray-400 py-8">نامه‌ای ارجاع نشده</p>}
+            {filteredUnit.map(lu => (
               <div key={lu.id} className="border rounded-xl p-4">
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
@@ -579,6 +621,59 @@ export default function Letters() {
                   <input type="text" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="توضیحات..." className="flex-1 px-4 py-2 border rounded-xl text-sm" />
                   <button onClick={() => approveLetter(l.id)} className="bg-green-500 hover:bg-green-600 text-white px-5 py-2 rounded-xl text-sm font-bold transition-colors">تایید</button>
                   <button onClick={() => rejectLetter(l.id)} className="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-xl text-sm font-bold transition-colors">رد</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* مدیر - اقدام شده */}
+        {tab === 'manager_processed' && (
+          <div className="space-y-3">
+            <div className="flex justify-between items-center mb-4 gap-3">
+              <div className="flex items-center gap-3 flex-1">
+                <p className="text-sm text-gray-500 whitespace-nowrap">{filteredProcessedManager.length} نامه اقدام شده</p>
+                <input
+                  type="text"
+                  value={letterSearch}
+                  onChange={(e) => setLetterSearch(e.target.value)}
+                  placeholder="جستجو بر اساس شماره یا موضوع..."
+                  className="flex-1 max-w-xs px-4 py-2 border rounded-xl text-sm"
+                />
+              </div>
+            </div>
+            {filteredProcessedManager.length === 0 && <p className="text-center text-gray-400 py-8">نامه‌ای یافت نشد</p>}
+            {filteredProcessedManager.map(l => (
+              <div key={l.id} className={`border rounded-xl p-4 ${l.status === 'approved' ? 'bg-green-50/20 border-green-200' : 'bg-red-50/20 border-red-200'}`}>
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${priorityMap[l.priority]?.color}`}>{priorityMap[l.priority]?.text}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusMap[l.status]?.color}`}>{statusMap[l.status]?.text}</span>
+                    </div>
+                    <h4 className="font-bold text-sm">{l.subject}</h4>
+                    <p className="text-xs text-gray-500 mt-1">شماره: {l.letter_number || '-'} | فرستنده: {l.sender_name} ({l.sender_unit_name})</p>
+                    <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap">{l.body}</p>
+                    {l.central_comment && (
+                      <p className="text-xs text-amber-800 mt-2 bg-amber-50 p-2 rounded-lg border border-amber-100 font-medium">
+                        توضیحات دبیرخانه: {l.central_comment}
+                      </p>
+                    )}
+                    {l.manager_comment && (
+                      <p className={`text-xs mt-2 p-2 rounded-lg ${l.status === 'rejected' ? 'bg-red-50 text-red-700 font-medium border border-red-100' : 'bg-blue-50 text-blue-700'}`}>
+                        {l.status === 'rejected' ? 'علت رد: ' : 'توضیحات من: '}{l.manager_comment}
+                      </p>
+                    )}
+                    {l.attachment_name && <div className="mt-2"><FileBadge name={l.attachment_name} link={l.attachment_path} /></div>}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => printLetter(l)} className="text-gray-400 hover:text-primary-500 p-2 rounded-lg hover:bg-gray-100 transition-colors" title="چاپ">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                    </button>
+                    <button onClick={() => viewHistory(l.id)} className="text-gray-400 hover:text-primary-500 p-2 rounded-lg hover:bg-gray-100 transition-colors" title="روند چرخش">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

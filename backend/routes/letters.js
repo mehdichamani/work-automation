@@ -269,6 +269,24 @@ module.exports = function(db) {
     }
   });
 
+  router.get('/processed-manager', (req, res) => {
+    try {
+      const letters = db.prepare(`
+        SELECT l.*, u.full_name as sender_name, d.name as sender_unit_name,
+               m.full_name as manager_name
+        FROM letters l
+        JOIN users u ON l.sender_id = u.id
+        LEFT JOIN departments d ON l.sender_unit_id = d.id
+        LEFT JOIN users m ON l.selected_manager_id = m.id
+        WHERE l.selected_manager_id = ? AND l.status IN ('approved', 'rejected', 'archived', 'forwarded')
+        ORDER BY l.created_at DESC
+      `).all(req.user.id);
+      res.json(letters);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.get('/all', (req, res) => {
     try {
       if (!isSantral(req.user)) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
