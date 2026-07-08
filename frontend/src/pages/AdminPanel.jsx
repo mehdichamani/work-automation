@@ -67,6 +67,10 @@ export default function AdminPanel() {
   const [modules, setModules] = useState([]);
   const [allPerms, setAllPerms] = useState([]);
   const [permLoading, setPermLoading] = useState(false);
+  const [selectedDeptId, setSelectedDeptId] = useState(null);
+  const [permSearch, setPermSearch] = useState('');
+  const [showCopyModal, setShowCopyModal] = useState(false);
+  const [copySourceDeptId, setCopySourceDeptId] = useState('');
   const [userPerms, setUserPerms] = useState([]);
   const [selectedPermUserId, setSelectedPermUserId] = useState('');
   const [userPermForm, setUserPermForm] = useState([]);
@@ -175,6 +179,9 @@ export default function AdminPanel() {
       setModules(modsRes.data);
       setAllPerms(permsRes.data);
       setDepartments(deptsRes.data);
+      if (deptsRes.data.length > 0) {
+        setSelectedDeptId(deptsRes.data[0].id);
+      }
     } catch (err) {
       toast.error('خطا در بارگذاری دسترسی‌ها');
     } finally {
@@ -203,6 +210,21 @@ export default function AdminPanel() {
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا در ذخیره');
     }
+  };
+
+  const handleCopyPermissions = (sourceDeptId) => {
+    if (!sourceDeptId || !selectedDeptId) return;
+    const sourceIdNum = Number(sourceDeptId);
+    const sourcePerms = allPerms.filter(p => p.department_id === sourceIdNum && p.is_enabled);
+    const otherPerms = allPerms.filter(p => p.department_id !== selectedDeptId);
+    const newPerms = sourcePerms.map(p => ({
+      module_key: p.module_key,
+      department_id: selectedDeptId,
+      is_enabled: 1
+    }));
+    setAllPerms([...otherPerms, ...newPerms]);
+    toast.success('دسترسی‌ها کپی شدند. برای ثبت نهایی روی ذخیره کلیک کنید.');
+    setShowCopyModal(false);
   };
 
   const hasPerm = (moduleKey, deptId) => {
@@ -1023,62 +1045,170 @@ export default function AdminPanel() {
           {permLoading ? (
             <div className="text-center py-8 text-gray-500">در حال بارگذاری...</div>
           ) : (
-            <>
-              <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                <div className="overflow-auto max-h-[calc(100vh-280px)]">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="p-3 text-right font-bold sticky top-0 z-20 bg-gray-50 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">بخش</th>
-                        {departments.map(d => (
-                          <th key={d.id} className="p-3 text-center font-bold text-xs sticky top-0 z-20 bg-gray-50 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">{d.name}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        const groups = {};
-                        modules.forEach(m => {
-                          if (!groups[m.group]) groups[m.group] = [];
-                          groups[m.group].push(m);
-                        });
-                        return Object.entries(groups).map(([group, mods]) => [
-                          <tr key={`group-${group}`} className="sticky top-[45px] z-10">
-                            <td colSpan={departments.length + 1} className="p-2 font-bold text-xs text-gray-600 bg-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">{group}</td>
-                          </tr>,
-                          ...mods.map(m => (
-                            <tr key={m.key} className="border-t hover:bg-gray-50">
-                              <td className="p-3 text-right text-xs">{m.label}</td>
-                              {departments.map(d => (
-                                <td key={d.id} className="p-3 text-center">
-                                  <button
-                                    onClick={() => togglePermission(m.key, d.id)}
-                                    className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${
-                                      hasPerm(m.key, d.id)
-                                        ? 'bg-green-500 text-white shadow-sm'
-                                        : 'bg-gray-200 text-gray-400 hover:bg-gray-300'
-                                    }`}
-                                  >
-                                    {hasPerm(m.key, d.id) ? '✓' : '✕'}
-                                  </button>
-                                </td>
-                              ))}
-                            </tr>
-                          ))
-                        ]);
-                      })()}
-                    </tbody>
-                  </table>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Right panel: Departments list */}
+              <div className="lg:col-span-1 bg-white rounded-2xl shadow-sm p-4 space-y-3">
+                <h4 className="font-bold text-sm text-gray-700 border-b pb-2">واحدهای سازمانی</h4>
+                <div className="space-y-1 max-h-[60vh] overflow-y-auto pr-1">
+                  {departments.map(d => (
+                    <button
+                      type="button"
+                      key={d.id}
+                      onClick={() => setSelectedDeptId(d.id)}
+                      className={`w-full text-right px-4 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-between ${
+                        selectedDeptId === d.id
+                          ? 'bg-primary-500 text-white shadow-md'
+                          : 'hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      <span>{d.name}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${selectedDeptId === d.id ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                        {allPerms.filter(p => p.department_id === d.id && p.is_enabled).length} دسترسی
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div className="flex justify-between items-center">
-                <p className="text-xs text-gray-500">✓ = دسترسی فعال &nbsp;|&nbsp; ✕ = بدون دسترسی</p>
-                <button onClick={savePermissions} className="bg-primary-500 hover:bg-primary-600 text-white px-8 py-3 rounded-xl font-bold transition-colors">
-                  ذخیره تغییرات
-                </button>
+              {/* Left panel: Selected department's permissions */}
+              <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm p-6 flex flex-col justify-between min-h-[50vh]">
+                {selectedDeptId ? (
+                  <>
+                    <div className="space-y-4">
+                      {/* Department header controls */}
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-4">
+                        <div>
+                          <h3 className="font-bold text-base text-gray-800">
+                            واحد: {departments.find(d => d.id === selectedDeptId)?.name}
+                          </h3>
+                          <p className="text-[11px] text-gray-400 mt-1">تغییرات شما تا زمان کلیک بر روی ذخیره تغییرات، اعمال نهایی نخواهند شد.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setCopySourceDeptId(''); setShowCopyModal(true); }}
+                          className="text-xs bg-orange-50 hover:bg-orange-100 text-orange-600 px-3 py-2 rounded-lg font-bold border border-orange-200 transition-colors"
+                        >
+                          📋 کپی دسترسی‌ها از واحد دیگر
+                        </button>
+                      </div>
+
+                      {/* Search & Filter */}
+                      <div>
+                        <input
+                          type="text"
+                          placeholder="جستجوی دسترسی..."
+                          value={permSearch}
+                          onChange={(e) => setPermSearch(e.target.value)}
+                          className="w-full px-4 py-2.5 border rounded-xl text-xs"
+                        />
+                      </div>
+
+                      {/* Permissions Toggles List */}
+                      <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
+                        {(() => {
+                          const groups = {};
+                          modules.forEach(m => {
+                            // Filter by search query
+                            if (permSearch && !m.label.includes(permSearch) && !m.group.includes(permSearch)) return;
+                            if (!groups[m.group]) groups[m.group] = [];
+                            groups[m.group].push(m);
+                          });
+
+                          const entries = Object.entries(groups);
+                          if (entries.length === 0) {
+                            return <p className="text-center text-xs text-gray-400 py-6">موردی یافت نشد</p>;
+                          }
+
+                          return entries.map(([group, mods]) => (
+                            <div key={group} className="border rounded-2xl overflow-hidden bg-gray-50/30">
+                              <div className="bg-gray-100/60 px-4 py-2 border-b">
+                                <span className="font-bold text-xs text-gray-600">{group}</span>
+                              </div>
+                              <div className="divide-y bg-white">
+                                {mods.map(m => {
+                                  const enabled = hasPerm(m.key, selectedDeptId);
+                                  return (
+                                    <div key={m.key} className="flex justify-between items-center px-4 py-3 hover:bg-gray-50/50 transition-colors">
+                                      <span className="text-xs text-gray-700">{m.label}</span>
+                                      
+                                      {/* Modern iOS toggle switch */}
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePermission(m.key, selectedDeptId)}
+                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                                          enabled ? 'bg-green-500' : 'bg-gray-300'
+                                        }`}
+                                      >
+                                        <span
+                                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                            enabled ? 'translate-x-6' : 'translate-x-1'
+                                          }`}
+                                        />
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center border-t pt-4 mt-6">
+                      <p className="text-[11px] text-gray-400">تغییرات به صورت درجا در حافظه موقت ثبت می‌شوند.</p>
+                      <button
+                        onClick={savePermissions}
+                        className="bg-primary-500 hover:bg-primary-600 text-white px-8 py-3 rounded-xl font-bold transition-colors shadow-lg shadow-primary-500/20"
+                      >
+                        ذخیره تغییرات
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-12 text-gray-400 text-xs">لطفاً ابتدا یک واحد سازمانی انتخاب کنید.</div>
+                )}
               </div>
-            </>
+            </div>
+          )}
+
+          {/* Copy Permissions Modal */}
+          {showCopyModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl p-6 w-full max-w-md animate-fade-in text-right">
+                <h3 className="text-base font-bold mb-2">کپی دسترسی‌ها</h3>
+                <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                  انتخاب کنید که دسترسی‌های کدام واحد سازمانی در واحد «{departments.find(d => d.id === selectedDeptId)?.name}» کپی شود:
+                </p>
+                <div className="space-y-4">
+                  <select
+                    value={copySourceDeptId}
+                    onChange={(e) => setCopySourceDeptId(e.target.value)}
+                    className="w-full px-4 py-3 border rounded-xl"
+                  >
+                    <option value="">انتخاب واحد مبدا...</option>
+                    {departments.filter(d => d.id !== selectedDeptId).map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                  <div className="flex gap-3 mt-4">
+                    <button
+                      onClick={() => handleCopyPermissions(copySourceDeptId)}
+                      disabled={!copySourceDeptId}
+                      className="flex-1 bg-primary-500 hover:bg-primary-600 disabled:bg-gray-300 text-white py-3 rounded-xl font-bold transition-colors"
+                    >
+                      کپی و اعمال موقت
+                    </button>
+                    <button
+                      onClick={() => setShowCopyModal(false)}
+                      className="flex-1 bg-gray-200 hover:bg-gray-300 py-3 rounded-xl font-bold transition-colors"
+                    >
+                      انصراف
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}
