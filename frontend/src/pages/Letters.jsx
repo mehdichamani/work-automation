@@ -287,7 +287,7 @@ export default function Letters() {
           <div className="bg-white rounded-2xl p-8 w-full max-w-lg animate-fade-in max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-6">نامه جدید</h3>
             <form onSubmit={submitLetter} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">شماره نامه</label>
                   <input type="text" value={nextNumber} readOnly className="w-full px-4 py-3 border rounded-xl bg-gray-50 text-gray-600 cursor-not-allowed" />

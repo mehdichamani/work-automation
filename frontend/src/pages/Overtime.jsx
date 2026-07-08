@@ -449,7 +449,7 @@ export default function Overtime() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ شروع</label>
                   <button type="button" onClick={() => setShowStartCal(!showStartCal)} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">
@@ -476,7 +476,7 @@ export default function Overtime() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ پایان</label>
                   <button type="button" onClick={() => setShowEndCal(!showEndCal)} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">
@@ -532,7 +532,7 @@ export default function Overtime() {
           <div className="bg-white rounded-2xl p-8 w-full max-w-lg animate-fade-in relative">
             <h3 className="text-lg font-bold mb-6">ویرایش درخواست اضافه کار</h3>
             <form onSubmit={submitEdit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ شروع</label>
                   <button type="button" onClick={() => setEditShowStartCal(!editShowStartCal)} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">
@@ -558,7 +558,7 @@ export default function Overtime() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ پایان</label>
                   <button type="button" onClick={() => setEditShowEndCal(!editShowEndCal)} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">
@@ -614,7 +614,7 @@ export default function Overtime() {
             <h3 className="text-lg font-bold mb-4">ویرایش و اصلاح اضافه کار (پس از رویت حراست)</h3>
             <p className="text-xs text-gray-500 mb-4">کاربر: {modifyingRequest.user_name} | شروع: {modifyingRequest.start_date} ساعت {modifyingRequest.start_hour}</p>
             <form onSubmit={submitRequestModification} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ پایان جدید</label>
                   <button type="button" onClick={() => setModForm(prev => ({ ...prev, showEndCal: !prev.showEndCal }))} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">

@@ -80,9 +80,10 @@ export default function JalaliCalendar({ onSelect, selectedDate, showPast = fals
   };
 
   const weekDays = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه'];
+  const weekDaysShort = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
 
   return (
-    <div className="bg-white border rounded-xl p-4">
+    <div className="bg-white border rounded-xl p-4 shadow-xl w-full max-w-[320px] sm:max-w-none">
       <div className="flex items-center justify-between mb-4">
         <button type="button" onClick={prevMonth} className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-bold">&lt;</button>
         <div className="text-center">
@@ -94,8 +95,11 @@ export default function JalaliCalendar({ onSelect, selectedDate, showPast = fals
       <table className="w-full text-center text-xs border-collapse">
         <thead>
           <tr>
-            {weekDays.map(d => (
-              <th key={d} className="py-2 px-1 text-gray-500 font-medium">{d}</th>
+            {weekDays.map((d, idx) => (
+              <th key={d} className="py-2 px-1 text-gray-500 font-medium">
+                <span className="hidden sm:inline">{d}</span>
+                <span className="inline sm:hidden">{weekDaysShort[idx]}</span>
+              </th>
             ))}
           </tr>
         </thead>

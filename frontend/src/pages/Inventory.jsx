@@ -191,66 +191,153 @@ export default function Inventory() {
               <button onClick={addFormRow} className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors">+ ردیف جدید</button>
             </div>
             <div className="mb-4">
-              <table className="w-full text-sm border border-collapse">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="p-2 text-center border w-10">ردیف</th>
-                    <th className="p-2 text-right border">کاربر</th>
-                    <th className="p-2 text-right border">کالا</th>
-                    <th className="p-2 text-center border w-24">تعداد</th>
-                    <th className="p-2 text-center border w-36">تاریخ تحویل</th>
-                    <th className="p-2 text-right border">توضیحات</th>
-                    <th className="p-2 text-center border w-10"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {formRows.map((row, idx) => {
-                    const userKey = `user_${idx}`;
-                    const itemKey = `item_${idx}`;
-                    return (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="p-1 text-center border text-xs text-gray-400">{idx + 1}</td>
-                      <td className="p-1 border">
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm border border-collapse">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="p-2 text-center border w-10">ردیف</th>
+                      <th className="p-2 text-right border">کاربر</th>
+                      <th className="p-2 text-right border">کالا</th>
+                      <th className="p-2 text-center border w-24">تعداد</th>
+                      <th className="p-2 text-center border w-36">تاریخ تحویل</th>
+                      <th className="p-2 text-right border">توضیحات</th>
+                      <th className="p-2 text-center border w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {formRows.map((row, idx) => {
+                      const userKey = `user_${idx}`;
+                      const itemKey = `item_${idx}`;
+                      return (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="p-1 text-center border text-xs text-gray-400">{idx + 1}</td>
+                        <td className="p-1 border">
+                          <input
+                            ref={(el) => { inputRefs.current[`user_${idx}`] = el; }}
+                            type="text"
+                            value={openDropdown === userKey ? (userSearch[idx] || '') : (users.find(u => u.id == row.user_id)?.full_name || '')}
+                            onFocus={() => { setUserSearch({...userSearch, [idx]: ''}); openDropdownAt(userKey, `user_${idx}`); }}
+                            onChange={(e) => { setUserSearch({...userSearch, [idx]: e.target.value}); openDropdownAt(userKey, `user_${idx}`); }}
+                            className="w-full px-2 py-2 border rounded-lg text-xs"
+                            placeholder="جستجوی کاربر..."
+                          />
+                        </td>
+                        <td className="p-1 border">
+                          <input
+                            ref={(el) => { inputRefs.current[`item_${idx}`] = el; }}
+                            type="text"
+                            value={openDropdown === itemKey ? (itemSearch[idx] || '') : (items.find(i => i.id == row.item_id) ? `${items.find(i => i.id == row.item_id).name} (${items.find(i => i.id == row.item_id).unit})` : '')}
+                            onFocus={() => { setItemSearch({...itemSearch, [idx]: ''}); openDropdownAt(itemKey, `item_${idx}`); }}
+                            onChange={(e) => { setItemSearch({...itemSearch, [idx]: e.target.value}); openDropdownAt(itemKey, `item_${idx}`); }}
+                            className="w-full px-2 py-2 border rounded-lg text-xs"
+                            placeholder="جستجوی کالا..."
+                          />
+                        </td>
+                        <td className="p-1 border">
+                          <input type="number" value={row.quantity} onChange={(e) => updateFormRow(idx, 'quantity', e.target.value)} className="w-full px-2 py-2 border rounded-lg text-xs text-center" min="0.1" step="0.1" placeholder="0" />
+                        </td>
+                        <td className="p-1 border">
+                          <input type="text" value={row.delivery_date} readOnly onClick={(e) => { e.stopPropagation(); setShowCalendar(showCalendar === idx ? null : idx); }} className="w-full px-2 py-2 border rounded-lg text-xs text-center cursor-pointer bg-white" placeholder="انتخاب تاریخ" dir="ltr" />
+                        </td>
+                        <td className="p-1 border">
+                          <input type="text" value={row.notes} onChange={(e) => updateFormRow(idx, 'notes', e.target.value)} className="w-full px-2 py-2 border rounded-lg text-xs" placeholder="توضیحات" />
+                        </td>
+                        <td className="p-1 text-center border">
+                          {formRows.length > 1 && (
+                            <button onClick={() => removeFormRow(idx)} className="text-red-400 hover:text-red-600 text-lg font-bold" title="حذف ردیف">×</button>
+                          )}
+                        </td>
+                      </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Cards View */}
+              <div className="md:hidden space-y-4">
+                {formRows.map((row, idx) => {
+                  const userKey = `user_${idx}`;
+                  const itemKey = `item_${idx}`;
+                  return (
+                    <div key={idx} className="p-4 border rounded-2xl bg-gray-50/50 space-y-3 relative">
+                      <div className="flex justify-between items-center border-b pb-2">
+                        <span className="font-bold text-sm text-gray-500">ردیف {idx + 1}</span>
+                        {formRows.length > 1 && (
+                          <button onClick={() => removeFormRow(idx)} className="text-red-500 hover:text-red-700 text-xs font-bold">
+                            حذف ردیف ×
+                          </button>
+                        )}
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">کاربر</label>
                         <input
                           ref={(el) => { inputRefs.current[`user_${idx}`] = el; }}
                           type="text"
                           value={openDropdown === userKey ? (userSearch[idx] || '') : (users.find(u => u.id == row.user_id)?.full_name || '')}
                           onFocus={() => { setUserSearch({...userSearch, [idx]: ''}); openDropdownAt(userKey, `user_${idx}`); }}
                           onChange={(e) => { setUserSearch({...userSearch, [idx]: e.target.value}); openDropdownAt(userKey, `user_${idx}`); }}
-                          className="w-full px-2 py-2 border rounded-lg text-xs"
+                          className="w-full px-3 py-2 border rounded-xl text-xs bg-white"
                           placeholder="جستجوی کاربر..."
                         />
-                      </td>
-                      <td className="p-1 border">
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">کالا</label>
                         <input
                           ref={(el) => { inputRefs.current[`item_${idx}`] = el; }}
                           type="text"
                           value={openDropdown === itemKey ? (itemSearch[idx] || '') : (items.find(i => i.id == row.item_id) ? `${items.find(i => i.id == row.item_id).name} (${items.find(i => i.id == row.item_id).unit})` : '')}
                           onFocus={() => { setItemSearch({...itemSearch, [idx]: ''}); openDropdownAt(itemKey, `item_${idx}`); }}
                           onChange={(e) => { setItemSearch({...itemSearch, [idx]: e.target.value}); openDropdownAt(itemKey, `item_${idx}`); }}
-                          className="w-full px-2 py-2 border rounded-lg text-xs"
+                          className="w-full px-3 py-2 border rounded-xl text-xs bg-white"
                           placeholder="جستجوی کالا..."
                         />
-                      </td>
-                      <td className="p-1 border">
-                        <input type="number" value={row.quantity} onChange={(e) => updateFormRow(idx, 'quantity', e.target.value)} className="w-full px-2 py-2 border rounded-lg text-xs text-center" min="0.1" step="0.1" placeholder="0" />
-                      </td>
-                      <td className="p-1 border">
-                        <input type="text" value={row.delivery_date} readOnly onClick={(e) => { e.stopPropagation(); setShowCalendar(showCalendar === idx ? null : idx); }} className="w-full px-2 py-2 border rounded-lg text-xs text-center cursor-pointer bg-white" placeholder="انتخاب تاریخ" dir="ltr" />
-                      </td>
-                      <td className="p-1 border">
-                        <input type="text" value={row.notes} onChange={(e) => updateFormRow(idx, 'notes', e.target.value)} className="w-full px-2 py-2 border rounded-lg text-xs" placeholder="توضیحات" />
-                      </td>
-                      <td className="p-1 text-center border">
-                        {formRows.length > 1 && (
-                          <button onClick={() => removeFormRow(idx)} className="text-red-400 hover:text-red-600 text-lg font-bold" title="حذف ردیف">×</button>
-                        )}
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">تعداد</label>
+                          <input 
+                            type="number" 
+                            value={row.quantity} 
+                            onChange={(e) => updateFormRow(idx, 'quantity', e.target.value)} 
+                            className="w-full px-3 py-2 border rounded-xl text-xs text-center bg-white" 
+                            min="0.1" 
+                            step="0.1" 
+                            placeholder="0" 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">تاریخ تحویل</label>
+                          <input 
+                            type="text" 
+                            value={row.delivery_date} 
+                            readOnly 
+                            onClick={(e) => { e.stopPropagation(); setShowCalendar(showCalendar === idx ? null : idx); }} 
+                            className="w-full px-3 py-2 border rounded-xl text-xs text-center cursor-pointer bg-white" 
+                            placeholder="انتخاب تاریخ" 
+                            dir="ltr" 
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">توضیحات</label>
+                        <input 
+                          type="text" 
+                          value={row.notes} 
+                          onChange={(e) => updateFormRow(idx, 'notes', e.target.value)} 
+                          className="w-full px-3 py-2 border rounded-xl text-xs bg-white" 
+                          placeholder="توضیحات" 
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
             <div className="flex gap-4">
               <button onClick={addCardex} className="flex-1 bg-primary-500 hover:bg-primary-600 text-white py-3 rounded-xl font-bold transition-colors">ذخیره اقلام</button>
@@ -324,7 +411,7 @@ export default function Inventory() {
                 <label className="block text-sm font-medium mb-1">نام کالا</label>
                 <input type="text" value={itemForm.name} onChange={(e) => setItemForm({...itemForm, name: e.target.value})} className="w-full px-4 py-3 border rounded-xl" required />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">واحد</label>
                   <select value={itemForm.unit} onChange={(e) => setItemForm({...itemForm, unit: e.target.value})} className="w-full px-4 py-3 border rounded-xl">
@@ -358,7 +445,7 @@ export default function Inventory() {
                 <label className="block text-sm font-medium mb-1">نام کالا</label>
                 <input type="text" value={editItem.name} onChange={(e) => setEditItem({...editItem, name: e.target.value})} className="w-full px-4 py-3 border rounded-xl" required />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">واحد</label>
                   <select value={editItem.unit} onChange={(e) => setEditItem({...editItem, unit: e.target.value})} className="w-full px-4 py-3 border rounded-xl">

@@ -571,7 +571,7 @@ export default function AdminPanel() {
           <div className="bg-white rounded-2xl p-8 w-full max-w-lg animate-fade-in">
             <h3 className="text-lg font-bold mb-6">{editingUser ? 'ویرایش کاربر' : 'کاربر جدید'}</h3>
             <form onSubmit={addUser} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">کد پرسنلی</label>
                   <input type="number" placeholder="مثال: 1001" value={userForm.username} onChange={(e) => setUserForm({...userForm, username: e.target.value})} className="w-full px-4 py-3 border rounded-xl text-center" required disabled={!!editingUser} />
@@ -585,7 +585,7 @@ export default function AdminPanel() {
                 <label className="block text-sm font-medium mb-1">نام کامل</label>
                 <input type="text" value={userForm.full_name} onChange={(e) => setUserForm({...userForm, full_name: e.target.value})} className="w-full px-4 py-3 border rounded-xl" required />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">سمت</label>
                   <select value={userForm.role} onChange={(e) => setUserForm({...userForm, role: e.target.value})} className="w-full px-4 py-3 border rounded-xl">
@@ -647,7 +647,7 @@ export default function AdminPanel() {
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">مخاطب</label>
                   <select value={announcementForm.target_audience} onChange={(e) => setAnnouncementForm({...announcementForm, target_audience: e.target.value})} className="w-full px-4 py-3 border rounded-xl">

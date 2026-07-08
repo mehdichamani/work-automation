@@ -550,7 +550,7 @@ export default function Leave() {
                   )}
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ شروع</label>
                   <button type="button" onClick={() => setShowStartCal(!showStartCal)} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">
@@ -593,7 +593,7 @@ export default function Leave() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ پایان</label>
                   <button type="button" onClick={() => setShowEndCal(!showEndCal)} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">
@@ -665,7 +665,7 @@ export default function Leave() {
           <div className="bg-white rounded-2xl p-8 w-full max-w-lg animate-fade-in relative">
             <h3 className="text-lg font-bold mb-6">ویرایش درخواست مرخصی</h3>
             <form onSubmit={submitEdit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ شروع</label>
                   <button type="button" onClick={() => setEditShowStartCal(!editShowStartCal)} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">
@@ -707,7 +707,7 @@ export default function Leave() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">تاریخ پایان</label>
                   <button type="button" onClick={() => setEditShowEndCal(!editShowEndCal)} className="w-full px-4 py-3 border rounded-xl text-left" dir="ltr">
@@ -1574,7 +1574,7 @@ export default function Leave() {
                   ⚠️ در این بخش می‌توانید تاریخ پایان مرخصی را تغییر دهید (مثلاً به علت بازگشت زودتر) یا کارکرد آن را صفر کنید. تاریخچه تایید و چرخه مرخصی حفظ خواهد شد.
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <span className="text-gray-400 block text-xs mb-0.5">تاریخ شروع (غیرقابل تغییر):</span>
                     <span className="font-semibold">{modifyingLeave.start_date} ساعت {modifyingLeave.start_hour}</span>

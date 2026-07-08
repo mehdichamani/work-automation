@@ -30,7 +30,21 @@ export default function Layout({ children }) {
   const { user, logout, hasPermission, updateUserFields } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    return typeof window !== 'undefined' ? window.innerWidth > 768 : false;
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth > 768) {
+        setSidebarOpen(true);
+      } else {
+        setSidebarOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [changePasswordForm, setChangePasswordForm] = useState({ oldPassword: '', newPassword: '', confirmNewPassword: '' });
@@ -151,16 +165,27 @@ export default function Layout({ children }) {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-gradient-to-b from-primary-600 to-primary-800 text-white transition-all duration-300 flex flex-col`}>
+      {/* Backdrop for mobile */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden" 
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside className={`
+        fixed inset-y-0 right-0 z-50 w-64 bg-gradient-to-b from-primary-600 to-primary-800 text-white transition-all duration-300 flex flex-col
+        md:relative md:translate-x-0
+        ${sidebarOpen ? 'translate-x-0 md:w-64' : 'translate-x-full md:w-20'}
+      `}>
         <div className="p-4 border-b border-primary-500">
-          {sidebarOpen && (
+          {sidebarOpen ? (
             <div className="flex flex-col items-center">
               <img src="/logo.png" alt="لوگو" className="w-28 h-28 object-contain mb-2 rotate-3d" />
               <h1 className="text-lg font-bold">اروم شیشه ساچی</h1>
               <p className="text-xs text-primary-200 mt-1">سیستم اتوماسیون اداری</p>
             </div>
-          )}
-          {!sidebarOpen && (
+          ) : (
             <div className="flex justify-center">
               <img src="/logo.png" alt="لوگو" className="w-12 h-12 object-contain" />
             </div>
@@ -172,6 +197,11 @@ export default function Layout({ children }) {
             <Link
               key={item.path}
               to={item.path}
+              onClick={() => {
+                if (window.innerWidth <= 768) {
+                  setSidebarOpen(false);
+                }
+              }}
               className={`flex items-center gap-3 px-4 py-3 mx-2 rounded-lg transition-all ${
                 location.pathname === item.path 
                   ? 'bg-white/20 shadow-lg' 
@@ -184,7 +214,7 @@ export default function Layout({ children }) {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-primary-500">
+        <div className="p-4 border-t border-primary-500 md:block hidden">
           <button 
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="w-full py-2 text-xs bg-primary-500/50 rounded-lg hover:bg-primary-500 transition-colors"
@@ -197,6 +227,12 @@ export default function Layout({ children }) {
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-white shadow-sm h-16 flex items-center justify-between px-6">
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-2 -mr-2 text-gray-600 hover:text-primary-500 md:hidden text-xl"
+            >
+              ☰
+            </button>
             <h2 className="text-lg font-bold text-gray-800">
               {filteredMenu.find(m => m.path === location.pathname)?.label || 'داشبورد'}
             </h2>
@@ -264,7 +300,7 @@ export default function Layout({ children }) {
             </div>
 
             <div className="flex items-center gap-3 border-r pr-4">
-              <div className="text-left">
+              <div className="text-left hidden sm:block">
                 <p className="text-sm font-bold text-gray-800">{user?.full_name}</p>
                 <p className="text-xs text-gray-500">{roleLabels[user?.role]} • {user?.department_name}</p>
               </div>
@@ -287,7 +323,7 @@ export default function Layout({ children }) {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6">
           {children}
         </div>
       </main>
