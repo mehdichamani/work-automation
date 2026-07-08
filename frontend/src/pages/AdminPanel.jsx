@@ -1025,7 +1025,7 @@ export default function AdminPanel() {
           ) : (
             <>
               <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[calc(100vh-280px)]">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
@@ -1126,7 +1126,7 @@ export default function AdminPanel() {
 
             {selectedPermUserId && userPermForm.length > 0 && (
               <div className="space-y-4">
-                <div className="bg-gray-50 rounded-xl p-4">
+                <div className="bg-gray-50 rounded-xl p-4 overflow-auto max-h-[calc(100vh-320px)]">
                   <table className="w-full text-sm">
                     <thead>
                       <tr>
