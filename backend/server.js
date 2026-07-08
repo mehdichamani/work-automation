@@ -3,7 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { execFile } = require('child_process');
+const { exec, execFile } = require('child_process');
 const { initDatabase } = require('./database/init');
 const { authMiddleware } = require('./middleware/auth');
 
@@ -62,13 +62,22 @@ async function startServer() {
     }
     res.json({ message: 'سرور در حال ری‌استارت...' });
     setTimeout(() => {
-      const child = execFile(process.execPath, [require('path').join(__dirname, 'server.js')], {
-        cwd: __dirname,
-        detached: true,
-        stdio: 'ignore'
-      });
-      child.unref();
-      server.close(() => process.exit(0));
+      if (process.env.pm_id !== undefined) {
+        exec('pm2 restart edari-backend', (err) => {
+          if (err) {
+            console.error('Failed to restart server via PM2:', err);
+            process.exit(1);
+          }
+        });
+      } else {
+        const child = execFile(process.execPath, [require('path').join(__dirname, 'server.js')], {
+          cwd: __dirname,
+          detached: true,
+          stdio: 'ignore'
+        });
+        child.unref();
+        server.close(() => process.exit(0));
+      }
     }, 500);
   });
 
