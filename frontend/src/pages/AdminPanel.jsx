@@ -1029,9 +1029,9 @@ export default function AdminPanel() {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="p-3 text-right font-bold">بخش</th>
+                        <th className="p-3 text-right font-bold sticky top-0 z-20 bg-gray-50 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">بخش</th>
                         {departments.map(d => (
-                          <th key={d.id} className="p-3 text-center font-bold text-xs">{d.name}</th>
+                          <th key={d.id} className="p-3 text-center font-bold text-xs sticky top-0 z-20 bg-gray-50 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">{d.name}</th>
                         ))}
                       </tr>
                     </thead>
@@ -1043,8 +1043,8 @@ export default function AdminPanel() {
                           groups[m.group].push(m);
                         });
                         return Object.entries(groups).map(([group, mods]) => [
-                          <tr key={`group-${group}`} className="bg-gray-100">
-                            <td colSpan={departments.length + 1} className="p-2 font-bold text-xs text-gray-600">{group}</td>
+                          <tr key={`group-${group}`} className="sticky top-[45px] z-10">
+                            <td colSpan={departments.length + 1} className="p-2 font-bold text-xs text-gray-600 bg-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">{group}</td>
                           </tr>,
                           ...mods.map(m => (
                             <tr key={m.key} className="border-t hover:bg-gray-50">
@@ -1130,9 +1130,9 @@ export default function AdminPanel() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr>
-                        <th className="p-2 text-right font-bold">بخش</th>
-                        <th className="p-2 text-right font-bold">دسترسی</th>
-                        <th className="p-2 text-center font-bold">وضعیت</th>
+                        <th className="p-2 text-right font-bold sticky top-0 z-20 bg-gray-50 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">بخش</th>
+                        <th className="p-2 text-right font-bold sticky top-0 z-20 bg-gray-50 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">دسترسی</th>
+                        <th className="p-2 text-center font-bold sticky top-0 z-20 bg-gray-50 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">وضعیت</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1143,8 +1143,8 @@ export default function AdminPanel() {
                           groups[p.group].push(p);
                         });
                         return Object.entries(groups).map(([group, perms]) => [
-                          <tr key={`g-${group}`} className="bg-gray-100">
-                            <td colSpan={3} className="p-2 font-bold text-xs text-gray-600">{group}</td>
+                          <tr key={`g-${group}`} className="sticky top-[36px] z-10">
+                            <td colSpan={3} className="p-2 font-bold text-xs text-gray-600 bg-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">{group}</td>
                           </tr>,
                           ...perms.map(p => (
                             <tr key={p.module_key} className="border-t hover:bg-gray-50">
