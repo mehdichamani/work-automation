@@ -54,7 +54,16 @@ async function startServer() {
 
   // Serve static files from the React frontend build
   const frontendDistPath = path.join(__dirname, '..', 'frontend', 'dist');
+  console.log('Serving frontend build from:', frontendDistPath);
   app.use(express.static(frontendDistPath));
+
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(frontendDistPath, 'index.html'), (err) => {
+      if (err) {
+        res.status(404).send('فرانت‌اند هنوز بیلد نشده است. لطفاً دستور npm run build را در پوشه frontend اجرا کنید.');
+      }
+    });
+  });
 
   app.post('/api/admin/server-restart', authMiddleware, (req, res) => {
     if (req.user.role !== 'admin') {
