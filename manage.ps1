@@ -96,13 +96,33 @@ do {
             Write-Host "[1/3] Installing backend dependencies..." -ForegroundColor Green
             Set-Location "$scriptDir\backend"
             npm install
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: npm install failed in backend!" -ForegroundColor Red
+                Read-Host "Press Enter to return to the menu..."
+                return
+            }
             
             Write-Host "`n[2/3] Installing frontend dependencies..." -ForegroundColor Green
             Set-Location "$scriptDir\frontend"
             npm install
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: npm install failed in frontend!" -ForegroundColor Red
+                Read-Host "Press Enter to return to the menu..."
+                return
+            }
             
             Write-Host "`n[3/3] Generating React production bundle (Build)..." -ForegroundColor Green
-            npm run build
+            # Run build via node directly to bypass Windows PowerShell script execution restrictions
+            node node_modules/vite/bin/vite.js build
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nWarning: Vite direct build failed, attempting fallback npm run build..." -ForegroundColor Yellow
+                npm run build
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: Frontend build failed!" -ForegroundColor Red
+                    Read-Host "Press Enter to return to the menu..."
+                    return
+                }
+            }
             
             Write-Host "`nApplication install and build completed successfully!" -ForegroundColor Green
             Read-Host "Press Enter to return to the menu..."
