@@ -181,13 +181,13 @@ export default function Layout({ children }) {
         <div className="p-4 border-b border-primary-500">
           {sidebarOpen ? (
             <div className="flex flex-col items-center">
-              <img src="/logo.png" alt="لوگو" className="w-28 h-28 object-contain mb-2 rotate-3d" />
+              <img src="/logo.webp" alt="لوگو" className="w-28 h-28 object-contain mb-2 rotate-3d" />
               <h1 className="text-lg font-bold">اروم شیشه ساچی</h1>
               <p className="text-xs text-primary-200 mt-1">سیستم اتوماسیون اداری</p>
             </div>
           ) : (
             <div className="flex justify-center">
-              <img src="/logo.png" alt="لوگو" className="w-12 h-12 object-contain" />
+              <img src="/logo.webp" alt="لوگو" className="w-12 h-12 object-contain" />
             </div>
           )}
         </div>

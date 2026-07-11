@@ -27,13 +27,13 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-[#f0f9ff] flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute inset-0 flex items-center justify-center opacity-100">
-        <img src="/background.png" alt="" className="w-full h-full object-contain" />
+        <img src="/background.webp" alt="" className="w-full h-full object-contain" />
       </div>
       <div className="w-full max-w-md">
         <div className="glass-card rounded-2xl shadow-2xl p-8">
           <div className="text-center mb-6">
             <div className="w-20 h-20 bg-primary-100 rounded-2xl mx-auto flex items-center justify-center mb-4 overflow-hidden">
-              <img src="/logo.png" alt="لوگو" className="w-full h-full object-contain" />
+              <img src="/logo.webp" alt="لوگو" className="w-full h-full object-contain" />
             </div>
             <h1 className="text-2xl font-bold text-primary-700">اروم شیشه ساچی</h1>
             <p className="text-gray-500 text-sm mt-1">سیستم اتوماسیون اداری</p>

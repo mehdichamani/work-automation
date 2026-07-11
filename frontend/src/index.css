@@ -64,7 +64,7 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  background-image: url('/background.png');
+  background-image: url('/background.webp');
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
