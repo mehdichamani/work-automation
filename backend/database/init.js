@@ -408,6 +408,15 @@ async function initDatabase() {
       FOREIGN KEY (unit_id) REFERENCES departments(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS letter_attachments (
+      id SERIAL PRIMARY KEY,
+      letter_id INTEGER NOT NULL,
+      file_name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+      FOREIGN KEY (letter_id) REFERENCES letters(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS inventory_items (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
@@ -828,6 +837,7 @@ async function initDatabase() {
     "CREATE INDEX IF NOT EXISTS idx_permissions_user ON permissions(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_permissions_dept ON permissions(department_id)",
     "CREATE INDEX IF NOT EXISTS idx_permissions_module ON permissions(module_key)",
+    "CREATE INDEX IF NOT EXISTS idx_letter_attachments_letter ON letter_attachments(letter_id)",
   ];
   for (const sql of indexes) {
     try { db.exec(sql); } catch (e) {}

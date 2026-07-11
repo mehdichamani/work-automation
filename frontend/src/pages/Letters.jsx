@@ -51,7 +51,7 @@ export default function Letters() {
   const [selectedManagers, setSelectedManagers] = useState([]);
   const [selectedUnits, setSelectedUnits] = useState([]);
   const [comment, setComment] = useState('');
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [letterSearch, setLetterSearch] = useState('');
   const [form, setForm] = useState({ subject: '', body: '', priority: 'normal' });
   const [nextNumber, setNextNumber] = useState('');
@@ -149,13 +149,17 @@ export default function Letters() {
       formData.append('subject', form.subject);
       formData.append('body', form.body);
       formData.append('priority', form.priority);
-      if (file) formData.append('attachment', file);
+      if (files && files.length > 0) {
+        files.forEach(f => {
+          formData.append('attachments', f);
+        });
+      }
 
       await api.post('/letters', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       toast.success('نامه ثبت شد و برای سانترال ارسال شد');
       setShowForm(false);
       setForm({ subject: '', body: '', priority: 'normal' });
-      setFile(null);
+      setFiles([]);
       setNextNumber('');
       loadData();
     } catch (err) {
@@ -310,13 +314,41 @@ export default function Letters() {
                 <textarea value={form.body} onChange={(e) => setForm({...form, body: e.target.value})} className="w-full px-4 py-3 border rounded-xl" rows="6" />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">فایل پیوست</label>
-                <input type="file" onChange={(e) => setFile(e.target.files[0])} className="w-full px-4 py-3 border rounded-xl text-sm" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.zip,.rar,.txt" />
-                {file && <p className="text-xs text-gray-500 mt-1">{file.name}</p>}
+                <label className="block text-sm font-medium mb-1">فایل‌های پیوست (حداکثر ۱۰ فایل، تا ۲۰ مگابایت برای هر فایل)</label>
+                <input 
+                  type="file" 
+                  multiple 
+                  onChange={(e) => {
+                    const selectedFiles = Array.from(e.target.files);
+                    if (selectedFiles.length > 10) {
+                      toast.error('حداکثر ۱۰ فایل مجاز است');
+                      e.target.value = '';
+                      setFiles([]);
+                      return;
+                    }
+                    const overSize = selectedFiles.some(f => f.size > 20 * 1024 * 1024);
+                    if (overSize) {
+                      toast.error('حجم هر فایل باید کمتر از ۲۰ مگابایت باشد');
+                      e.target.value = '';
+                      setFiles([]);
+                      return;
+                    }
+                    setFiles(selectedFiles);
+                  }} 
+                  className="w-full px-4 py-3 border rounded-xl text-sm" 
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.zip,.rar,.txt,.webp,.bmp,.svg,.tiff,.tar,.gz,.7z" 
+                />
+                {files.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {files.map((f, i) => (
+                      <p key={i} className="text-xs text-gray-500 flex items-center gap-1">📎 {f.name} ({ (f.size / 1024 / 1024).toFixed(2) } MB)</p>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex gap-4">
                 <button type="submit" className="flex-1 bg-primary-500 text-white py-3 rounded-xl font-bold">ثبت نامه</button>
-                <button type="button" onClick={() => { setShowForm(false); setFile(null); setNextNumber(''); }} className="flex-1 bg-gray-200 py-3 rounded-xl font-bold">انصراف</button>
+                <button type="button" onClick={() => { setShowForm(false); setFiles([]); setNextNumber(''); }} className="flex-1 bg-gray-200 py-3 rounded-xl font-bold">انصراف</button>
               </div>
             </form>
           </div>
@@ -471,7 +503,13 @@ export default function Letters() {
                         {l.status === 'rejected' ? 'علت رد: ' : 'توضیح مدیر: '}{l.manager_comment}
                       </p>
                     )}
-                    {l.attachment_name && <div className="mt-2"><FileBadge name={l.attachment_name} link={l.attachment_path} /></div>}
+                    {l.attachments && l.attachments.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {l.attachments.map((att, idx) => (
+                          <FileBadge key={idx} name={att.name} link={att.path} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => printLetter(l)} className="text-gray-400 hover:text-primary-500 p-2 rounded-lg hover:bg-primary-50 transition-colors" title="چاپ نامه">
@@ -518,7 +556,13 @@ export default function Letters() {
                     <h4 className="font-bold text-sm">{lu.subject}</h4>
                     <p className="text-xs text-gray-500 mt-1">شماره: {lu.letter_number || '-'} | از: {lu.sender_unit_name}</p>
                     <p className="text-xs text-gray-400 mt-1">{lu.body?.substring(0, 150)}...</p>
-                    {lu.attachment_name && <div className="mt-2"><FileBadge name={lu.attachment_name} link={lu.attachment_path} /></div>}
+                    {lu.attachments && lu.attachments.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {lu.attachments.map((att, idx) => (
+                          <FileBadge key={idx} name={att.name} link={att.path} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     {lu.status === 'pending' && (
@@ -547,7 +591,13 @@ export default function Letters() {
                     <h4 className="font-bold text-sm">{l.subject}</h4>
                     <p className="text-xs text-gray-500 mt-1">فرستنده: {l.sender_name} ({l.sender_unit_name})</p>
                     <p className="text-xs text-gray-400 mt-1">{l.body?.substring(0, 100)}...</p>
-                    {l.attachment_name && <div className="mt-2"><FileBadge name={l.attachment_name} link={l.attachment_path} /></div>}
+                    {l.attachments && l.attachments.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {l.attachments.map((att, idx) => (
+                          <FileBadge key={idx} name={att.name} link={att.path} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <button onClick={() => setShowSendManager(l.id)} className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap">
                     ارسال به مدیر
@@ -614,7 +664,13 @@ export default function Letters() {
                         توضیحات دبیرخانه: {l.central_comment}
                       </p>
                     )}
-                    {l.attachment_name && <div className="mt-2"><FileBadge name={l.attachment_name} link={l.attachment_path} /></div>}
+                    {l.attachments && l.attachments.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {l.attachments.map((att, idx) => (
+                          <FileBadge key={idx} name={att.name} link={att.path} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-3 mt-4 pt-4 border-t">
@@ -664,7 +720,13 @@ export default function Letters() {
                         {l.status === 'rejected' ? 'علت رد: ' : 'توضیحات من: '}{l.manager_comment}
                       </p>
                     )}
-                    {l.attachment_name && <div className="mt-2"><FileBadge name={l.attachment_name} link={l.attachment_path} /></div>}
+                    {l.attachments && l.attachments.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {l.attachments.map((att, idx) => (
+                          <FileBadge key={idx} name={att.name} link={att.path} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => printLetter(l)} className="text-gray-400 hover:text-primary-500 p-2 rounded-lg hover:bg-gray-100 transition-colors" title="چاپ">
@@ -722,7 +784,13 @@ export default function Letters() {
                     <p className="text-xs text-gray-500 mt-1">شماره: {l.letter_number || '-'} | فرستنده: {l.sender_name} ({l.sender_unit_name})</p>
                     {l.manager_name && <p className="text-xs text-gray-400 mt-0.5">مدیر: {l.manager_name} | {l.manager_comment || ''}</p>}
                     {l.body && <p className="text-xs text-gray-400 mt-1 whitespace-pre-wrap">{l.body.substring(0, 150)}{l.body.length > 150 ? '...' : ''}</p>}
-                    {l.attachment_name && <div className="mt-2"><FileBadge name={l.attachment_name} link={l.attachment_path} /></div>}
+                    {l.attachments && l.attachments.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {l.attachments.map((att, idx) => (
+                          <FileBadge key={idx} name={att.name} link={att.path} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2 items-start">
                     <button onClick={() => setShowForward(l.id)} className="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-medium transition-colors">ارجاع به واحدها</button>

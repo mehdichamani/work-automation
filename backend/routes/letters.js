@@ -21,14 +21,20 @@ const upload = multer({
   storage,
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowedExts = ['.jpeg', '.jpg', '.png', '.gif', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.zip', '.rar'];
+    const allowedExts = [
+      '.jpeg', '.jpg', '.png', '.gif', '.webp', '.bmp', '.svg', '.tiff',
+      '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv',
+      '.zip', '.rar', '.tar', '.gz', '.7z'
+    ];
     const allowedMimes = [
-      'image/jpeg', 'image/png', 'image/gif', 
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml', 'image/tiff',
       'application/pdf', 
       'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'text/plain', 
-      'application/zip', 'application/x-zip-compressed', 'application/x-rar-compressed', 'application/octet-stream'
+      'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'text/plain', 'text/csv',
+      'application/zip', 'application/x-zip-compressed', 'application/x-rar-compressed', 'application/octet-stream',
+      'application/x-tar', 'application/gzip', 'application/x-7z-compressed'
     ];
     const ext = path.extname(file.originalname).toLowerCase();
     const isExtAllowed = allowedExts.includes(ext);
@@ -83,6 +89,39 @@ module.exports = function(db) {
     `).all();
   }
 
+  function attachFiles(letters) {
+    if (!letters || letters.length === 0) return [];
+    const letterIds = letters.map(l => l.letter_id || l.id);
+    const placeholders = letterIds.map(() => '?').join(',');
+    const allAttachments = db.prepare(`SELECT * FROM letter_attachments WHERE letter_id IN (${placeholders})`).all(...letterIds);
+    
+    const attachmentsMap = {};
+    for (const att of allAttachments) {
+      if (!attachmentsMap[att.letter_id]) {
+        attachmentsMap[att.letter_id] = [];
+      }
+      attachmentsMap[att.letter_id].push({
+        name: att.file_name,
+        path: att.file_path
+      });
+    }
+    
+    return letters.map(l => {
+      const id = l.letter_id || l.id;
+      const attachments = [...(attachmentsMap[id] || [])];
+      if (l.attachment_name && l.attachment_path) {
+        attachments.push({
+          name: l.attachment_name,
+          path: l.attachment_path
+        });
+      }
+      return {
+        ...l,
+        attachments
+      };
+    });
+  }
+
   function getNextLetterNumber() {
     const currentYear = moment().jYear();
     const counter = db.prepare('SELECT * FROM letter_counter WHERE year = ?').get(currentYear);
@@ -111,28 +150,36 @@ module.exports = function(db) {
   // ============================================================
   // ایجاد نامه جدید
   // ============================================================
-  router.post('/', upload.single('attachment'), (req, res) => {
+  router.post('/', upload.array('attachments', 10), (req, res) => {
     try {
       const { subject, body, priority } = req.body;
       if (!subject) return res.status(400).json({ error: 'موضوع نامه الزامی است' });
 
       const letter_number = getNextLetterNumber();
       const senderUnitId = req.user.department_id || 1;
-      const attachmentName = req.file ? req.file.originalname : null;
-      const attachmentPath = req.file ? '/uploads/letters/' + req.file.filename : null;
 
       const result = db.prepare(`
-        INSERT INTO letters (letter_number, subject, body, sender_id, sender_unit_id, priority, status, attachment_name, attachment_path)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending_central', ?, ?)
-      `).run(letter_number, subject, body || '', req.user.id, senderUnitId, priority || 'normal', attachmentName, attachmentPath);
+        INSERT INTO letters (letter_number, subject, body, sender_id, sender_unit_id, priority, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending_central')
+      `).run(letter_number, subject, body || '', req.user.id, senderUnitId, priority || 'normal');
 
-      addHistory(result.lastInsertRowid || result.lastInsertRowid, req.user.id, req.user.full_name, 'created', 'ثبت نامه');
+      const letterId = result.lastInsertRowid;
+
+      if (req.files && req.files.length > 0) {
+        const insAttachment = db.prepare('INSERT INTO letter_attachments (letter_id, file_name, file_path) VALUES (?, ?, ?)');
+        for (const file of req.files) {
+          const filePath = '/uploads/letters/' + file.filename;
+          insAttachment.run(letterId, file.originalname, filePath);
+        }
+      }
+
+      addHistory(letterId, req.user.id, req.user.full_name, 'created', 'ثبت نامه');
 
       getSantralUsers().forEach(u => {
         notify(u.id, 'نامه جدید', `نامه "${subject}" ثبت شده و منتظر بررسی است`, '/letters');
       });
 
-      res.json({ id: result.lastInsertRowid, letter_number, message: 'نامه ثبت شد' });
+      res.json({ id: letterId, letter_number, message: 'نامه ثبت شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -172,7 +219,7 @@ module.exports = function(db) {
         WHERE l.sender_id = ?
         ORDER BY l.created_at DESC
       `).all(req.user.id);
-      res.json(letters);
+      res.json(attachFiles(letters));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -190,7 +237,7 @@ module.exports = function(db) {
         WHERE lu.unit_id = ?
         ORDER BY lu.id DESC
       `).all(req.user.department_id);
-      res.json(letterUnits);
+      res.json(attachFiles(letterUnits));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -207,7 +254,7 @@ module.exports = function(db) {
         WHERE l.status = 'pending_central'
         ORDER BY l.created_at DESC
       `).all();
-      res.json(letters);
+      res.json(attachFiles(letters));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -226,7 +273,7 @@ module.exports = function(db) {
         WHERE l.status IN ('approved', 'rejected')
         ORDER BY l.created_at DESC
       `).all();
-      res.json(letters);
+      res.json(attachFiles(letters));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -245,7 +292,7 @@ module.exports = function(db) {
         WHERE l.status IN ('archived', 'forwarded')
         ORDER BY l.created_at DESC
       `).all();
-      res.json(letters);
+      res.json(attachFiles(letters));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -263,7 +310,7 @@ module.exports = function(db) {
         WHERE l.status = 'pending_manager' AND l.selected_manager_id = ?
         ORDER BY l.created_at DESC
       `).all(req.user.id);
-      res.json(letters);
+      res.json(attachFiles(letters));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -281,7 +328,7 @@ module.exports = function(db) {
         WHERE l.selected_manager_id = ? AND l.status IN ('approved', 'rejected', 'archived', 'forwarded')
         ORDER BY l.created_at DESC
       `).all(req.user.id);
-      res.json(letters);
+      res.json(attachFiles(letters));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -299,7 +346,7 @@ module.exports = function(db) {
         LEFT JOIN users m ON l.selected_manager_id = m.id
         ORDER BY l.created_at DESC
       `).all();
-      res.json(letters);
+      res.json(attachFiles(letters));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
