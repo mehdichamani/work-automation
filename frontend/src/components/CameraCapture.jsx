@@ -30,6 +30,10 @@ export default function CameraCapture({ onCapture, currentPhoto }) {
     setCountdown(null);
   };
 
+  useEffect(() => {
+    return () => { setCapturing(false); setCountdown(null); };
+  }, []);
+
   const captureSnapshot = async () => {
     setCapturing(true);
     setCountdown(3);

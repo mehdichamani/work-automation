@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
+import Pagination from '../components/Pagination';
 import { printTable, printLetter } from '../utils/printUtils';
 
 const statusMap = {
@@ -15,9 +16,9 @@ const statusMap = {
 };
 
 const priorityMap = {
-  normal: { text: 'عادی', color: 'bg-gray-100' },
-  important: { text: 'مهم', color: 'bg-orange-100 text-orange-700' },
-  very_important: { text: 'خیلی مهم', color: 'bg-red-100 text-red-700' },
+  priority_1: { text: 'اولویت 1', color: 'bg-red-100 text-red-700' },
+  priority_2: { text: 'اولویت 2', color: 'bg-orange-100 text-orange-700' },
+  priority_3: { text: 'اولویت 3', color: 'bg-gray-100 text-gray-700' },
 };
 
 const historyActions = {
@@ -41,6 +42,10 @@ export default function Letters() {
   const [archivedLetters, setArchivedLetters] = useState([]);
   const [unitLetters, setUnitLetters] = useState([]);
   const [allLetters, setAllLetters] = useState([]);
+  const [allLettersTotal, setAllLettersTotal] = useState(0);
+  const [allLettersPage, setAllLettersPage] = useState(1);
+  const [allLettersSearch, setAllLettersSearch] = useState('');
+  const [allLettersDebounce, setAllLettersDebounce] = useState('');
   const [departments, setDepartments] = useState([]);
   const [managers, setManagers] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -52,15 +57,16 @@ export default function Letters() {
   const [selectedUnits, setSelectedUnits] = useState([]);
   const [comment, setComment] = useState('');
   const [files, setFiles] = useState([]);
+  const fileInputRef = useRef(null);
   const [letterSearch, setLetterSearch] = useState('');
-  const [form, setForm] = useState({ subject: '', body: '', priority: 'normal' });
+  const [form, setForm] = useState({ subject: '', body: '', priority: 'priority_3' });
   const [nextNumber, setNextNumber] = useState('');
 
   const isSantral = hasPermission('letters_central');
   const isManager = user.role === 'manager' || user.role === 'admin';
 
   const filteredArchived = archivedLetters.filter(l => !letterSearch || (l.letter_number && l.letter_number.includes(letterSearch)));
-  const filteredAll = allLetters.filter(l => !letterSearch || (l.letter_number && l.letter_number.includes(letterSearch)));
+  const filteredAll = allLetters;
   const filteredMy = myLetters.filter(l => 
     !letterSearch || 
     (l.letter_number && l.letter_number.toLowerCase().includes(letterSearch.toLowerCase())) ||
@@ -79,12 +85,19 @@ export default function Letters() {
 
   useEffect(() => {
     loadData();
-    const handleUpdate = () => {
-      loadData();
-    };
+    const handleUpdate = () => { loadData(); };
     window.addEventListener('ws-update', handleUpdate);
     return () => window.removeEventListener('ws-update', handleUpdate);
-  }, [tab]);
+  }, [tab, allLettersPage]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAllLettersDebounce(allLettersSearch), 400);
+    return () => clearTimeout(timer);
+  }, [allLettersSearch]);
+
+  useEffect(() => {
+    if (tab === 'all') setAllLettersPage(1);
+  }, [allLettersDebounce, tab]);
 
   const fetchNextNumber = async () => {
     try {
@@ -122,8 +135,9 @@ export default function Letters() {
           const archRes = await api.get('/letters/archived');
           setArchivedLetters(archRes.data);
         } else if (tab === 'all') {
-          const allRes = await api.get('/letters/all');
-          setAllLetters(allRes.data);
+          const allRes = await api.get('/letters/all', { params: { page: allLettersPage, limit: 50, search: allLettersDebounce } });
+          setAllLetters(allRes.data.data);
+          setAllLettersTotal(allRes.data.total);
         }
       } else if (tab === 'manager' || tab === 'manager_processed') {
         if (managers.length === 0) {
@@ -158,7 +172,7 @@ export default function Letters() {
       await api.post('/letters', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       toast.success('نامه ثبت شد و برای سانترال ارسال شد');
       setShowForm(false);
-      setForm({ subject: '', body: '', priority: 'normal' });
+      setForm({ subject: '', body: '', priority: 'priority_3' });
       setFiles([]);
       setNextNumber('');
       loadData();
@@ -299,9 +313,9 @@ export default function Letters() {
                 <div>
                   <label className="block text-sm font-medium mb-1">اولویت</label>
                   <select value={form.priority} onChange={(e) => setForm({...form, priority: e.target.value})} className="w-full px-4 py-3 border rounded-xl">
-                    <option value="normal">عادی</option>
-                    <option value="important">مهم</option>
-                    <option value="very_important">خیلی مهم</option>
+                    <option value="priority_1">اولویت 1</option>
+                    <option value="priority_2">اولویت 2</option>
+                    <option value="priority_3">اولویت 3</option>
                   </select>
                 </div>
               </div>
@@ -314,37 +328,42 @@ export default function Letters() {
                 <textarea value={form.body} onChange={(e) => setForm({...form, body: e.target.value})} className="w-full px-4 py-3 border rounded-xl" rows="6" />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">فایل‌های پیوست (حداکثر ۱۰ فایل، تا ۲۰ مگابایت برای هر فایل)</label>
-                <input 
-                  type="file" 
-                  multiple 
+                <label className="block text-sm font-medium mb-1">فایل‌های پیوست (حداکثر ۱۰ فایل، تا ۲۰ مگابایت)</label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.zip,.rar,.txt,.webp,.bmp,.svg,.tiff,.tar,.gz,.7z"
                   onChange={(e) => {
-                    const selectedFiles = Array.from(e.target.files);
-                    if (selectedFiles.length > 10) {
+                    const selectedFile = e.target.files?.[0];
+                    if (!selectedFile) return;
+                    if (selectedFile.size > 20 * 1024 * 1024) {
+                      toast.error('حجم فایل باید کمتر از ۲۰ مگابایت باشد');
+                      e.target.value = '';
+                      return;
+                    }
+                    if (files.length >= 10) {
                       toast.error('حداکثر ۱۰ فایل مجاز است');
                       e.target.value = '';
-                      setFiles([]);
                       return;
                     }
-                    const overSize = selectedFiles.some(f => f.size > 20 * 1024 * 1024);
-                    if (overSize) {
-                      toast.error('حجم هر فایل باید کمتر از ۲۰ مگابایت باشد');
-                      e.target.value = '';
-                      setFiles([]);
-                      return;
-                    }
-                    setFiles(selectedFiles);
-                  }} 
-                  className="w-full px-4 py-3 border rounded-xl text-sm" 
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.zip,.rar,.txt,.webp,.bmp,.svg,.tiff,.tar,.gz,.7z" 
+                    setFiles(prev => [...prev, selectedFile]);
+                    e.target.value = '';
+                  }}
                 />
-                {files.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {files.map((f, i) => (
-                      <p key={i} className="text-xs text-gray-500 flex items-center gap-1">📎 {f.name} ({ (f.size / 1024 / 1024).toFixed(2) } MB)</p>
-                    ))}
-                  </div>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {files.map((f, i) => (
+                    <div key={i} className="flex items-center gap-1 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg text-xs">
+                      <span>📎 {f.name.length > 20 ? f.name.substring(0, 20) + '...' : f.name}</span>
+                      <span className="text-blue-400">({(f.size / 1024 / 1024).toFixed(1)}MB)</span>
+                      <button type="button" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-600 mr-1 font-bold">×</button>
+                    </div>
+                  ))}
+                  {files.length < 10 && (
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="w-8 h-8 flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg text-gray-400 hover:border-primary-400 hover:text-primary-500 transition-colors text-lg font-bold">+</button>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">{files.length}/10 فایل انتخاب شده</p>
               </div>
               <div className="flex gap-4">
                 <button type="submit" className="flex-1 bg-primary-500 text-white py-3 rounded-xl font-bold">ثبت نامه</button>
@@ -476,7 +495,7 @@ export default function Letters() {
                 <button onClick={() => printTable('نامه‌های من', [
                   { key: 'letter_number', label: 'شماره' },
                   { key: 'subject', label: 'موضوع' },
-                  { key: 'priority', label: 'اولویت', render: (v) => ({normal:'عادی',important:'مهم',very_important:'خیلی مهم'}[v] || v) },
+{ key: 'priority', label: 'اولویت', render: (v) => ({priority_1:'اولویت 1',priority_2:'اولویت 2',priority_3:'اولویت 3'}[v] || v) },
                   { key: 'status', label: 'وضعیت', render: (v) => ({pending_central:'در انتظار سانترال',pending_manager:'در انتظار مدیر',approved:'تایید شده',rejected:'رد شده',archived:'بایگانی شده',forwarded:'ارجاع شده'}[v] || v) },
                   { key: 'created_at', label: 'تاریخ', render: (v) => v?.split('T')[0] || '-' },
                 ], filteredMy)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap">
@@ -763,7 +782,7 @@ export default function Letters() {
                  { key: 'sender_name', label: 'فرستنده' },
                  { key: 'sender_unit_name', label: 'واحد فرستنده' },
                  { key: 'manager_name', label: 'مدیر' },
-                 { key: 'priority', label: 'اولویت', render: (v) => ({normal:'عادی',important:'مهم',very_important:'خیلی مهم'}[v] || v) },
+                 { key: 'priority', label: 'اولویت', render: (v) => ({priority_1:'اولویت 1',priority_2:'اولویت 2',priority_3:'اولویت 3'}[v] || v) },
                  { key: 'status', label: 'وضعیت', render: (v) => ({archived:'بایگانی شده',forwarded:'ارجاع شده'}[v] || v) },
                  { key: 'created_at', label: 'تاریخ', render: (v) => v?.split('T')[0] || '-' },
                ], filteredArchived)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap">
@@ -812,22 +831,22 @@ export default function Letters() {
           <div>
             <div className="flex justify-between items-center mb-4 gap-3">
               <div className="flex items-center gap-3 flex-1">
-                <p className="text-sm text-gray-500 whitespace-nowrap">{filteredAll.length} نامه</p>
                 <input
                   type="text"
-                  value={letterSearch}
-                  onChange={(e) => setLetterSearch(e.target.value)}
-                  placeholder="جستجو بر اساس شماره نامه..."
+                  value={allLettersSearch}
+                  onChange={(e) => setAllLettersSearch(e.target.value)}
+                  placeholder="جستجو شماره نامه..."
                   className="flex-1 max-w-xs px-4 py-2 border rounded-xl text-sm"
                   dir="ltr"
                 />
+                <p className="text-sm text-gray-500 whitespace-nowrap">{allLettersTotal} نامه</p>
               </div>
               <button onClick={() => printTable('همه نامه‌ها', [
                 { key: 'letter_number', label: 'شماره' },
                 { key: 'subject', label: 'موضوع' },
                 { key: 'sender_name', label: 'فرستنده' },
                 { key: 'manager_name', label: 'مدیر' },
-                { key: 'priority', label: 'اولویت', render: (v) => ({normal:'عادی',important:'مهم',very_important:'خیلی مهم'}[v] || v) },
+                { key: 'priority', label: 'اولویت', render: (v) => ({priority_1:'اولویت 1',priority_2:'اولویت 2',priority_3:'اولویت 3'}[v] || v) },
                 { key: 'status', label: 'وضعیت', render: (v) => ({pending_central:'در انتظار سانترال',pending_manager:'در انتظار مدیر',approved:'تایید شده',rejected:'رد شده',archived:'بایگانی شده',forwarded:'ارجاع شده'}[v] || v) },
                 { key: 'created_at', label: 'تاریخ', render: (v) => v?.split('T')[0] || '-' },
               ], filteredAll)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap">
@@ -868,6 +887,7 @@ export default function Letters() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={allLettersPage} total={allLettersTotal} limit={50} onChange={setAllLettersPage} />
             </div>
           </div>
         )}

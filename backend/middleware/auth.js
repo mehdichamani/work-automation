@@ -13,9 +13,14 @@ if (!JWT_SECRET) {
       fs.writeFileSync(secretPath, JWT_SECRET, 'utf8');
     }
   } catch (err) {
-    // fallback if file write fails, to ensure system still runs
-    JWT_SECRET = 'arrom-shishe-sazi-edari-2024-secret-key-fallback';
+    console.error('CRITICAL: Could not read or create JWT secret file. Set JWT_SECRET in .env instead.');
+    process.exit(1);
   }
+}
+
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  console.error('CRITICAL: JWT_SECRET is missing or too short. Set a strong secret in .env or .jwt_secret');
+  process.exit(1);
 }
 
 function authMiddleware(req, res, next) {
@@ -40,4 +45,32 @@ function roleGuard(...roles) {
   };
 }
 
-module.exports = { authMiddleware, roleGuard, JWT_SECRET };
+function auditLog(db) {
+  return (req, res, next) => {
+    if (req.method === 'GET' || req.path.includes('/login') || req.path.includes('/health')) {
+      return next();
+    }
+    const originalSend = res.send;
+    res.send = function(body) {
+      try {
+        const userId = req.user?.id;
+        const action = `${req.method} ${req.path}`;
+        const moduleMatch = req.path.match(/\/api\/([^\/]+)/);
+        const moduleName = moduleMatch ? moduleMatch[1] : '';
+        const details = typeof body === 'string' ? body.substring(0, 500) : '';
+        db.prepare('INSERT INTO activity_log (user_id, module_name, action, details, ip_address) VALUES (?, ?, ?, ?, ?)').run(
+          userId || null, moduleName, action, details, req.ip
+        );
+      } catch (e) {}
+      return originalSend.call(this, body);
+    };
+    next();
+  };
+}
+
+function validatePassword(pw) {
+  if (!pw || pw.length < 6) return 'رمز عبور باید حداقل ۶ کاراکتر باشد';
+  return null;
+}
+
+module.exports = { authMiddleware, roleGuard, auditLog, JWT_SECRET, validatePassword };

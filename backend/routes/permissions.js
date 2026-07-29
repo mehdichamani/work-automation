@@ -28,6 +28,17 @@ const MODULES = [
   { key: 'overtime_request', label: 'درخواست اضافه کار', group: 'دسترسی‌های پایه' },
   { key: 'inventory_view', label: 'کارتکس انبار', group: 'دسترسی‌های پایه' },
   { key: 'restaurant_view', label: 'رستوران', group: 'دسترسی‌های پایه' },
+  { key: 'purchase_request', label: 'درخواست خرید', group: 'ماژول‌های جدید' },
+  { key: 'mission_request', label: 'درخواست ماموریت', group: 'ماژول‌های جدید' },
+  { key: 'work_order_request', label: 'دستور کار', group: 'ماژول‌های جدید' },
+  { key: 'payment_request', label: 'درخواست پرداخت', group: 'ماژول‌های جدید' },
+  { key: 'repair_request', label: 'درخواست تعمیرات', group: 'ماژول‌های جدید' },
+  { key: 'it_request', label: 'درخواست IT', group: 'ماژول‌های جدید' },
+  { key: 'conference_request', label: 'رزرو سالن کنفرانس', group: 'ماژول‌های جدید' },
+  { key: 'security_report', label: 'گزارش حراست', group: 'ماژول‌های جدید' },
+  { key: 'daily_output', label: 'گزارش تولید', group: 'ماژول‌های جدید' },
+  { key: 'project_supply', label: 'تامین پروژه', group: 'ماژول‌های جدید' },
+  { key: 'inspection_request', label: 'بازدید فنی', group: 'ماژول‌های جدید' },
 ];
 
 module.exports = function (db) {
@@ -49,7 +60,7 @@ module.exports = function (db) {
 
   router.get('/user-permissions', roleGuard('admin'), (req, res) => {
     try {
-      const allPerms = db.query('SELECT * FROM permissions');
+      const allPerms = db.prepare('SELECT * FROM permissions').all();
       const userPermsMap = {};
       for (const p of allPerms) {
         if (p.user_id !== null && p.user_id !== undefined) {
@@ -104,6 +115,138 @@ module.exports = function (db) {
         }
       }
       res.json({ message: 'دسترسی‌های کاربر ذخیره شد' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /permissions/matrix - returns full permission-department-user matrix for both views
+  router.get('/matrix', roleGuard('admin'), (req, res) => {
+    try {
+      const depts = db.prepare('SELECT id, name FROM departments WHERE is_active = 1 ORDER BY id').all();
+      const deptUsers = {};
+      for (const dept of depts) {
+        deptUsers[dept.id] = db.prepare(
+          'SELECT id, full_name, username, role FROM users WHERE department_id = ? AND is_active = 1 ORDER BY full_name'
+        ).all(dept.id);
+      }
+
+      const deptPerms = db.prepare(
+        'SELECT module_key, department_id, is_enabled FROM permissions WHERE user_id IS NULL'
+      ).all();
+
+      const userPerms = db.prepare(
+        'SELECT module_key, user_id, is_enabled FROM permissions WHERE user_id IS NOT NULL'
+      ).all();
+
+      const deptPermMap = {};
+      for (const p of deptPerms) {
+        if (!deptPermMap[p.department_id]) deptPermMap[p.department_id] = {};
+        deptPermMap[p.department_id][p.module_key] = p.is_enabled;
+      }
+
+      const userPermMap = {};
+      for (const p of userPerms) {
+        if (!userPermMap[p.user_id]) userPermMap[p.user_id] = {};
+        userPermMap[p.user_id][p.module_key] = p.is_enabled;
+      }
+
+      res.json({ departments: depts, deptUsers, deptPermMap, userPermMap, modules: MODULES });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PUT /permissions/toggle-user - toggle a single user's permission
+  router.put('/toggle-user', roleGuard('admin'), (req, res) => {
+    try {
+      const { user_id, module_key, is_enabled } = req.body;
+      if (!user_id || !module_key) {
+        return res.status(400).json({ error: 'داده نامعتبر' });
+      }
+
+      const existing = db.prepare(
+        'SELECT id FROM permissions WHERE user_id = ? AND module_key = ?'
+      ).get(user_id, module_key);
+
+      if (existing) {
+        db.prepare('UPDATE permissions SET is_enabled = ? WHERE user_id = ? AND module_key = ?')
+          .run(is_enabled ? 1 : 0, user_id, module_key);
+      } else {
+        db.prepare('INSERT INTO permissions (module_key, user_id, is_enabled) VALUES (?, ?, ?)')
+          .run(module_key, user_id, is_enabled ? 1 : 0);
+      }
+
+      res.json({ message: 'وضعیت دسترسی تغییر کرد' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PUT /permissions/bulk-toggle-dept - toggle permission for all members of a department
+  router.put('/bulk-toggle-dept', roleGuard('admin'), (req, res) => {
+    try {
+      const { department_id, module_key, is_enabled } = req.body;
+      if (!department_id || !module_key) {
+        return res.status(400).json({ error: 'داده نامعتبر' });
+      }
+
+      const members = db.prepare(
+        'SELECT id FROM users WHERE department_id = ? AND is_active = 1'
+      ).all(department_id);
+
+      const del = db.prepare('DELETE FROM permissions WHERE user_id = ? AND module_key = ?');
+      const ins = db.prepare('INSERT INTO permissions (module_key, user_id, is_enabled) VALUES (?, ?, ?)');
+
+      db.exec('BEGIN TRANSACTION');
+      try {
+        for (const m of members) {
+          del.run(m.id, module_key);
+          if (is_enabled) {
+            ins.run(module_key, m.id, 1);
+          }
+        }
+        db.exec('COMMIT');
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
+
+      res.json({ message: 'دسترسی گروهی اعمال شد', affected: members.length });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/bulk-set-users', roleGuard('admin'), (req, res) => {
+    try {
+      const { userIds } = req.body;
+      if (!Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({ error: 'لیست کاربران نامعتبر' });
+      }
+
+      const activeModules = MODULES.map(m => m.key);
+
+      db.exec('BEGIN TRANSACTION');
+      try {
+        const del = db.prepare('DELETE FROM permissions WHERE user_id = ?');
+        const ins = db.prepare('INSERT INTO permissions (module_key, user_id, is_enabled) VALUES (?, ?, ?)');
+
+        for (const userId of userIds) {
+          const user = db.prepare('SELECT id FROM users WHERE id = ? AND is_active = 1').get(userId);
+          if (!user) continue;
+          del.run(user.id);
+          for (const moduleKey of activeModules) {
+            ins.run(moduleKey, user.id, 1);
+          }
+        }
+
+        db.exec('COMMIT');
+        res.json({ message: 'دسترسی‌ها با موفقیت برای کاربران انتخاب‌شده ثبت شد', affected: userIds.length });
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

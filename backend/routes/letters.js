@@ -124,17 +124,13 @@ module.exports = function(db) {
 
   function getNextLetterNumber() {
     const currentYear = moment().jYear();
-    const counter = db.prepare('SELECT * FROM letter_counter WHERE year = ?').get(currentYear);
+    const result = db.prepare(`
+      INSERT INTO letter_counter (year, last_number) VALUES (?, 1)
+      ON CONFLICT (year) DO UPDATE SET last_number = letter_counter.last_number + 1
+      RETURNING last_number
+    `).get(currentYear);
     
-    if (!counter) {
-      db.prepare('INSERT INTO letter_counter (year, last_number) VALUES (?, 1)').run(currentYear);
-      return `${currentYear}/001`;
-    }
-    
-    const nextNum = counter.last_number + 1;
-    db.prepare('UPDATE letter_counter SET last_number = ? WHERE year = ?').run(nextNum, currentYear);
-    
-    const paddedNum = String(nextNum).padStart(3, '0');
+    const paddedNum = String(result.last_number).padStart(3, '0');
     return `${currentYear}/${paddedNum}`;
   }
 
@@ -337,6 +333,22 @@ module.exports = function(db) {
   router.get('/all', (req, res) => {
     try {
       if (!isSantral(req.user)) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+      const offset = (page - 1) * limit;
+      const search = req.query.search || '';
+      
+      let whereClause = '';
+      const params = [];
+      if (search) {
+        whereClause = ` WHERE (l.subject ILIKE $1 OR l.letter_number ILIKE $1)`;
+        params.push(`%${search}%`);
+      }
+      
+      const countResult = db.prepare(`SELECT COUNT(*) as total FROM letters l ${whereClause}`).get(...params);
+      const total = countResult ? countResult.total : 0;
+      
       const letters = db.prepare(`
         SELECT l.*, u.full_name as sender_name, d.name as sender_unit_name,
                m.full_name as manager_name
@@ -344,9 +356,11 @@ module.exports = function(db) {
         JOIN users u ON l.sender_id = u.id
         LEFT JOIN departments d ON l.sender_unit_id = d.id
         LEFT JOIN users m ON l.selected_manager_id = m.id
+        ${whereClause}
         ORDER BY l.created_at DESC
-      `).all();
-      res.json(attachFiles(letters));
+        LIMIT ${limit} OFFSET ${offset}
+      `).all(...params);
+      res.json({ data: attachFiles(letters), total, page, limit });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -452,14 +466,25 @@ module.exports = function(db) {
 
       const insertUnit = db.prepare('INSERT INTO letter_units (letter_id, unit_id, status) VALUES (?, ?, ?)');
       const deptNames = [];
-      unit_ids.forEach(uid => {
+      const allUserIds = [];
+      
+      const placeholders = unit_ids.map(() => '?').join(',');
+      const depts = db.prepare(`SELECT id, name FROM departments WHERE id IN (${placeholders})`).all(...unit_ids);
+      const deptMap = {};
+      for (const d of depts) {
+        deptMap[d.id] = d.name;
+        deptNames.push(d.name);
+      }
+      
+      for (const uid of unit_ids) {
         insertUnit.run(req.params.id, uid, 'pending');
-        const dept = db.prepare('SELECT name FROM departments WHERE id = ?').get(uid);
-        if (dept) deptNames.push(dept.name);
-        db.prepare("SELECT id FROM users WHERE department_id = ? AND is_active = 1").all(uid).forEach(u => {
-          notify(u.id, 'نامه ارجاعی', `نامه "${letter.subject}" به واحد شما ارجاع شده`, '/letters');
-        });
-      });
+      }
+      
+      const userPlaceholders = unit_ids.map(() => '?').join(',');
+      const usersToNotify = db.prepare(`SELECT id, department_id FROM users WHERE department_id IN (${userPlaceholders}) AND is_active = 1`).all(...unit_ids);
+      for (const u of usersToNotify) {
+        notify(u.id, 'نامه ارجاعی', `نامه "${letter.subject}" به واحد شما ارجاع شده`, '/letters');
+      }
 
       addHistory(req.params.id, req.user.id, req.user.full_name, 'forwarded', `ارجاع: ${deptNames.join('، ')}`);
 

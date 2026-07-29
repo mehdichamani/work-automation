@@ -4,6 +4,7 @@ import api from '../api/axios';
 import moment from 'moment-jalaali';
 import toast from 'react-hot-toast';
 import JalaliCalendar from '../components/JalaliCalendar';
+import Pagination from '../components/Pagination';
 import { printTable } from '../utils/printUtils';
 
 const statusMap = {
@@ -31,6 +32,10 @@ export default function Overtime() {
   const [pendingManager, setPendingManager] = useState([]);
   const [securityList, setSecurityList] = useState([]);
   const [allRequests, setAllRequests] = useState([]);
+  const [allRequestsTotal, setAllRequestsTotal] = useState(0);
+  const [allRequestsPage, setAllRequestsPage] = useState(1);
+  const [allRequestsSearch, setAllRequestsSearch] = useState('');
+  const [allRequestsDebounce, setAllRequestsDebounce] = useState('');
   const [balance, setBalance] = useState(null);
   const [balanceAll, setBalanceAll] = useState([]);
   const [subordinates, setSubordinates] = useState([]);
@@ -107,7 +112,16 @@ export default function Overtime() {
     };
     window.addEventListener('ws-update', handleUpdate);
     return () => window.removeEventListener('ws-update', handleUpdate);
-  }, [tab]);
+  }, [tab, allRequestsPage]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAllRequestsDebounce(allRequestsSearch), 400);
+    return () => clearTimeout(timer);
+  }, [allRequestsSearch]);
+
+  useEffect(() => {
+    if (tab === 'all') setAllRequestsPage(1);
+  }, [allRequestsDebounce, tab]);
 
   const loadData = async () => {
     try {
@@ -128,8 +142,9 @@ export default function Overtime() {
         const secRes = await api.get('/overtime/security');
         setSecurityList(secRes.data);
       } else if (tab === 'all') {
-        const allRes = await api.get('/overtime/all');
-        setAllRequests(allRes.data);
+        const allRes = await api.get('/overtime/all', { params: { page: allRequestsPage, limit: 50, search: allRequestsDebounce } });
+        setAllRequests(allRes.data.data);
+        setAllRequestsTotal(allRes.data.total);
       } else if (tab === 'balance') {
         const balAllRes = await api.get('/overtime/balance-all');
         setBalanceAll(balAllRes.data);
@@ -827,7 +842,16 @@ export default function Overtime() {
         {tab === 'all' && (
           <div className="p-6">
             <div className="flex justify-between items-center mb-4">
-              <p className="text-sm text-gray-500">{allRequests.length} درخواست ثبت شده در سیستم</p>
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="جستجو نام..."
+                  value={allRequestsSearch}
+                  onChange={(e) => setAllRequestsSearch(e.target.value)}
+                  className="px-3 py-2 border rounded-xl text-sm w-64"
+                />
+                <p className="text-sm text-gray-500">{allRequestsTotal} درخواست</p>
+              </div>
               <button onClick={() => handlePrint(allRequests, 'همه درخواست‌های اضافه کار')} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2">
                 🖨️ چاپ کل گزارش
               </button>
@@ -880,6 +904,7 @@ export default function Overtime() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={allRequestsPage} total={allRequestsTotal} limit={50} onChange={setAllRequestsPage} />
           </div>
         )}
 

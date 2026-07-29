@@ -2,6 +2,19 @@ const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
 const moment = require('moment-jalaali');
 
+let holidayCache = null;
+let holidayCacheTime = 0;
+const HOLIDAY_CACHE_TTL = 60000;
+
+function getHolidays(db) {
+  const now = Date.now();
+  if (!holidayCache || now - holidayCacheTime > HOLIDAY_CACHE_TTL) {
+    holidayCache = db.prepare('SELECT holiday_date FROM official_holidays').all();
+    holidayCacheTime = now;
+  }
+  return holidayCache;
+}
+
 module.exports = function(db) {
   const router = express.Router();
   router.use(authMiddleware);
@@ -167,44 +180,51 @@ module.exports = function(db) {
 
   router.get('/all', (req, res) => {
     try {
-      let requests;
-      if (req.user.role === 'admin' || req.user.role === 'manager' || hasOvertimePerm(req.user, 'overtime_edit_after_seen')) {
-        requests = db.prepare(`
-          SELECT o.*, u.full_name as user_name, d.name as user_dept,
-                 s.full_name as supervisor_name,
-                 m.full_name as manager_name,
-                 sec.full_name as security_name,
-                 ed.full_name as editor_name
-          FROM overtime_requests o
-          JOIN users u ON o.user_id = u.id
-          LEFT JOIN departments d ON u.department_id = d.id
-          LEFT JOIN users s ON o.supervisor_id = s.id
-          LEFT JOIN users m ON o.manager_id = m.id
-          LEFT JOIN users sec ON o.security_id = sec.id
-          LEFT JOIN users ed ON o.edited_by = ed.id
-          ORDER BY o.created_at DESC
-        `).all();
-      } else if (req.user.role === 'supervisor') {
-        requests = db.prepare(`
-          SELECT o.*, u.full_name as user_name, d.name as user_dept,
-                 s.full_name as supervisor_name,
-                 m.full_name as manager_name,
-                 sec.full_name as security_name,
-                 ed.full_name as editor_name
-          FROM overtime_requests o
-          JOIN users u ON o.user_id = u.id
-          LEFT JOIN departments d ON u.department_id = d.id
-          LEFT JOIN users s ON o.supervisor_id = s.id
-          LEFT JOIN users m ON o.manager_id = m.id
-          LEFT JOIN users sec ON o.security_id = sec.id
-          LEFT JOIN users ed ON o.edited_by = ed.id
-          WHERE u.department_id = ? AND u.role != 'admin'
-          ORDER BY o.created_at DESC
-        `).all(req.user.department_id);
-      } else {
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+      const offset = (page - 1) * limit;
+      const search = req.query.search || '';
+      
+      let baseQuery = `
+        FROM overtime_requests o
+        JOIN users u ON o.user_id = u.id
+        LEFT JOIN departments d ON u.department_id = d.id
+        LEFT JOIN users s ON o.supervisor_id = s.id
+        LEFT JOIN users m ON o.manager_id = m.id
+        LEFT JOIN users sec ON o.security_id = sec.id
+        LEFT JOIN users ed ON o.edited_by = ed.id
+      `;
+      let whereClause = '';
+      const params = [];
+      
+      if (search) {
+        whereClause = ` WHERE (u.full_name ILIKE $${params.length + 1})`;
+        params.push(`%${search}%`);
+      }
+      
+      if (req.user.role === 'supervisor') {
+        const deptParam = `$${params.length + 1}`;
+        whereClause += whereClause ? ` AND u.department_id = ${deptParam} AND u.role != 'admin'` : ` WHERE u.department_id = ${deptParam} AND u.role != 'admin'`;
+        params.push(req.user.department_id);
+      } else if (!(req.user.role === 'admin' || req.user.role === 'manager' || hasOvertimePerm(req.user, 'overtime_edit_after_seen'))) {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
-      res.json(requests.map(mapOvertime));
+      
+      const countResult = db.prepare(`SELECT COUNT(*) as total ${baseQuery} ${whereClause}`).get(...params);
+      const total = countResult ? countResult.total : 0;
+      
+      const requests = db.prepare(`
+        SELECT o.*, u.full_name as user_name, d.name as user_dept,
+               s.full_name as supervisor_name,
+               m.full_name as manager_name,
+               sec.full_name as security_name,
+               ed.full_name as editor_name
+        ${baseQuery} ${whereClause}
+        ORDER BY o.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `).all(...params);
+      
+      res.json({ data: requests.map(mapOvertime), total, page, limit });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -642,7 +662,7 @@ module.exports = function(db) {
 
   // Helper function to calculate overtime hours
   function calculateOvertimeHours(startDateStr, startTimeStr, endDateStr, endTimeStr) {
-    const holidays = db.prepare('SELECT holiday_date FROM official_holidays').all();
+    const holidays = getHolidays(db);
     const holidaysSet = new Set(holidays.map(h => h.holiday_date));
     
     let current = moment(startDateStr, 'jYYYY/jMM/jDD');

@@ -11,6 +11,9 @@ function saveBase64Image(base64Data) {
   if (!allowed.includes(ext)) return null;
   
   const buffer = Buffer.from(matches[2], 'base64');
+  const MAX_SIZE = 5 * 1024 * 1024;
+  if (buffer.length > MAX_SIZE) return null;
+  
   const filename = Date.now() + '-' + Math.round(Math.random() * 1E9) + '.' + ext;
   const dir = path.join(__dirname, '..', 'uploads', 'announcements');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -97,9 +100,14 @@ module.exports = function(db) {
       if (targetRoles.length > 0) {
         const placeholders = targetRoles.map(() => '?').join(',');
         const users = db.prepare(`SELECT id FROM users WHERE role IN (${placeholders}) AND is_active = 1`).all(...targetRoles);
-        const insertNotif = db.prepare(`INSERT INTO notifications (user_id, title, body, link) VALUES (?, ?, ?, ?)`);
-        for (const u of users) {
-          insertNotif.run(u.id, `📢 ${title.trim()}`, body || '', '/dashboard');
+        if (users.length > 0) {
+          const userIds = users.map(u => u.id);
+          const valPlaceholders = userIds.map(() => '(?, ?, ?, ?)').join(',');
+          const flatParams = [];
+          for (const uid of userIds) {
+            flatParams.push(uid, `📢 ${title.trim()}`, body || '', '/dashboard');
+          }
+          db.prepare(`INSERT INTO notifications (user_id, title, body, link) VALUES ${valPlaceholders}`).run(...flatParams);
         }
       }
 

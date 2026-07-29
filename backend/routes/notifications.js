@@ -63,7 +63,7 @@ module.exports = function(db) {
       };
 
       if (req.user.role === 'admin' || req.user.role === 'manager') {
-        const r = db.prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status = 'pending_manager'").get();
+        const r = db.prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status IN ('pending_manager', 'pending_admin')").get();
         counts.leave = parseInt(r.count, 10) || 0;
         
         const ro = db.prepare("SELECT COUNT(*) as count FROM overtime_requests WHERE status = 'pending_manager'").get();

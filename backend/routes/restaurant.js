@@ -82,14 +82,19 @@ module.exports = function(db) {
       }
       const { items } = req.body;
       let added = 0;
-      for (const item of items) {
-        if (!item.food_date || !item.option_number || !item.food_name) continue;
-        if (item.option_number < 1 || item.option_number > 2) continue;
-        const existing = db.prepare('SELECT id FROM restaurant_menu WHERE food_date = ? AND option_number = ? AND is_active = 1').get(item.food_date, item.option_number);
-        if (existing) continue;
-        db.prepare('INSERT INTO restaurant_menu (food_date, option_number, food_name, description, price) VALUES (?, ?, ?, ?, ?)').run(item.food_date, item.option_number, item.food_name, item.description || '', item.price || 0);
-        added++;
-      }
+      const ins = db.prepare('INSERT INTO restaurant_menu (food_date, option_number, food_name, description, price) VALUES (?, ?, ?, ?, ?)');
+      const check = db.prepare('SELECT id FROM restaurant_menu WHERE food_date = ? AND option_number = ? AND is_active = 1');
+      
+      db.transaction(() => {
+        for (const item of items) {
+          if (!item.food_date || !item.option_number || !item.food_name) continue;
+          if (item.option_number < 1 || item.option_number > 2) continue;
+          const existing = check.get(item.food_date, item.option_number);
+          if (existing) continue;
+          ins.run(item.food_date, item.option_number, item.food_name, item.description || '', item.price || 0);
+          added++;
+        }
+      })();
       res.json({ message: `${added} غذا به منو اضافه شد` });
     } catch (err) {
       res.status(500).json({ error: err.message });

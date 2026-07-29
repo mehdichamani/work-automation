@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import moment from 'moment-jalaali';
+import toast from 'react-hot-toast';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -11,18 +12,12 @@ export default function Dashboard() {
   const [balance, setBalance] = useState(null);
   const [todayReservations, setTodayReservations] = useState([]);
   const [activeAnnouncements, setActiveAnnouncements] = useState([]);
+  const [selectedDept, setSelectedDept] = useState(null);
+  const [deptUsers, setDeptUsers] = useState([]);
+  const [loadingDept, setLoadingDept] = useState(false);
+  const debounceRef = useRef(null);
 
-  useEffect(() => {
-    loadData();
-
-    const handleUpdate = () => {
-      loadData();
-    };
-    window.addEventListener('ws-update', handleUpdate);
-    return () => window.removeEventListener('ws-update', handleUpdate);
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       if (user.role === 'admin' || user.role === 'manager') {
         const statsRes = await api.get('/admin/stats');
@@ -37,7 +32,38 @@ export default function Dashboard() {
       setTodayReservations(menuRes.data.filter(m => m.food_date === today));
       const annRes = await api.get('/announcements/active');
       setActiveAnnouncements(annRes.data.slice(0, 5));
-    } catch (err) {}
+    } catch (err) { toast.error('خطا در بارگذاری داشبورد'); }
+  }, [user]);
+
+  useEffect(() => {
+    loadData();
+    const handleUpdate = () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => loadData(), 500);
+    };
+    window.addEventListener('ws-update', handleUpdate);
+    return () => {
+      window.removeEventListener('ws-update', handleUpdate);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [loadData]);
+
+  const handleDeptClick = async (dept) => {
+    if (selectedDept?.id === dept.id) {
+      setSelectedDept(null);
+      setDeptUsers([]);
+      return;
+    }
+    setSelectedDept(dept);
+    setLoadingDept(true);
+    try {
+      const res = await api.get(`/admin/dept-users/${dept.id}`);
+      setDeptUsers(res.data);
+    } catch (err) {
+      setDeptUsers([]);
+    } finally {
+      setLoadingDept(false);
+    }
   };
 
   const colorClasses = {
@@ -74,11 +100,7 @@ export default function Dashboard() {
         <div className="space-y-3">
           <h3 className="font-bold text-gray-800 flex items-center gap-2">📢 اطلاعیه‌ها</h3>
           {activeAnnouncements.map(a => {
-            const priorityColors = {
-              normal: 'border-gray-300 bg-white',
-              important: 'border-yellow-400 bg-yellow-50',
-              urgent: 'border-red-500 bg-red-50'
-            };
+            const priorityColors = { normal: 'border-gray-300 bg-white', important: 'border-yellow-400 bg-yellow-50', urgent: 'border-red-500 bg-red-50' };
             const priorityBadges = {
               normal: null,
               important: <span className="text-[10px] bg-yellow-500 text-white px-2 py-0.5 rounded-full font-bold">مهم</span>,
@@ -96,9 +118,7 @@ export default function Dashboard() {
                   <span className="text-[10px] text-gray-400">{new Date(a.created_at).toLocaleDateString('fa-IR')}</span>
                 </div>
                 {a.body && <p className="text-sm text-gray-600 whitespace-pre-wrap">{a.body}</p>}
-                {a.image_path && (
-                  <img src={a.image_path} alt={a.title} className="mt-2 w-full max-h-48 object-cover rounded-xl" />
-                )}
+                {a.image_path && <img src={a.image_path} alt={a.title} className="mt-2 w-full max-h-48 object-cover rounded-xl" />}
               </div>
             );
           })}
@@ -106,7 +126,7 @@ export default function Dashboard() {
       )}
 
       {stats && (user.role === 'admin' || user.role === 'manager') && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {card('کل کارکنان', stats.totalUsers, 'blue', '👥', '/admin')}
           {card('واحدها', stats.totalDepts, 'green', '🏢', '/admin')}
           {card('مرخصی در انتظار', stats.pendingLeaves, 'yellow', '🏖️', '/leave')}
@@ -188,15 +208,79 @@ export default function Dashboard() {
 
       {stats && stats.deptStats && (user.role === 'admin' || user.role === 'manager') && (
         <div className="bg-white rounded-2xl p-6 shadow-sm">
-          <h3 className="font-bold text-gray-800 mb-4">📊 تعداد کارکنان هر واحد</h3>
+          <h3 className="font-bold text-gray-800 mb-4">📊 تعداد کارکنان هر واحد (کلیک کنید)</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {stats.deptStats.map(d => (
-              <div key={d.name} className="bg-gray-50 rounded-xl p-4 text-center">
+              <div
+                key={d.id}
+                onClick={() => handleDeptClick(d)}
+                className={`rounded-xl p-4 text-center cursor-pointer transition-all hover:shadow-md border-2 ${
+                  selectedDept?.id === d.id
+                    ? 'bg-primary-50 border-primary-500 ring-2 ring-primary-200'
+                    : 'bg-gray-50 border-transparent hover:bg-primary-50'
+                }`}
+              >
                 <p className="text-2xl font-bold text-primary-600">{d.user_count}</p>
                 <p className="text-sm text-gray-600 mt-1">{d.name}</p>
               </div>
             ))}
           </div>
+
+          {selectedDept && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-200 animate-fade-in">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-bold text-gray-700">
+                  👥 نفرات واحد {selectedDept.name}
+                </h4>
+                <button
+                  onClick={() => { setSelectedDept(null); setDeptUsers([]); }}
+                  className="text-gray-400 hover:text-gray-600 text-xl"
+                >
+                  ✕
+                </button>
+              </div>
+              {loadingDept ? (
+                <p className="text-sm text-gray-400 text-center py-4">در حال بارگذاری...</p>
+              ) : deptUsers.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">نفری در این واحد وجود ندارد</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-100 text-gray-600">
+                        <th className="px-4 py-2 text-right rounded-tr-lg">ردیف</th>
+                        <th className="px-4 py-2 text-right">کد پرسنلی</th>
+                        <th className="px-4 py-2 text-right">نام کامل</th>
+                        <th className="px-4 py-2 text-right rounded-tl-lg">سمت</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deptUsers.map((u, i) => (
+                        <tr key={u.id} className="border-b border-gray-200 hover:bg-white transition-colors">
+                          <td className="px-4 py-2 text-gray-500">{i + 1}</td>
+                          <td className="px-4 py-2 font-mono text-gray-700">{u.id}</td>
+                          <td className="px-4 py-2 font-medium text-gray-800">{u.full_name}</td>
+                          <td className="px-4 py-2">
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              u.role === 'admin' ? 'bg-red-100 text-red-700' :
+                              u.role === 'manager' ? 'bg-blue-100 text-blue-700' :
+                              u.role === 'supervisor' ? 'bg-green-100 text-green-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>
+                              {u.role === 'admin' ? 'مدیر سیستم' :
+                               u.role === 'manager' ? 'مدیر' :
+                               u.role === 'supervisor' ? 'سرپرست' :
+                               u.role === 'applicant' ? 'کارجو' : 'کارمند'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

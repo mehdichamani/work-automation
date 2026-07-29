@@ -2,21 +2,53 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const { exec, execFile } = require('child_process');
 const { initDatabase } = require('./database/init');
-const { authMiddleware } = require('./middleware/auth');
+const { authMiddleware, auditLog } = require('./middleware/auth');
 
 let server;
 
 async function startServer() {
   const db = await initDatabase();
 
-  const app = express();
-  const PORT = process.env.PORT || 3001;
+  // Initialize backup cron
+  const backupCron = require('./backup/cron');
+  backupCron.init(db);
+  backupCron.schedule();
 
-  app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
+  const app = express();
+  const PORT = process.env.PORT || 2833;
+
+  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+  app.use(cors({
+    origin: process.env.CORS_ORIGIN || 'http://localhost:2833',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
+  }));
+
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { error: 'تعداد تلاش‌های ورود بیش از حد مجاز است. لطفاً ۱۵ دقیقه صبر کنید' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use('/api/auth/login', loginLimiter);
+
+  const passwordLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    message: { error: 'تعداد تلاش‌های تغییر رمز بیش از حد مجاز است. لطفاً ۱۵ دقیقه صبر کنید' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use('/api/auth/change-password', passwordLimiter);
+  app.use('/api/profile/change-password', passwordLimiter);
+
+  app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
 
   // Global WebSocket mutation broadcast middleware
@@ -24,7 +56,10 @@ async function startServer() {
     res.on('finish', () => {
       if (['POST', 'PUT', 'DELETE'].includes(req.method) && res.statusCode >= 200 && res.statusCode < 300) {
         if (global.io) {
-          global.io.emit('update');
+          const urlParts = req.originalUrl.split('/');
+          let module = 'general';
+          if (urlParts.length > 2) module = urlParts[2];
+          global.io.emit('update', { module, method: req.method, path: req.originalUrl });
         }
       }
     });
@@ -32,6 +67,8 @@ async function startServer() {
   });
 
   app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+  app.use('/api', auditLog(db));
 
   app.use('/api/auth', require('./routes/auth')(db));
   app.use('/api/admin', require('./routes/admin')(db));
@@ -47,6 +84,28 @@ async function startServer() {
   app.use('/api/job-applications', require('./routes/jobApplications')(db));
   app.use('/api/camera', require('./routes/camera')(db));
   app.use('/api/shifts', require('./routes/shifts')(db));
+  app.use('/api/purchase', require('./routes/purchase')(db));
+  app.use('/api/mission', require('./routes/mission')(db));
+  app.use('/api/work-order', require('./routes/workOrder')(db));
+  app.use('/api/payment', require('./routes/payment')(db));
+  app.use('/api/repair', require('./routes/repair')(db));
+  app.use('/api/repair-external', require('./routes/repairExternal')(db));
+  app.use('/api/it', require('./routes/itRequest')(db));
+  app.use('/api/conference', require('./routes/conference')(db));
+  app.use('/api/security', require('./routes/security')(db));
+  app.use('/api/daily-output', require('./routes/dailyOutput')(db));
+  app.use('/api/project-supply', require('./routes/projectSupply')(db));
+  app.use('/api/inspection', require('./routes/inspection')(db));
+  app.use('/api/reports', require('./routes/reports')(db));
+  app.use('/api/audit-log', require('./routes/auditLog')(db));
+  app.use('/api/profile', require('./routes/profile')(db));
+  app.use('/api/push', require('./routes/push')(db));
+  app.use('/api/upload', require('./routes/upload')(db));
+  app.use('/api/sms', require('./routes/smsAuth')(db));
+  app.use('/api/workflow', require('./routes/workflow')(db));
+  app.use('/api/signature', require('./routes/signature')(db));
+  app.use('/api/chat', require('./routes/chat')(db));
+  app.use('/api/daily-work-report', require('./routes/dailyWorkReport')(db));
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', company: 'اروم شیشه ساچی', timestamp: new Date().toISOString() });
@@ -107,7 +166,7 @@ async function startServer() {
   const { Server } = require('socket.io');
   const io = new Server(httpServer, {
     cors: {
-      origin: '*',
+      origin: process.env.CORS_ORIGIN || 'http://localhost:2833',
       methods: ['GET', 'POST']
     }
   });

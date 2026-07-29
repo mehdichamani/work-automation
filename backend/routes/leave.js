@@ -2,6 +2,23 @@ const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
 const moment = require('moment-jalaali');
 
+let holidayCache = null;
+let holidayCacheTime = 0;
+const HOLIDAY_CACHE_TTL = 60000;
+
+function getHolidays(db) {
+  const now = Date.now();
+  if (!holidayCache || now - holidayCacheTime > HOLIDAY_CACHE_TTL) {
+    holidayCache = db.prepare('SELECT holiday_date FROM official_holidays').all();
+    holidayCacheTime = now;
+  }
+  return holidayCache;
+}
+
+function invalidateHolidayCache() {
+  holidayCache = null;
+}
+
 module.exports = function(db) {
   const router = express.Router();
   router.use(authMiddleware);
@@ -39,7 +56,11 @@ module.exports = function(db) {
     if (days > 0) formatted += `${days} روز`;
     if (hrs > 0) formatted += `${formatted ? ' و ' : ''}${hrs} ساعت`;
     if (!formatted) formatted = '0 ساعت';
-    return { ...l, days_count: formatted, raw_hours: l.hours_count };
+    return { ...l, days_count: formatted, raw_hours: l.hours_count, is_daily: l.hours_count >= 8 };
+  }
+
+  function isDailyLeave(hoursCount) {
+    return hoursCount >= 8;
   }
 
   router.get('/subordinates', (req, res) => {
@@ -76,6 +97,7 @@ module.exports = function(db) {
         SELECT l.*, 
                u.full_name as user_name, d.name as user_dept,
                s.full_name as supervisor_name,
+               a.full_name as admin_name,
                m.full_name as manager_name,
                sec.full_name as security_name,
                ed.full_name as editor_name
@@ -83,6 +105,7 @@ module.exports = function(db) {
         JOIN users u ON l.user_id = u.id
         LEFT JOIN departments d ON u.department_id = d.id
         LEFT JOIN users s ON l.supervisor_id = s.id
+        LEFT JOIN users a ON l.admin_id = a.id
         LEFT JOIN users m ON l.manager_id = m.id
         LEFT JOIN users sec ON l.security_id = sec.id
         LEFT JOIN users ed ON l.edited_by = ed.id
@@ -131,13 +154,14 @@ module.exports = function(db) {
     try {
       const leaves = db.prepare(`
         SELECT l.*, u.full_name as user_name, d.name as user_dept,
-               s.full_name as supervisor_name, s_dept.name as supervisor_dept,
+               s.full_name as supervisor_name,
+               a.full_name as admin_name,
                COALESCE(lb.total_days, 0) as total_days, COALESCE(lb.used_hours, 0) as used_hours
         FROM leave_requests l
         JOIN users u ON l.user_id = u.id
         LEFT JOIN departments d ON u.department_id = d.id
         LEFT JOIN users s ON l.supervisor_id = s.id
-        LEFT JOIN departments s_dept ON s.department_id = s_dept.id
+        LEFT JOIN users a ON l.admin_id = a.id
         LEFT JOIN leave_balance lb ON l.user_id = lb.user_id
         WHERE l.status = 'pending_manager'
         ORDER BY l.created_at DESC
@@ -156,11 +180,13 @@ module.exports = function(db) {
       const leaves = db.prepare(`
         SELECT l.*, u.full_name as user_name, d.name as user_dept,
                s.full_name as supervisor_name,
+               a.full_name as admin_name,
                m.full_name as manager_name
         FROM leave_requests l
         JOIN users u ON l.user_id = u.id
         LEFT JOIN departments d ON u.department_id = d.id
         LEFT JOIN users s ON l.supervisor_id = s.id
+        LEFT JOIN users a ON l.admin_id = a.id
         LEFT JOIN users m ON l.manager_id = m.id
         WHERE l.status = 'approved'
         ORDER BY l.created_at DESC
@@ -173,48 +199,58 @@ module.exports = function(db) {
 
   router.get('/all', (req, res) => {
     try {
-      let leaves;
-      if (req.user.role === 'admin' || req.user.role === 'manager' || hasLeavePerm(req.user, 'leave_edit_after_seen')) {
-        leaves = db.prepare(`
-          SELECT l.*, u.full_name as user_name, d.name as user_dept,
-                 s.full_name as supervisor_name,
-                 m.full_name as manager_name,
-                 sec.full_name as security_name,
-                 ed.full_name as editor_name
-          FROM leave_requests l
-          JOIN users u ON l.user_id = u.id
-          LEFT JOIN departments d ON u.department_id = d.id
-          LEFT JOIN users s ON l.supervisor_id = s.id
-          LEFT JOIN users m ON l.manager_id = m.id
-          LEFT JOIN users sec ON l.security_id = sec.id
-          LEFT JOIN users ed ON l.edited_by = ed.id
-          ORDER BY l.created_at DESC
-        `).all();
-      } else if (req.user.role === 'supervisor') {
-        leaves = db.prepare(`
-          SELECT l.*, u.full_name as user_name, d.name as user_dept,
-                 s.full_name as supervisor_name,
-                 m.full_name as manager_name,
-                 sec.full_name as security_name,
-                 ed.full_name as editor_name
-          FROM leave_requests l
-          JOIN users u ON l.user_id = u.id
-          LEFT JOIN departments d ON u.department_id = d.id
-          LEFT JOIN users s ON l.supervisor_id = s.id
-          LEFT JOIN users m ON l.manager_id = m.id
-          LEFT JOIN users sec ON l.security_id = sec.id
-          LEFT JOIN users ed ON l.edited_by = ed.id
-          WHERE u.department_id = ? AND u.role != 'admin'
-          ORDER BY l.created_at DESC
-        `).all(req.user.department_id);
-      } else {
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+      const offset = (page - 1) * limit;
+      const search = req.query.search || '';
+      
+      let baseQuery = `
+        FROM leave_requests l
+        JOIN users u ON l.user_id = u.id
+        LEFT JOIN departments d ON u.department_id = d.id
+        LEFT JOIN users s ON l.supervisor_id = s.id
+        LEFT JOIN users a ON l.admin_id = a.id
+        LEFT JOIN users m ON l.manager_id = m.id
+        LEFT JOIN users sec ON l.security_id = sec.id
+        LEFT JOIN users ed ON l.edited_by = ed.id
+      `;
+      let whereClause = '';
+      const params = [];
+      
+      if (search) {
+        whereClause = ` WHERE (u.full_name ILIKE $${params.length + 1} OR l.leave_type ILIKE $${params.length + 1})`;
+        params.push(`%${search}%`);
+      }
+      
+      if (req.user.role === 'supervisor') {
+        const deptParam = `$${params.length + 1}`;
+        whereClause += whereClause ? ` AND u.department_id = ${deptParam} AND u.role != 'admin'` : ` WHERE u.department_id = ${deptParam} AND u.role != 'admin'`;
+        params.push(req.user.department_id);
+      } else if (!(req.user.role === 'admin' || req.user.role === 'manager' || hasLeavePerm(req.user, 'leave_edit_after_seen'))) {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
-      res.json(leaves.map(mapLeave));
+      
+      const countResult = db.prepare(`SELECT COUNT(*) as total ${baseQuery} ${whereClause}`).get(...params);
+      const total = countResult ? countResult.total : 0;
+      
+      const leaves = db.prepare(`
+        SELECT l.*, u.full_name as user_name, d.name as user_dept,
+               s.full_name as supervisor_name,
+               a.full_name as admin_name,
+               m.full_name as manager_name,
+               sec.full_name as security_name,
+               ed.full_name as editor_name
+        ${baseQuery} ${whereClause}
+        ORDER BY l.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `).all(...params);
+      
+      res.json({ data: leaves.map(mapLeave), total, page, limit });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
+
 
   router.post('/', (req, res) => {
     try {
@@ -262,7 +298,13 @@ module.exports = function(db) {
           }
           targetUserId = u.id;
           targetUser = u;
-          initialStatus = 'pending_manager';
+          // Supervisor registers: calculate hours first to determine daily/hourly
+          const tempHours = calculateLeaveHours(start_date, start_time, end_date, end_time);
+          if (isDailyLeave(tempHours)) {
+            initialStatus = 'pending_admin';
+          } else {
+            initialStatus = 'pending_manager';
+          }
           supervisorId = req.user.id;
           supervisorDate = getNowString();
         } else {
@@ -276,7 +318,7 @@ module.exports = function(db) {
       } else {
         // Requesting for themselves
         if (req.user.role === 'supervisor') {
-          initialStatus = 'pending_manager';
+          initialStatus = 'pending_supervisor';
         } else if (req.user.role === 'admin' || req.user.role === 'manager') {
           initialStatus = 'approved';
           managerId = req.user.id;
@@ -472,17 +514,26 @@ module.exports = function(db) {
         }
       }
 
+      const nextStatus = isDailyLeave(leave.hours_count) ? 'pending_admin' : 'pending_manager';
+
       db.prepare(`
-        UPDATE leave_requests SET status = 'pending_manager', supervisor_id = ?, supervisor_comment = ?, supervisor_date = datetime('now')
+        UPDATE leave_requests SET status = ?, supervisor_id = ?, supervisor_comment = ?, supervisor_date = datetime('now')
         WHERE id = ?
-      `).run(req.user.id, comment || '', req.params.id);
+      `).run(nextStatus, req.user.id, comment || '', req.params.id);
 
-      notify(leave.user_id, 'تایید سرپرست', `درخواست مرخصی شما توسط سرپرست تایید شد و برای مدیر ارسال شد`, '/leave');
-
-      const managers = db.prepare("SELECT id FROM users WHERE role = 'manager' AND is_active = 1").all();
-      managers.forEach(m => {
-        notify(m.id, 'درخواست مرخصی جدید', `درخواست مرخصی ${leave.user_id} نیاز به تایید مدیر دارد`, '/leave');
-      });
+      if (nextStatus === 'pending_admin') {
+        notify(leave.user_id, 'تایید سرپرست', `درخواست مرخصی شما توسط سرپرست تایید شد و برای اداری ارسال شد`, '/leave');
+        const adminUsers = db.prepare("SELECT id FROM users WHERE (role = 'admin' OR role = 'manager') AND is_active = 1").all();
+        adminUsers.forEach(a => {
+          notify(a.id, 'درخواست مرخصی جدید', `درخواست مرخصی روزانه ${leave.user_id} نیاز به بررسی اداری دارد`, '/leave');
+        });
+      } else {
+        notify(leave.user_id, 'تایید سرپرست', `درخواست مرخصی شما توسط سرپرست تایید شد و برای مدیر ارسال شد`, '/leave');
+        const managers = db.prepare("SELECT id FROM users WHERE role = 'manager' AND is_active = 1").all();
+        managers.forEach(m => {
+          notify(m.id, 'درخواست مرخصی جدید', `درخواست مرخصی ساعتی ${leave.user_id} نیاز به تایید مدیر دارد`, '/leave');
+        });
+      }
 
       res.json({ message: 'درخواست توسط سرپرست تایید شد' });
     } catch (err) {
@@ -502,6 +553,81 @@ module.exports = function(db) {
       `).run(req.user.id, comment || 'رد شده توسط سرپرست', req.params.id);
 
       notify(leave.user_id, 'رد درخواست مرخصی', `درخواست مرخصی شما توسط سرپرست رد شد`, '/leave');
+      res.json({ message: 'درخواست رد شد' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ---------- اداری: لیست در انتظار بررسی ----------
+  router.get('/pending-admin', (req, res) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasLeavePerm(req.user, 'leave_admin_approve')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+    }
+    try {
+      const leaves = db.prepare(`
+        SELECT l.*, u.full_name as user_name, d.name as user_dept,
+               s.full_name as supervisor_name,
+               COALESCE(lb.total_days, 0) as total_days, COALESCE(lb.used_hours, 0) as used_hours
+        FROM leave_requests l
+        JOIN users u ON l.user_id = u.id
+        LEFT JOIN departments d ON u.department_id = d.id
+        LEFT JOIN users s ON l.supervisor_id = s.id
+        LEFT JOIN leave_balance lb ON l.user_id = lb.user_id
+        WHERE l.status = 'pending_admin'
+        ORDER BY l.created_at DESC
+      `).all();
+      res.json(leaves.map(mapLeave));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ---------- اداری: تایید مرخصی روزانه ----------
+  router.put('/:id/approve-admin', (req, res) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasLeavePerm(req.user, 'leave_admin_approve')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+    }
+    try {
+      const { comment, remaining_leave_days } = req.body;
+      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND status = 'pending_admin'").get(req.params.id);
+      if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
+
+      db.prepare(`
+        UPDATE leave_requests SET status = 'pending_manager', admin_id = ?, admin_comment = ?, admin_date = datetime('now'), remaining_leave_days = ?
+        WHERE id = ?
+      `).run(req.user.id, comment || '', remaining_leave_days || null, req.params.id);
+
+      notify(leave.user_id, 'تایید اداری', `مرخصی روزانه شما توسط اداری تایید شد و برای مدیر ارسال شد`, '/leave');
+
+      const managers = db.prepare("SELECT id FROM users WHERE role = 'manager' AND is_active = 1").all();
+      managers.forEach(m => {
+        notify(m.id, 'درخواست مرخصی جدید', `مرخصی روزانه ${leave.user_id} توسط اداری تایید شده و نیاز به تایید مدیر دارد`, '/leave');
+      });
+
+      res.json({ message: 'مرخصی توسط اداری تایید شد' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ---------- اداری: رد مرخصی روزانه ----------
+  router.put('/:id/reject-admin', (req, res) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasLeavePerm(req.user, 'leave_admin_approve')) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+    }
+    try {
+      const { comment } = req.body;
+      if (!comment) return res.status(400).json({ error: 'دلیل رد الزامی است' });
+      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND status = 'pending_admin'").get(req.params.id);
+      if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
+
+      db.prepare(`
+        UPDATE leave_requests SET status = 'rejected', admin_id = ?, admin_comment = ?, admin_date = datetime('now')
+        WHERE id = ?
+      `).run(req.user.id, comment, req.params.id);
+
+      notify(leave.user_id, 'رد درخواست مرخصی', `مرخصی روزانه شما توسط اداری رد شد`, '/leave');
       res.json({ message: 'درخواست رد شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -595,6 +721,7 @@ module.exports = function(db) {
         return res.status(400).json({ error: 'تاریخ تعطیل الزامی است' });
       }
       db.prepare('INSERT INTO official_holidays (holiday_date, title) VALUES (?, ?) ON CONFLICT (holiday_date) DO NOTHING').run(holiday_date, title || '');
+      invalidateHolidayCache();
       res.json({ message: 'تعطیلی با موفقیت ثبت شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -622,6 +749,7 @@ module.exports = function(db) {
       });
       
       transaction(holidays);
+      invalidateHolidayCache();
       res.json({ message: 'تعطیلات رسمی با موفقیت وارد شدند' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -634,6 +762,7 @@ module.exports = function(db) {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
       db.prepare('DELETE FROM official_holidays WHERE id = ?').run(req.params.id);
+      invalidateHolidayCache();
       res.json({ message: 'تعطیلی حذف شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -642,7 +771,7 @@ module.exports = function(db) {
 
   // Helper function to calculate leave hours
   function calculateLeaveHours(startDateStr, startTimeStr, endDateStr, endTimeStr) {
-    const holidays = db.prepare('SELECT holiday_date FROM official_holidays').all();
+    const holidays = getHolidays(db);
     const holidaysSet = new Set(holidays.map(h => h.holiday_date));
     
     let current = moment(startDateStr, 'jYYYY/jMM/jDD');
@@ -788,6 +917,22 @@ module.exports = function(db) {
           used_hours_display: b.used_hours % 8
         };
       }));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/:id', (req, res) => {
+    try {
+      const row = db.prepare(`
+        SELECT l.*, u.full_name AS user_name, d.name AS user_dept
+        FROM leave_requests l
+        LEFT JOIN users u ON l.user_id = u.id
+        LEFT JOIN departments d ON u.department_id = d.id
+        WHERE l.id = ?
+      `).get(req.params.id);
+      if (!row) return res.status(404).json({ error: 'یافت نشد' });
+      res.json(row);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

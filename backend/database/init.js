@@ -110,7 +110,7 @@ let stateArray = null;
 let sab = null;
 
 function initSyncPg() {
-  sab = new SharedArrayBuffer(16 * 1024 * 1024); // 16MB buffer
+  sab = new SharedArrayBuffer(32 * 1024 * 1024); // 32MB buffer
   stateArray = new Int32Array(sab, 0, 4);
   stateArray[0] = 0; // Idle
   
@@ -227,13 +227,13 @@ class SqliteWrapper {
     // Convert SQLite datetime('now') defaults
     res = res.replace(/DEFAULT\s+\(datetime\('now'\)\)/gi, "DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)");
     res = res.replace(/DEFAULT\s+datetime\('now'\)/gi, "DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)");
-    res = res.replace(/datetime\('now'\)/gi, "to_char(now(), 'YYYY-MM-DD'::text)");
+    res = res.replace(/datetime\('now'\)/gi, "to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)");
     
     // Replace SQLite "?" placeholders with PostgreSQL "$1, $2, ..."
     let index = 1;
     res = res.replace(/\?/g, () => `$${index++}`);
     
-    // Append returning clause for INSERT queries to easily get IDs
+    // Append returning clause for INSERT queries to get inserted IDs reliably
     if (/^\s*INSERT\s+INTO/i.test(res) && !/RETURNING/i.test(res)) {
       res += ' RETURNING *';
     }
@@ -580,10 +580,453 @@ async function initDatabase() {
     "ALTER TABLE users ADD COLUMN work_type TEXT DEFAULT 'normal'",
     "ALTER TABLE letters ADD COLUMN central_comment TEXT",
     "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN username TEXT",
+    "ALTER TABLE users ADD COLUMN phone TEXT",
+    "ALTER TABLE users ADD COLUMN email TEXT",
+    "ALTER TABLE users ADD COLUMN last_login TEXT",
+    "ALTER TABLE leave_requests ADD COLUMN admin_id INTEGER",
+    "ALTER TABLE leave_requests ADD COLUMN admin_comment TEXT",
+    "ALTER TABLE leave_requests ADD COLUMN admin_date TEXT",
+    "ALTER TABLE leave_requests ADD COLUMN remaining_leave_days REAL",
+"ALTER TABLE digital_signatures ADD COLUMN scanned_signature TEXT",
+    "ALTER TABLE digital_signatures ADD COLUMN employee_code TEXT",
+    "ALTER TABLE repair_requests ADD COLUMN images TEXT",
   ];
+
+  // Create backup tables
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS backup_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        daily_path TEXT,
+        weekly_path TEXT,
+        daily_hour INTEGER DEFAULT 23,
+        daily_minute INTEGER DEFAULT 0,
+        weekly_day INTEGER DEFAULT 5,
+        weekly_hour INTEGER DEFAULT 14,
+        weekly_minute INTEGER DEFAULT 0,
+        daily_retention_days INTEGER DEFAULT 30,
+        weekly_retention_weeks INTEGER DEFAULT 12,
+        daily_enabled INTEGER DEFAULT 1,
+        weekly_enabled INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        updated_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
+      );
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS backup_logs (
+        id SERIAL PRIMARY KEY,
+        type TEXT NOT NULL,
+        date TEXT NOT NULL,
+        db_file TEXT,
+        db_size INTEGER,
+        uploads_file TEXT,
+        uploads_size INTEGER,
+        uploads_files INTEGER,
+        backup_dir TEXT,
+        status TEXT DEFAULT 'success',
+        error TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
+      );
+    `);
+  } catch (e) {
+    console.error('Backup tables creation error:', e.message);
+  }
+
+  // External repair tables
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS repair_external_requests (
+        id SERIAL PRIMARY KEY,
+        request_number TEXT,
+        user_id INTEGER NOT NULL,
+        department_id INTEGER,
+        status TEXT DEFAULT 'draft',
+        doc_code TEXT DEFAULT 'PM_01',
+        edit_date TEXT DEFAULT '۱۴۰۴/۰۹/۲۶',
+        revision_number TEXT,
+        form_date TEXT,
+        from_unit TEXT,
+        to_unit TEXT DEFAULT 'واحد PM',
+        manager_name TEXT,
+        request_date TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        urgency TEXT DEFAULT 'normal',
+        repair_speed TEXT DEFAULT 'urgent',
+        deadline TEXT,
+        work_type TEXT,
+        tech_description TEXT,
+        estimated_cost TEXT,
+        fault_description TEXT,
+        fault_reason TEXT DEFAULT 'کارکرد زیاد / استهلاک قطعات داخلی',
+        warehouse_stock INTEGER DEFAULT 0,
+        warehouse_stock_status TEXT,
+        sketch_file TEXT,
+        photo_file TEXT,
+        delivery_date TEXT,
+        send_date TEXT,
+        send_serial TEXT,
+        destination TEXT,
+        contractor_name TEXT,
+        contractor_address TEXT,
+        repair_description TEXT,
+        repair_cost TEXT,
+        supporter_name TEXT,
+        return_date TEXT,
+        return_serial TEXT,
+        quality_status TEXT,
+        quality_notes TEXT,
+        images TEXT,
+        pm_approved INTEGER DEFAULT 0,
+        pm_approved_at TEXT,
+        dept_manager_approved INTEGER DEFAULT 0,
+        dept_manager_approved_at TEXT,
+        dept_manager_id INTEGER REFERENCES users(id),
+        tech_manager_approved INTEGER DEFAULT 0,
+        tech_manager_approved_at TEXT,
+        tech_manager_id INTEGER REFERENCES users(id),
+        pm_approved INTEGER DEFAULT 0,
+        pm_approved_at TEXT,
+        pm_id INTEGER REFERENCES users(id),
+        warehouse_approved INTEGER DEFAULT 0,
+        warehouse_approved_at TEXT,
+        warehouse_id INTEGER REFERENCES users(id),
+        factory_manager_approved INTEGER DEFAULT 0,
+        factory_manager_approved_at TEXT,
+        factory_manager_id INTEGER REFERENCES users(id),
+        support_completed INTEGER DEFAULT 0,
+        support_completed_at TEXT,
+        quality_approved INTEGER DEFAULT 0,
+        quality_approved_at TEXT,
+        final_warehouse_approved INTEGER DEFAULT 0,
+        final_warehouse_approved_at TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        updated_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (department_id) REFERENCES departments(id)
+      );
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS repair_external_items (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER NOT NULL,
+        item_name TEXT,
+        tech_specs TEXT,
+        serial_number TEXT,
+        quantity INTEGER DEFAULT 1,
+        attachments_desc TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (request_id) REFERENCES repair_external_requests(id) ON DELETE CASCADE
+      );
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS repair_external_history (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER NOT NULL,
+        user_id INTEGER,
+        user_name TEXT,
+        action TEXT NOT NULL,
+        comment TEXT,
+        old_status TEXT,
+        new_status TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (request_id) REFERENCES repair_external_requests(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Migration: add new columns for PM_01 spec
+    const newCols = [
+      "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS doc_code TEXT DEFAULT 'PM_01'",
+      "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS edit_date TEXT DEFAULT '۱۴۰۴/۰۹/۲۶'",
+      "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS revision_number TEXT",
+      "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS form_date TEXT",
+      "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS repair_speed TEXT DEFAULT 'urgent'",
+      "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS sketch_file TEXT",
+      "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS photo_file TEXT",
+      "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS equipment_name TEXT",
+"ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS pm_approved INTEGER DEFAULT 0",
+       "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS pm_approved_at TEXT",
+       "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS pm_id INTEGER",
+       "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS dept_manager_id INTEGER",
+       "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS tech_manager_id INTEGER",
+       "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS warehouse_id INTEGER",
+       "ALTER TABLE repair_external_requests ADD COLUMN IF NOT EXISTS factory_manager_id INTEGER",
+     ];
+    for (const sql of newCols) {
+      try { db.exec(sql); } catch (e) { /* column may already exist */ }
+    }
+  } catch (e) {
+    console.error('External repair tables creation error:', e.message);
+  }
+
   for (const sql of alterStatements) {
     try { db.exec(sql); } catch (e) {}
   }
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS purchase_requests (
+        id SERIAL PRIMARY KEY,
+        request_number TEXT,
+        user_id INTEGER NOT NULL,
+        items TEXT NOT NULL,
+        description TEXT,
+        estimated_cost TEXT,
+        urgency TEXT DEFAULT 'normal',
+        status TEXT DEFAULT 'pending_supervisor',
+        supervisor_id INTEGER,
+        supervisor_comment TEXT,
+        supervisor_date TEXT,
+        manager_id INTEGER,
+        manager_comment TEXT,
+        manager_date TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS mission_requests (
+        id SERIAL PRIMARY KEY,
+        request_number TEXT,
+        user_id INTEGER NOT NULL,
+        mission_date TEXT NOT NULL,
+        destination TEXT,
+        description TEXT,
+        status TEXT DEFAULT 'pending_supervisor',
+        supervisor_id INTEGER,
+        supervisor_comment TEXT,
+        supervisor_date TEXT,
+        manager_id INTEGER,
+        manager_comment TEXT,
+        manager_date TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS work_orders (
+        id SERIAL PRIMARY KEY,
+        request_number TEXT,
+        user_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        work_type TEXT,
+        priority TEXT DEFAULT 'normal',
+        estimated_cost TEXT,
+        deadline TEXT,
+        status TEXT DEFAULT 'pending_supervisor',
+        supervisor_id INTEGER,
+        supervisor_comment TEXT,
+        supervisor_date TEXT,
+        manager_id INTEGER,
+        manager_comment TEXT,
+        manager_date TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS payment_requests (
+        id SERIAL PRIMARY KEY,
+        request_number TEXT,
+        user_id INTEGER NOT NULL,
+        amount TEXT NOT NULL,
+        payment_type TEXT NOT NULL,
+        description TEXT,
+        reason TEXT,
+        recipient_name TEXT,
+        bank_name TEXT,
+        card_number TEXT,
+        payment_date TEXT,
+        status TEXT DEFAULT 'pending_supervisor',
+        supervisor_id INTEGER,
+        supervisor_comment TEXT,
+        supervisor_date TEXT,
+        manager_id INTEGER,
+        manager_comment TEXT,
+        manager_date TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS repair_requests (
+        id SERIAL PRIMARY KEY,
+        request_number TEXT,
+        user_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        equipment_name TEXT,
+        location TEXT,
+        urgency TEXT DEFAULT 'normal',
+        estimated_cost TEXT,
+        desired_date TEXT,
+        status TEXT DEFAULT 'pending_supervisor',
+        supervisor_id INTEGER,
+        supervisor_comment TEXT,
+        supervisor_date TEXT,
+        manager_id INTEGER,
+        manager_comment TEXT,
+        manager_date TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS it_requests (
+        id SERIAL PRIMARY KEY,
+        request_number TEXT,
+        user_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        request_type TEXT,
+        urgency TEXT DEFAULT 'normal',
+        device_info TEXT,
+        assigned_to INTEGER,
+        status TEXT DEFAULT 'pending',
+        completion_comment TEXT,
+        reject_comment TEXT,
+        completed_at TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS conference_bookings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        booking_date TEXT NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        title TEXT,
+        description TEXT,
+        attendees_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'approved',
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS security_reports (
+        id SERIAL PRIMARY KEY,
+        report_number TEXT,
+        user_id INTEGER NOT NULL,
+        report_date TEXT NOT NULL,
+        report_type TEXT,
+        description TEXT,
+        location TEXT,
+        status TEXT DEFAULT 'pending',
+        supervisor_id INTEGER,
+        supervisor_comment TEXT,
+        supervisor_date TEXT,
+        manager_id INTEGER,
+        manager_comment TEXT,
+        manager_date TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS daily_output (
+        id SERIAL PRIMARY KEY,
+        report_number TEXT,
+        user_id INTEGER NOT NULL,
+        report_date TEXT NOT NULL,
+        product_name TEXT,
+        quantity REAL DEFAULT 0,
+        unit TEXT DEFAULT 'عدد',
+        description TEXT,
+        status TEXT DEFAULT 'pending',
+        supervisor_id INTEGER,
+        supervisor_comment TEXT,
+        supervisor_date TEXT,
+        manager_id INTEGER,
+        manager_comment TEXT,
+        manager_date TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS project_supply_requests (
+        id SERIAL PRIMARY KEY,
+        request_number TEXT,
+        user_id INTEGER NOT NULL,
+        project_name TEXT NOT NULL,
+        items TEXT NOT NULL,
+        description TEXT,
+        estimated_cost TEXT,
+        urgency TEXT DEFAULT 'normal',
+        deadline TEXT,
+        status TEXT DEFAULT 'pending_supervisor',
+        supervisor_id INTEGER,
+        supervisor_comment TEXT,
+        supervisor_date TEXT,
+        manager_id INTEGER,
+        manager_comment TEXT,
+        manager_date TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS inspection_requests (
+        id SERIAL PRIMARY KEY,
+        request_number TEXT,
+        user_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        equipment_name TEXT,
+        location TEXT,
+        inspection_type TEXT,
+        urgency TEXT DEFAULT 'normal',
+        deadline TEXT,
+        status TEXT DEFAULT 'pending_supervisor',
+        supervisor_id INTEGER,
+        supervisor_comment TEXT,
+        supervisor_date TEXT,
+        manager_id INTEGER,
+        manager_comment TEXT,
+        manager_date TEXT,
+        result TEXT,
+        inspector_id INTEGER,
+        inspector_comment TEXT,
+        inspected_at TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
 
   try {
     db.exec(`
@@ -601,6 +1044,294 @@ async function initDatabase() {
     `);
   } catch (e) {}
 
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS daily_work_reports (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        report_date TEXT NOT NULL,
+        work_description TEXT NOT NULL,
+        work_duration TEXT,
+        department_id INTEGER,
+        status TEXT DEFAULT 'pending_central',
+        central_comment TEXT,
+        central_by INTEGER,
+        central_at TEXT,
+        manager_comment TEXT,
+        manager_by INTEGER,
+        manager_at TEXT,
+        project_control_comment TEXT,
+        project_control_by INTEGER,
+        project_control_at TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        updated_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (department_id) REFERENCES departments(id),
+        FOREIGN KEY (central_by) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (manager_by) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (project_control_by) REFERENCES users(id) ON DELETE SET NULL
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS daily_work_report_history (
+        id SERIAL PRIMARY KEY,
+        report_id INTEGER NOT NULL,
+        user_id INTEGER,
+        user_name TEXT,
+        action TEXT NOT NULL,
+        comment TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (report_id) REFERENCES daily_work_reports(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS chat_rooms (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        type TEXT DEFAULT 'direct',
+        created_by INTEGER,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS chat_members (
+        id SERIAL PRIMARY KEY,
+        room_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        last_read_at TEXT,
+        joined_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE(room_id, user_id)
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id SERIAL PRIMARY KEY,
+        room_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        message TEXT NOT NULL,
+        message_type TEXT DEFAULT 'text',
+        attachment_url TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS digital_signatures (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        signature_data TEXT NOT NULL,
+        signature_type TEXT DEFAULT 'drawn',
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS signature_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        signature_id INTEGER,
+        module_name TEXT,
+        record_id INTEGER,
+        action TEXT NOT NULL,
+        ip_address TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (signature_id) REFERENCES digital_signatures(id) ON DELETE SET NULL
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_templates (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        module_name TEXT NOT NULL,
+        steps JSONB NOT NULL DEFAULT '[]',
+        is_active INTEGER DEFAULT 1,
+        created_by INTEGER,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        updated_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_instances (
+        id SERIAL PRIMARY KEY,
+        template_id INTEGER NOT NULL,
+        record_id INTEGER NOT NULL,
+        current_step INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active',
+        started_by INTEGER,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        completed_at TEXT,
+        FOREIGN KEY (template_id) REFERENCES workflow_templates(id) ON DELETE CASCADE,
+        FOREIGN KEY (started_by) REFERENCES users(id) ON DELETE SET NULL
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_steps_log (
+        id SERIAL PRIMARY KEY,
+        instance_id INTEGER NOT NULL,
+        step_index INTEGER NOT NULL,
+        actor_id INTEGER,
+        action TEXT NOT NULL,
+        comment TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (instance_id) REFERENCES workflow_instances(id) ON DELETE CASCADE,
+        FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sms_codes (
+        id SERIAL PRIMARY KEY,
+        phone TEXT NOT NULL,
+        code TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sms_codes_phone ON sms_codes(phone);
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS attachments (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        filename TEXT NOT NULL,
+        original_name TEXT,
+        mimetype TEXT,
+        size INTEGER,
+        url TEXT NOT NULL,
+        module_name TEXT,
+        record_id INTEGER,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS activity_log (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        module_name TEXT,
+        action TEXT NOT NULL,
+        details TEXT,
+        ip_address TEXT,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  const historyCounterTables = [
+    { history: 'overtime_history', counter: 'overtime_counter', req: 'overtime_requests' },
+    { history: 'purchase_history', counter: 'purchase_counter', req: 'purchase_requests' },
+    { history: 'mission_history', counter: 'mission_counter', req: 'mission_requests' },
+    { history: 'work_order_history', counter: 'work_order_counter', req: 'work_orders' },
+    { history: 'payment_history', counter: 'payment_counter', req: 'payment_requests' },
+    { history: 'repair_history', counter: 'repair_counter', req: 'repair_requests' },
+    { history: 'it_request_history', counter: 'it_request_counter', req: 'it_requests' },
+    { history: 'conference_history', counter: 'conference_counter', req: 'conference_bookings' },
+    { history: 'security_history', counter: null, req: 'security_reports' },
+    { history: 'daily_output_history', counter: null, req: 'daily_output' },
+    { history: 'project_supply_history', counter: 'project_supply_counter', req: 'project_supply_requests' },
+    { history: 'inspection_history', counter: 'inspection_counter', req: 'inspection_requests' },
+  ];
+
+  for (const t of historyCounterTables) {
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS ${t.history} (
+          id SERIAL PRIMARY KEY,
+          request_id INTEGER NOT NULL,
+          user_id INTEGER,
+          user_name TEXT,
+          action TEXT NOT NULL,
+          comment TEXT,
+          old_status TEXT,
+          new_status TEXT,
+          created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
+        );
+      `);
+    } catch (e) {}
+    if (t.counter) {
+      try {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS ${t.counter} (
+            id SERIAL PRIMARY KEY,
+            year INTEGER NOT NULL,
+            last_number INTEGER DEFAULT 0,
+            UNIQUE(year)
+          );
+        `);
+      } catch (e) {}
+    }
+  }
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        endpoint TEXT NOT NULL,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  const deptTables = ['purchase_requests', 'mission_requests', 'work_orders', 'payment_requests', 'repair_requests', 'inspection_requests', 'daily_output', 'project_supply_requests'];
+  for (const tbl of deptTables) {
+    try {
+      db.exec(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS department_id INTEGER REFERENCES departments(id)`);
+    } catch (e) {}
+  }
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS reason TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE mission_requests ADD COLUMN IF NOT EXISTS start_time TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE mission_requests ADD COLUMN IF NOT EXISTS end_time TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE mission_requests ADD COLUMN IF NOT EXISTS mission_type TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE mission_requests ADD COLUMN IF NOT EXISTS reason TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE daily_output ADD COLUMN IF NOT EXISTS quality_score REAL`); } catch (e) {}
+  try { db.exec(`ALTER TABLE daily_output ADD COLUMN IF NOT EXISTS machine_number TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE daily_output ADD COLUMN IF NOT EXISTS product_type TEXT`); } catch (e) {}
+
   const existingDept = db.prepare('SELECT id FROM departments LIMIT 1').get();
   if (!existingDept) {
     db.prepare('INSERT INTO departments (name, parent_id) VALUES (?, ?)').run('بدون واحد', null);
@@ -609,7 +1340,7 @@ async function initDatabase() {
   const existingAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();
   if (!existingAdmin) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare("INSERT INTO users (id, password, full_name, role, department_id) VALUES (?, ?, ?, ?, ?)").run(1000, hash, 'مدیر سیستم', 'admin', 1);
+    db.prepare("INSERT INTO users (id, password, full_name, role, department_id, must_change_password) VALUES (?, ?, ?, ?, ?, 1)").run(1000, hash, 'مدیر سیستم', 'admin', 1);
     
     // Also create a leave balance for the admin
     db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(1000);
@@ -688,6 +1419,17 @@ async function initDatabase() {
         imported_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
         row_count INTEGER NOT NULL,
         FOREIGN KEY (imported_by) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        id SERIAL PRIMARY KEY,
+        key TEXT UNIQUE NOT NULL,
+        value TEXT,
+        updated_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
       );
     `);
   } catch (e) {}
@@ -838,6 +1580,34 @@ async function initDatabase() {
     "CREATE INDEX IF NOT EXISTS idx_permissions_dept ON permissions(department_id)",
     "CREATE INDEX IF NOT EXISTS idx_permissions_module ON permissions(module_key)",
     "CREATE INDEX IF NOT EXISTS idx_letter_attachments_letter ON letter_attachments(letter_id)",
+    "CREATE INDEX IF NOT EXISTS idx_overtime_user ON overtime_requests(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_overtime_status ON overtime_requests(status)",
+    "CREATE INDEX IF NOT EXISTS idx_overtime_user_status ON overtime_requests(user_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_leave_change_action_by ON leave_change_logs(action_by)",
+    "CREATE INDEX IF NOT EXISTS idx_leave_change_target ON leave_change_logs(target_id)",
+    "CREATE INDEX IF NOT EXISTS idx_letter_history_letter ON letter_history(letter_id)",
+    "CREATE INDEX IF NOT EXISTS idx_job_app_status ON job_applications(status)",
+    "CREATE INDEX IF NOT EXISTS idx_user_shift_user ON user_shift_assignments(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_shift_req_user ON shift_change_requests(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_purchase_user ON purchase_requests(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_purchase_status ON purchase_requests(status)",
+    "CREATE INDEX IF NOT EXISTS idx_mission_user ON mission_requests(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_mission_status ON mission_requests(status)",
+    "CREATE INDEX IF NOT EXISTS idx_work_order_user ON work_orders(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_work_order_status ON work_orders(status)",
+    "CREATE INDEX IF NOT EXISTS idx_payment_user ON payment_requests(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_payment_status ON payment_requests(status)",
+    "CREATE INDEX IF NOT EXISTS idx_repair_user ON repair_requests(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_repair_status ON repair_requests(status)",
+    "CREATE INDEX IF NOT EXISTS idx_it_user ON it_requests(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_it_status ON it_requests(status)",
+    "CREATE INDEX IF NOT EXISTS idx_conference_user ON conference_bookings(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_security_user ON security_reports(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_daily_output_user ON daily_output(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_project_supply_user ON project_supply_requests(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_inspection_user ON inspection_requests(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_activity_log_module ON activity_log(module_name)",
+    "CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)",
   ];
   for (const sql of indexes) {
     try { db.exec(sql); } catch (e) {}

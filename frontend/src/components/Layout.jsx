@@ -1,21 +1,41 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
+import PWAInstall from './PWAInstall';
 
 const menuItems = [
-  { path: '/', label: 'داشبورد', icon: '📊', roles: ['admin','manager','supervisor','user'] },
+  { path: '/', label: 'داشبورد', icon: '📊', permission: 'dashboard_view' },
   { path: '/leave', label: 'مرخصی', icon: '🏖️', permission: 'leave_request' },
   { path: '/overtime', label: 'اضافه کار', icon: '⏰', permission: 'overtime_request' },
-  { path: '/letters', label: 'نامه‌ها', icon: '📨', roles: ['admin','manager','supervisor','user'] },
+  { path: '/purchase', label: 'درخواست خرید', icon: '🛒', permission: 'purchase_request' },
+  { path: '/mission', label: 'ماموریت', icon: '🚗', permission: 'mission_request' },
+  { path: '/work-order', label: 'کار داخلی', icon: '🔧', permission: 'work_order_request' },
+  { path: '/payment', label: 'درخواست وجه', icon: '💰', permission: 'payment_request' },
+  { path: '/repair', label: 'تعمیرات', icon: '🛠️', permission: 'repair_request' },
+  { path: '/repair-external', label: 'تعمیرات خارج از کارخانه', icon: '🏭', permission: 'repair_external_create' },
+  { path: '/it', label: 'ثبت تیکت', icon: '🎫', permission: 'it_ticket' },
+  { path: '/conference', label: 'سالن کنفرانس', icon: '🏛️', permission: 'conference_booking' },
+  { path: '/security', label: 'گزارش حراست', icon: '🛡️', permission: 'security_report' },
+  { path: '/daily-output', label: 'آمار تولید', icon: '📈', permission: 'daily_output_view' },
+  { path: '/project-supply', label: 'تامین کالای پروژه', icon: '🏗️', permission: 'project_supply' },
+  { path: '/inspection', label: 'بازرسی فنی', icon: '🔍', permission: 'inspection_request' },
+  { path: '/daily-work-report', label: 'گزارش کار روزانه', icon: '📝', permission: 'daily_work_report' },
+  { path: '/letters', label: 'نامه‌ها', icon: '📨', permission: 'letters_send' },
   { path: '/inventory', label: 'کارتکس انبار', icon: '📦', permission: 'inventory_view' },
   { path: '/restaurant', label: 'رستوران', icon: '🍽️', permission: 'restaurant_view' },
   { path: '/shifts', label: 'شیفت‌های کاری', icon: '🕒', permission: 'shifts_manage' },
   { path: '/job-application', label: 'پرسشنامه استخدامی', icon: '📋', permission: 'job_application_fill' },
+  { path: '/reports', label: 'گزارش‌گیری', icon: '📈', permission: 'reports_view' },
+  { path: '/audit-log', label: 'لاگ فعالیت‌ها', icon: '📜', permission: 'audit_log_view' },
   { path: '/admin/import-users', label: 'ورود گروهی کاربران', icon: '👥', permission: 'user_import_csv' },
-  { path: '/admin', label: 'پنل مدیریت', icon: '⚙️', roles: ['admin'] },
+  { path: '/profile', label: 'پروفایل', icon: '👤', permission: 'profile_view' },
+  { path: '/admin', label: 'پنل مدیریت', icon: '⚙️', permission: 'admin_panel' },
+  { path: '/workflow', label: 'گردش کار', icon: '🔄', permission: 'workflow_view' },
+  { path: '/signature', label: 'امضای دیجیتال', icon: '✍️', permission: 'signature_view' },
+  { path: '/chat', label: 'چت داخلی', icon: '💬', permission: 'chat_view' },
 ];
 
 const roleLabels = {
@@ -27,7 +47,7 @@ const roleLabels = {
 };
 
 export default function Layout({ children }) {
-  const { user, logout, hasPermission, updateUserFields } = useAuth();
+  const { user, logout, hasPermission, updateUserFields, refreshPermissions } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -56,8 +76,8 @@ export default function Layout({ children }) {
       toast.error('رمز جدید و تکرار آن یکسان نیستند');
       return;
     }
-    if (changePasswordForm.newPassword.length < 4) {
-      toast.error('رمز عبور جدید باید حداقل ۴ کاراکتر باشد');
+    if (changePasswordForm.newPassword.length < 8) {
+      toast.error('رمز عبور جدید باید حداقل ۸ کاراکتر باشد');
       return;
     }
     setChangePasswordLoading(true);
@@ -88,12 +108,10 @@ export default function Layout({ children }) {
     try {
       const res = await api.get('/notifications/pending-counts');
       setPendingCounts(res.data);
-    } catch (err) {
-      console.error('Error fetching pending counts:', err);
-    }
+    } catch (err) { /* non-critical */ }
   };
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     try {
       const res = await api.get('/notifications');
       setNotifications(res.data.slice(0, 10));
@@ -102,24 +120,30 @@ export default function Layout({ children }) {
       const annRes = await api.get('/announcements/active');
       setActiveAnnouncements(annRes.data.slice(0, 5));
       fetchPendingCounts();
-    } catch (err) {}
-  };
+    } catch (err) { /* non-critical */ }
+  }, []);
+
+  const socketRef = useRef(null);
+  const debounceNotifRef = useRef(null);
 
   useEffect(() => {
     if (user) {
+      refreshPermissions();
       fetchNotifications();
       fetchPendingCounts();
 
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
       const socket = io();
-
-      socket.on('connect', () => {
-        console.log('Socket.IO connected');
-      });
+      socketRef.current = socket;
 
       socket.on('update', () => {
-        console.log('Socket.IO update event received');
-        fetchNotifications();
-        fetchPendingCounts();
+        if (debounceNotifRef.current) clearTimeout(debounceNotifRef.current);
+        debounceNotifRef.current = setTimeout(() => {
+          fetchNotifications();
+          fetchPendingCounts();
+        }, 300);
         window.dispatchEvent(new CustomEvent('ws-update'));
       });
 
@@ -130,10 +154,12 @@ export default function Layout({ children }) {
 
       return () => {
         clearInterval(interval);
+        if (debounceNotifRef.current) clearTimeout(debounceNotifRef.current);
         socket.disconnect();
+        socketRef.current = null;
       };
     }
-  }, [user]);
+  }, [user, fetchNotifications]);
 
   const markRead = async (id) => {
     await api.put(`/notifications/${id}/read`);
@@ -147,7 +173,6 @@ export default function Layout({ children }) {
 
   const filteredMenu = menuItems.filter(item => {
     if (item.permission && !hasPermission(item.permission)) return false;
-    if (item.roles && !item.roles.includes(user?.role)) return false;
     return true;
   }).map(item => {
     let count = 0;
@@ -446,6 +471,7 @@ export default function Layout({ children }) {
           </div>
         </div>
       )}
+      <PWAInstall />
     </div>
   );
 }

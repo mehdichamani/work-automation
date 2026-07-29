@@ -6,8 +6,9 @@ module.exports = {
       name: 'edari-backend',
       script: './backend/server.js',
       instances: 1,
-      exec_mode: 'cluster',
-      env_file: path.join(__dirname, '.env')
+      exec_mode: 'fork',
+      env_file: path.join(__dirname, '.env'),
+      max_memory_restart: '500M'
     }
   ]
 };

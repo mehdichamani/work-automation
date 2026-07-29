@@ -231,6 +231,7 @@ export default function UserImportCsv() {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
       toast.success('فایل با موفقیت دانلود شد');
     } catch (err) {
       toast.error('خطا در دانلود فایل');
@@ -257,6 +258,7 @@ export default function UserImportCsv() {
                 a.href = url;
                 a.download = 'sample_users.csv';
                 a.click();
+                URL.revokeObjectURL(url);
               }}
               className="bg-white/20 hover:bg-white/30 border border-white/30 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all"
             >

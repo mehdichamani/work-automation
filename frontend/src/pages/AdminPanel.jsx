@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import { printJobApplication } from '../utils/printUtils';
+import PermMatrixMode from '../components/PermMatrixMode';
 
 const roleLabels = { admin: 'مدیر سیستم', manager: 'مدیر', supervisor: 'سرپرست', user: 'کاربر', applicant: 'متقاضی استخدام' };
 const roleColors = { admin: 'bg-red-100 text-red-700', manager: 'bg-blue-100 text-blue-700', supervisor: 'bg-green-100 text-green-700', user: 'bg-gray-100 text-gray-700', applicant: 'bg-orange-100 text-orange-700' };
@@ -84,6 +85,9 @@ export default function AdminPanel() {
   const [cameraConfig, setCameraConfig] = useState({ ip: '172.20.2.26', port: 80, username: 'admin', password: 'admin123', channel: 1, rtsp_port: 554 });
   const [cameraTestResult, setCameraTestResult] = useState(null);
   const [viewPhoto, setViewPhoto] = useState(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [checkedUserIds, setCheckedUserIds] = useState(new Set());
+  const [pendingSaveCount, setPendingSaveCount] = useState(0);
 
   useEffect(() => {
     const handleLoad = () => {
@@ -91,6 +95,7 @@ export default function AdminPanel() {
       if (tab === 'backup') loadBackups();
       if (tab === 'permissions') loadPermissions();
       if (tab === 'user-permissions') loadUserPermissions();
+      if (tab === 'perm-matrix') loadMatrix();
       if (tab === 'toast-central') loadAnnouncements();
       if (tab === 'job-applications') loadJobApplications();
       if (tab === 'camera-settings') loadCameraConfig();
@@ -171,14 +176,16 @@ export default function AdminPanel() {
   const loadPermissions = async () => {
     setPermLoading(true);
     try {
-      const [modsRes, permsRes, deptsRes] = await Promise.all([
+      const [modsRes, permsRes, deptsRes, usersRes] = await Promise.all([
         api.get('/permissions/modules'),
         api.get('/permissions'),
         api.get('/admin/departments'),
+        api.get('/admin/users'),
       ]);
       setModules(modsRes.data);
       setAllPerms(permsRes.data);
       setDepartments(deptsRes.data);
+      setUsers(usersRes.data.data || usersRes.data);
       if (deptsRes.data.length > 0) {
         setSelectedDeptId(deptsRes.data[0].id);
       }
@@ -237,6 +244,15 @@ export default function AdminPanel() {
       const res = await api.get('/permissions/user-permissions');
       setUserPerms(res.data);
     } catch (err) {}
+  };
+
+  const loadMatrix = async () => {
+    try {
+      const res = await api.get('/permissions/matrix');
+      setMatrix(res.data);
+    } catch (err) {
+      toast.error('خطا در بارگذاری ماتریکس دسترسی‌ها');
+    }
   };
 
   const loadAnnouncements = async () => {
@@ -440,7 +456,7 @@ export default function AdminPanel() {
         api.get('/admin/departments'),
         api.get('/admin/stats')
       ]);
-      setUsers(usersRes.data);
+      setUsers(usersRes.data.data || usersRes.data);
       setDepartments(deptRes.data);
       setStats(statsRes.data);
     } catch (err) {
@@ -562,8 +578,8 @@ export default function AdminPanel() {
     { id: 'departments', label: 'واحدها و چارت سازمانی' },
     { id: 'stats', label: 'آمار و گزارشات' },
     { id: 'backup', label: 'بکاپ و بازیابی' },
-    { id: 'permissions', label: 'دسترسی واحدها' },
-    { id: 'user-permissions', label: 'تخصیص دسترسی کاربران' },
+    { id: 'permissions', label: 'مدیریت دسترسی کاربران' },
+    { id: 'perm-matrix', label: 'مدیریت دسترسی‌ها (ماتریکس)' },
     { id: 'toast-central', label: 'سانترال اطلاعیه' },
     { id: 'job-applications', label: 'پرسشنامه‌های استخدامی', permission: 'job_application_review' },
     { id: 'camera-settings', label: 'تنظیمات دوربین' },
@@ -1037,275 +1053,125 @@ export default function AdminPanel() {
 
       {tab === 'permissions' && (
         <div className="space-y-6">
-          <div className="bg-gradient-to-l from-primary-500 to-primary-700 rounded-2xl p-5 text-white">
-            <h3 className="font-bold text-lg">مدیریت دسترسی‌ها</h3>
-            <p className="text-primary-200 text-sm mt-1">دسترسی هر واحد سازمانی به بخش‌های مختلف سیستم را تعیین کنید</p>
+          <div className="bg-gradient-to-l from-green-500 to-emerald-700 rounded-2xl p-5 text-white">
+            <h3 className="font-bold text-lg">مدیریت دسترسی کاربران</h3>
+            <p className="text-green-200 text-sm mt-1">کاربران را انتخاب کنید و دسترسی‌ها را تخصیص دهید</p>
           </div>
 
-          {permLoading ? (
-            <div className="text-center py-8 text-gray-500">در حال بارگذاری...</div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              {/* Right panel: Departments list */}
-              <div className="lg:col-span-1 bg-white rounded-2xl shadow-sm p-4 space-y-3">
-                <h4 className="font-bold text-sm text-gray-700 border-b pb-2">واحدهای سازمانی</h4>
-                <div className="space-y-1 max-h-[60vh] overflow-y-auto pr-1">
-                  {departments.map(d => (
-                    <button
-                      type="button"
-                      key={d.id}
-                      onClick={() => setSelectedDeptId(d.id)}
-                      className={`w-full text-right px-4 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-between ${
-                        selectedDeptId === d.id
-                          ? 'bg-primary-500 text-white shadow-md'
-                          : 'hover:bg-gray-50 text-gray-700'
-                      }`}
-                    >
-                      <span>{d.name}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${selectedDeptId === d.id ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'}`}>
-                        {allPerms.filter(p => p.department_id === d.id && p.is_enabled).length} دسترسی
-                      </span>
-                    </button>
-                  ))}
-                </div>
+          <div className="bg-white rounded-2xl shadow-sm p-6">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <p className="text-sm text-gray-500">{users.filter(u => u.is_active).length} کاربر فعال</p>
+                <p className="text-xs text-gray-400 mt-0.5">{checkedUserIds.size} کاربر انتخاب شده</p>
               </div>
-
-              {/* Left panel: Selected department's permissions */}
-              <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm p-6 flex flex-col justify-between min-h-[50vh]">
-                {selectedDeptId ? (
-                  <>
-                    <div className="space-y-4">
-                      {/* Department header controls */}
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-4">
-                        <div>
-                          <h3 className="font-bold text-base text-gray-800">
-                            واحد: {departments.find(d => d.id === selectedDeptId)?.name}
-                          </h3>
-                          <p className="text-[11px] text-gray-400 mt-1">تغییرات شما تا زمان کلیک بر روی ذخیره تغییرات، اعمال نهایی نخواهند شد.</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => { setCopySourceDeptId(''); setShowCopyModal(true); }}
-                          className="text-xs bg-orange-50 hover:bg-orange-100 text-orange-600 px-3 py-2 rounded-lg font-bold border border-orange-200 transition-colors"
-                        >
-                          📋 کپی دسترسی‌ها از واحد دیگر
-                        </button>
-                      </div>
-
-                      {/* Search & Filter */}
-                      <div>
-                        <input
-                          type="text"
-                          placeholder="جستجوی دسترسی..."
-                          value={permSearch}
-                          onChange={(e) => setPermSearch(e.target.value)}
-                          className="w-full px-4 py-2.5 border rounded-xl text-xs"
-                        />
-                      </div>
-
-                      {/* Permissions Toggles List */}
-                      <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
-                        {(() => {
-                          const groups = {};
-                          modules.forEach(m => {
-                            // Filter by search query
-                            if (permSearch && !m.label.includes(permSearch) && !m.group.includes(permSearch)) return;
-                            if (!groups[m.group]) groups[m.group] = [];
-                            groups[m.group].push(m);
-                          });
-
-                          const entries = Object.entries(groups);
-                          if (entries.length === 0) {
-                            return <p className="text-center text-xs text-gray-400 py-6">موردی یافت نشد</p>;
-                          }
-
-                          return entries.map(([group, mods]) => (
-                            <div key={group} className="border rounded-2xl overflow-hidden bg-gray-50/30">
-                              <div className="bg-gray-100/60 px-4 py-2 border-b">
-                                <span className="font-bold text-xs text-gray-600">{group}</span>
-                              </div>
-                              <div className="divide-y bg-white">
-                                {mods.map(m => {
-                                  const enabled = hasPerm(m.key, selectedDeptId);
-                                  return (
-                                    <div key={m.key} className="flex justify-between items-center px-4 py-3 hover:bg-gray-50/50 transition-colors">
-                                      <span className="text-xs text-gray-700">{m.label}</span>
-                                      
-                                      {/* Modern iOS toggle switch */}
-                                      <button
-                                        type="button"
-                                        onClick={() => togglePermission(m.key, selectedDeptId)}
-                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                                          enabled ? 'bg-green-500' : 'bg-gray-300'
-                                        }`}
-                                      >
-                                        <span
-                                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                            enabled ? 'translate-x-6' : 'translate-x-1'
-                                          }`}
-                                        />
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ));
-                        })()}
-                      </div>
-                    </div>
-
-                    <div className="flex justify-between items-center border-t pt-4 mt-6">
-                      <p className="text-[11px] text-gray-400">تغییرات به صورت درجا در حافظه موقت ثبت می‌شوند.</p>
-                      <button
-                        onClick={savePermissions}
-                        className="bg-primary-500 hover:bg-primary-600 text-white px-8 py-3 rounded-xl font-bold transition-colors shadow-lg shadow-primary-500/20"
-                      >
-                        ذخیره تغییرات
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-12 text-gray-400 text-xs">لطفاً ابتدا یک واحد سازمانی انتخاب کنید.</div>
-                )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allActive = users.filter(u => u.is_active);
+                    const allIds = new Set(allActive.map(u => u.id));
+                    setCheckedUserIds(allIds);
+                  }}
+                  className="bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-xl text-xs font-medium transition-colors"
+                >
+                  انتخاب همه
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCheckedUserIds(new Set())}
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-xs font-medium transition-colors"
+                >
+                  از انتخاب خارج کن
+                </button>
               </div>
             </div>
-          )}
 
-          {/* Copy Permissions Modal */}
-          {showCopyModal && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl p-6 w-full max-w-md animate-fade-in text-right">
-                <h3 className="text-base font-bold mb-2">کپی دسترسی‌ها</h3>
-                <p className="text-xs text-gray-500 mb-4 leading-relaxed">
-                  انتخاب کنید که دسترسی‌های کدام واحد سازمانی در واحد «{departments.find(d => d.id === selectedDeptId)?.name}» کپی شود:
-                </p>
-                <div className="space-y-4">
-                  <select
-                    value={copySourceDeptId}
-                    onChange={(e) => setCopySourceDeptId(e.target.value)}
-                    className="w-full px-4 py-3 border rounded-xl"
+            <div className="border rounded-xl overflow-hidden">
+              <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-gray-50 border-b text-xs font-bold text-gray-600">
+                <div className="col-span-1">
+                  <input
+                    type="checkbox"
+                    checked={users.filter(u => u.is_active).length > 0 && checkedUserIds.size === users.filter(u => u.is_active).length}
+                    onChange={(e) => {
+                      const allActive = users.filter(u => u.is_active);
+                      if (e.target.checked) {
+                        setCheckedUserIds(new Set(allActive.map(u => u.id)));
+                      } else {
+                        setCheckedUserIds(new Set());
+                      }
+                    }}
+                    className="rounded"
+                  />
+                </div>
+                <div className="col-span-5">نام کاربر</div>
+                <div className="col-span-3">واحد</div>
+                <div className="col-span-3">سمت</div>
+              </div>
+              <div className="max-h-[50vh] overflow-y-auto">
+                {users.filter(u => u.is_active).map(u => (
+                  <div
+                    key={u.id}
+                    className={`grid grid-cols-12 gap-2 px-4 py-2.5 border-b last:border-b-0 text-sm items-center transition-colors ${
+                      checkedUserIds.has(u.id) ? 'bg-primary-50' : 'hover:bg-gray-50'
+                    }`}
                   >
-                    <option value="">انتخاب واحد مبدا...</option>
-                    {departments.filter(d => d.id !== selectedDeptId).map(d => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </select>
-                  <div className="flex gap-3 mt-4">
-                    <button
-                      onClick={() => handleCopyPermissions(copySourceDeptId)}
-                      disabled={!copySourceDeptId}
-                      className="flex-1 bg-primary-500 hover:bg-primary-600 disabled:bg-gray-300 text-white py-3 rounded-xl font-bold transition-colors"
-                    >
-                      کپی و اعمال موقت
-                    </button>
-                    <button
-                      onClick={() => setShowCopyModal(false)}
-                      className="flex-1 bg-gray-200 hover:bg-gray-300 py-3 rounded-xl font-bold transition-colors"
-                    >
-                      انصراف
-                    </button>
+                    <div className="col-span-1">
+                      <input
+                        type="checkbox"
+                        checked={checkedUserIds.has(u.id)}
+                        onChange={(e) => {
+                          const next = new Set(checkedUserIds);
+                          if (e.target.checked) {
+                            next.add(u.id);
+                          } else {
+                            next.delete(u.id);
+                          }
+                          setCheckedUserIds(next);
+                        }}
+                        className="rounded"
+                      />
+                    </div>
+                    <div className="col-span-5 font-medium">{u.full_name}</div>
+                    <div className="col-span-3 text-gray-600">{u.department_name || '-'}</div>
+                    <div className="col-span-3">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${roleColors[u.role]}`}>
+                        {roleLabels[u.role]}
+                      </span>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             </div>
-          )}
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  if (checkedUserIds.size === 0) {
+                    toast.error('حداقل یک کاربر را انتخاب کنید');
+                    return;
+                  }
+                  setPendingSaveCount(checkedUserIds.size);
+                  setShowConfirmModal(true);
+                }}
+                className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-bold text-sm transition-colors flex items-center gap-2"
+              >
+                <span>💾</span>
+                ثبت نهایی
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {tab === 'user-permissions' && (
+      {tab === 'perm-matrix' && (
         <div className="space-y-6">
-          <div className="bg-gradient-to-l from-purple-500 to-purple-700 rounded-2xl p-5 text-white">
-            <h3 className="font-bold text-lg">تخصیص دسترسی به کاربران</h3>
-            <p className="text-purple-200 text-sm mt-1">دسترسی‌های خاص هر کاربر را مستقل از واحد سازمانی تنظیم کنید</p>
+          <div className="bg-gradient-to-l from-primary-500 to-primary-700 rounded-2xl p-5 text-white">
+            <h3 className="font-bold text-lg">مدیریت دسترسی‌ها (ماتریکس)</h3>
+            <p className="text-primary-200 text-sm mt-1">دسترسی‌ها را بر اساس واحد/شخص یا بر اساس دسترسی مدیریت کنید</p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm p-6 space-y-6">
-            <div>
-              <label className="block text-sm font-bold mb-2">انتخاب کاربر</label>
-              <select
-                value={selectedPermUserId}
-                onChange={(e) => loadUserPermForm(e.target.value)}
-                className="w-full px-4 py-3 border rounded-xl"
-              >
-                <option value="">انتخاب کنید...</option>
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.full_name} ({u.id}) - {u.department_name || 'بدون واحد'}</option>
-                ))}
-              </select>
-            </div>
-
-            {userPerms.length > 0 && (
-              <div>
-                <p className="text-xs text-gray-500 mb-2">کاربران دارای دسترسی اختصاصی:</p>
-                <div className="flex flex-wrap gap-2">
-                  {userPerms.map(p => (
-                    <button
-                      key={p.user_id}
-                      onClick={() => loadUserPermForm(p.user_id)}
-                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                        selectedPermUserId == p.user_id ? 'bg-purple-500 text-white' : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                      }`}
-                    >
-                      {p.full_name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selectedPermUserId && userPermForm.length > 0 && (
-              <div className="space-y-4">
-                <div className="bg-gray-50 rounded-xl p-4 overflow-auto max-h-[calc(100vh-320px)]">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr>
-                        <th className="p-2 text-right font-bold sticky top-0 z-20 bg-gray-50 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">بخش</th>
-                        <th className="p-2 text-right font-bold sticky top-0 z-20 bg-gray-50 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">دسترسی</th>
-                        <th className="p-2 text-center font-bold sticky top-0 z-20 bg-gray-50 shadow-[0_2px_2px_-1px_rgba(0,0,0,0.1)]">وضعیت</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        const groups = {};
-                        userPermForm.forEach(p => {
-                          if (!groups[p.group]) groups[p.group] = [];
-                          groups[p.group].push(p);
-                        });
-                        return Object.entries(groups).map(([group, perms]) => [
-                          <tr key={`g-${group}`} className="sticky top-[36px] z-10">
-                            <td colSpan={3} className="p-2 font-bold text-xs text-gray-600 bg-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">{group}</td>
-                          </tr>,
-                          ...perms.map(p => (
-                            <tr key={p.module_key} className="border-t hover:bg-gray-50">
-                              <td className="p-2 text-xs text-gray-500">{group}</td>
-                              <td className="p-2 text-xs">{p.label}</td>
-                              <td className="p-2 text-center">
-                                <button
-                                  onClick={() => toggleUserPerm(p.module_key)}
-                                  className={`px-4 py-1 rounded-full text-xs font-bold transition-all ${
-                                    p.is_enabled ? 'bg-green-500 text-white' : 'bg-gray-300 text-gray-500'
-                                  }`}
-                                >
-                                  {p.is_enabled ? 'فعال' : 'غیرفعال'}
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        ]);
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex justify-end">
-                  <button onClick={saveUserPermissions} className="bg-purple-500 hover:bg-purple-600 text-white px-8 py-3 rounded-xl font-bold transition-colors">
-                    ذخیره دسترسی کاربر
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          <PermMatrixMode matrix={matrix} loadMatrix={loadMatrix} />
         </div>
       )}
 
@@ -1649,6 +1515,63 @@ export default function AdminPanel() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] cursor-pointer" onClick={() => setViewPhoto(null)}>
           <button onClick={() => setViewPhoto(null)} className="absolute top-4 left-4 bg-white/20 hover:bg-white/40 text-white rounded-full w-10 h-10 flex items-center justify-center text-xl font-bold transition">✕</button>
           <img src={viewPhoto} alt="عکس بزرگ" className="max-w-[90vw] max-h-[90vh] object-contain rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" dir="rtl">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-fade-in overflow-hidden">
+            <div className="bg-yellow-50 px-6 py-4 border-b border-yellow-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
+                  <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                </div>
+                <h3 className="font-bold text-gray-800 text-base">تایید ذخیره دسترسی‌ها</h3>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                شما در حال تخصیص دسترسی به <span className="font-bold text-primary-600">{pendingSaveCount}</span> کاربر هستید.
+                <br />
+                آیا از ذخیره این تغییرات اطمینان دارید؟
+              </p>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowConfirmModal(false)}
+                className="px-5 py-2.5 rounded-xl text-sm font-bold text-gray-700 bg-white border border-gray-300 hover:bg-gray-100 transition-colors"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowConfirmModal(false);
+                  try {
+                    const token = localStorage.getItem('token');
+                    const response = await fetch('/api/permissions/bulk-set-users', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                      body: JSON.stringify({ userIds: Array.from(checkedUserIds) }),
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                      toast.success('دسترسی‌ها با موفقیت ثبت شد');
+                      setCheckedUserIds(new Set());
+                    } else {
+                      toast.error(data.error || 'خطا در ذخیره دسترسی‌ها');
+                    }
+                  } catch (err) {
+                    toast.error('خطا در ارتباط با سرور');
+                  }
+                }}
+                className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-green-600 hover:bg-green-700 transition-colors"
+              >
+                بله، اعمال شود
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,0 +1,12 @@
+◇ injected env (0) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+Serving frontend build from: E:\work-automation\frontend\dist
+
+========================================
+  سیستم اتوماسیون اداری اروم شیشه ساچی
+  Server running on port 2833
+  http://localhost:2833
+========================================
+
+Worker: envPath = E:\work-automation\.env
+Worker: envPath exists? = true
+Worker: databaseUrl from .env file = postgresql://postgres:***@localhost:5432/edari?schema=public

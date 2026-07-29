@@ -96,7 +96,7 @@ export default function JobApplication() {
           const whRes = await api.get(`/job-applications/${app.id}`);
           if (whRes.data?.work_history?.length) setWorkHistory(whRes.data.work_history);
         }
-      } catch (err) {}
+      } catch (err) { toast.error('خطا در بارگذاری پرسشنامه قبلی'); }
     };
     checkExisting();
   }, []);

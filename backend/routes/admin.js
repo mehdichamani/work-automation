@@ -18,20 +18,46 @@ module.exports = function(db) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز' });
     }
     try {
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
+      const offset = (page - 1) * limit;
+      const search = req.query.search || '';
+      const activeOnly = req.query.active_only === '1';
+      
+      let whereClause = '';
+      const conditions = [];
+      const params = [];
+      
+      if (search) {
+        conditions.push(`(u.full_name ILIKE $${params.length + 1} OR CAST(u.id AS TEXT) ILIKE $${params.length + 1})`);
+        params.push(`%${search}%`);
+      }
+      if (activeOnly) {
+        conditions.push(`u.is_active = 1`);
+      }
+      if (conditions.length > 0) {
+        whereClause = ' WHERE ' + conditions.join(' AND ');
+      }
+      
+      const countResult = db.prepare(`SELECT COUNT(*) as total FROM users u LEFT JOIN departments d ON u.department_id = d.id ${whereClause}`).get(...params);
+      const total = countResult ? countResult.total : 0;
+      
       const users = db.prepare(`
         SELECT u.id, u.id as username, u.full_name, u.role, u.department_id, u.is_active, u.created_at,
                d.name as department_name
         FROM users u
         LEFT JOIN departments d ON u.department_id = d.id
+        ${whereClause}
         ORDER BY u.id
-      `).all();
-      res.json(users);
+        LIMIT ${limit} OFFSET ${offset}
+      `).all(...params);
+      res.json({ data: users, total, page, limit });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/users', roleGuard('admin'), (req, res) => {
+  router.post('/users', roleGuard('admin'), async (req, res) => {
     try {
       const { id, username, password, full_name, role, department_id } = req.body;
       const targetId = parseInt(id || username, 10);
@@ -44,7 +70,7 @@ module.exports = function(db) {
       }
       const pass = password || String(targetId);
       const mustChange = password ? 0 : 1;
-      const hash = bcrypt.hashSync(pass, 10);
+      const hash = await bcrypt.hash(pass, 10);
       if (existing && !existing.is_active) {
         db.prepare('UPDATE users SET password = ?, full_name = ?, role = ?, department_id = ?, is_active = 1, must_change_password = ? WHERE id = ?')
           .run(hash, full_name, role, department_id || null, mustChange, targetId);
@@ -64,13 +90,13 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/users/:id', roleGuard('admin'), (req, res) => {
+  router.put('/users/:id', roleGuard('admin'), async (req, res) => {
     try {
       const { full_name, role, department_id, is_active, password } = req.body;
       const userId = req.params.id;
 
       if (password) {
-        const hash = bcrypt.hashSync(password, 10);
+        const hash = await bcrypt.hash(password, 10);
         db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, userId);
       }
 
@@ -89,23 +115,25 @@ module.exports = function(db) {
       if (user && user.role === 'admin') {
         return res.status(400).json({ error: 'امکان حذف مدیر سیستم وجود ندارد' });
       }
-      db.prepare('DELETE FROM cardex WHERE user_id = ?').run(userId);
-      db.prepare('DELETE FROM cardex WHERE warehouse_user_id = ?').run(userId);
-      db.prepare('DELETE FROM user_shift_assignments WHERE user_id = ?').run(userId);
-      db.prepare('DELETE FROM shift_change_requests WHERE user_id = ?').run(userId);
-      db.prepare('DELETE FROM leave_requests WHERE user_id = ?').run(userId);
-      db.prepare('UPDATE leave_requests SET supervisor_id = NULL WHERE supervisor_id = ?').run(userId);
-      db.prepare('UPDATE leave_requests SET manager_id = NULL WHERE manager_id = ?').run(userId);
-      db.prepare('UPDATE leave_requests SET security_id = NULL WHERE security_id = ?').run(userId);
-      db.prepare('DELETE FROM overtime_requests WHERE user_id = ?').run(userId);
-      db.prepare('UPDATE overtime_requests SET supervisor_id = NULL WHERE supervisor_id = ?').run(userId);
-      db.prepare('UPDATE overtime_requests SET manager_id = NULL WHERE manager_id = ?').run(userId);
-      db.prepare('UPDATE overtime_requests SET security_id = NULL WHERE security_id = ?').run(userId);
-      db.prepare('UPDATE letters SET manager_id = NULL WHERE manager_id = ?').run(userId);
-      db.prepare('DELETE FROM notifications WHERE user_id = ?').run(userId);
-      db.prepare('DELETE FROM leave_balance WHERE user_id = ?').run(userId);
-      db.prepare('DELETE FROM signatures WHERE user_id = ?').run(userId);
-      db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+      db.transaction(() => {
+        db.prepare('DELETE FROM cardex WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM cardex WHERE warehouse_user_id = ?').run(userId);
+        db.prepare('DELETE FROM user_shift_assignments WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM shift_change_requests WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM leave_requests WHERE user_id = ?').run(userId);
+        db.prepare('UPDATE leave_requests SET supervisor_id = NULL WHERE supervisor_id = ?').run(userId);
+        db.prepare('UPDATE leave_requests SET manager_id = NULL WHERE manager_id = ?').run(userId);
+        db.prepare('UPDATE leave_requests SET security_id = NULL WHERE security_id = ?').run(userId);
+        db.prepare('DELETE FROM overtime_requests WHERE user_id = ?').run(userId);
+        db.prepare('UPDATE overtime_requests SET supervisor_id = NULL WHERE supervisor_id = ?').run(userId);
+        db.prepare('UPDATE overtime_requests SET manager_id = NULL WHERE manager_id = ?').run(userId);
+        db.prepare('UPDATE overtime_requests SET security_id = NULL WHERE security_id = ?').run(userId);
+        db.prepare('UPDATE letters SET manager_id = NULL WHERE manager_id = ?').run(userId);
+        db.prepare('DELETE FROM notifications WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM leave_balance WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM signatures WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+      })();
       res.json({ message: 'کاربر با موفقیت حذف شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -252,14 +280,14 @@ module.exports = function(db) {
     try {
       const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1').get().count;
       const totalDepts = db.prepare('SELECT COUNT(*) as count FROM departments WHERE is_active = 1').get().count;
-      const pendingLeaves = db.prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status IN ('pending_supervisor','pending_manager')").get().count;
+      const pendingLeaves = db.prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status IN ('pending_supervisor','pending_admin','pending_manager')").get().count;
       const pendingOvertime = db.prepare("SELECT COUNT(*) as count FROM overtime_requests WHERE status IN ('pending_supervisor','pending_manager')").get().count;
       const pendingLetters = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status IN ('pending_central','pending_manager')").get().count;
       const pendingCardex = db.prepare("SELECT COUNT(*) as count FROM cardex WHERE status = 'pending_user'").get().count;
 
       const roleStats = db.prepare('SELECT role, COUNT(*) as count FROM users WHERE is_active = 1 GROUP BY role').all();
       const deptStats = db.prepare(`
-        SELECT d.name, COUNT(u.id) as user_count 
+        SELECT d.id, d.name, COUNT(u.id) as user_count 
         FROM departments d 
         LEFT JOIN users u ON d.id = u.department_id AND u.is_active = 1
         WHERE d.is_active = 1
@@ -267,6 +295,20 @@ module.exports = function(db) {
       `).all();
 
       res.json({ totalUsers, totalDepts, pendingLeaves, pendingOvertime, pendingLetters, pendingCardex, roleStats, deptStats });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/dept-users/:deptId', (req, res) => {
+    try {
+      const users = db.prepare(`
+        SELECT id, full_name, role, is_active
+        FROM users
+        WHERE department_id = ? AND is_active = 1
+        ORDER BY full_name
+      `).all(req.params.deptId);
+      res.json(users);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -283,7 +325,7 @@ module.exports = function(db) {
     return false;
   }
 
-  router.post('/users/import-csv', (req, res) => {
+  router.post('/users/import-csv', async (req, res) => {
     if (req.user.role !== 'admin' && !hasAdminPerm(req.user, 'user_import_csv')) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی ورود گروهی کاربران را ندارید' });
     }
@@ -425,6 +467,22 @@ module.exports = function(db) {
       res.download(fullPath, log.file_name);
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/activity-log', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 20;
+      const logs = db.prepare(`
+        SELECT al.*, u.full_name
+        FROM activity_log al
+        LEFT JOIN users u ON al.user_id = u.id
+        ORDER BY al.created_at DESC NULLS LAST
+        LIMIT ?
+      `).all(limit);
+      res.json(logs);
+    } catch (err) {
+      res.json([]);
     }
   });
 
