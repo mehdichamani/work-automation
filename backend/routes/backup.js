@@ -12,15 +12,7 @@ function ensureBackupDir() {
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 }
 
-function getDbConfig() {
-  const url = process.env.DATABASE_URL || '';
-  const dbPart = url.replace(/^postgresql:\/\//, '');
-  const match = dbPart.match(/([^:]+):([^@]+)@([^:]+):(\d+)\/([^?]+)/);
-  if (match) {
-    return { user: match[1], password: match[2], host: match[3], port: match[4], database: match[5] };
-  }
-  return null;
-}
+const { getDbConfig } = require('../database/config');
 
 module.exports = function (db) {
   const router = express.Router();

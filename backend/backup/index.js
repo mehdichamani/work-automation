@@ -8,16 +8,7 @@ const BACKUP_BASE = path.join(__dirname, '..', 'backups');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 const MANIFEST_FILE = path.join(BACKUP_BASE, 'manifest.json');
 
-function getDbConfig() {
-  const url = process.env.DATABASE_URL || '';
-  // Handle URLs with query params like ?schema=public
-  const dbPart = url.replace(/^postgresql:\/\//, '');
-  const match = dbPart.match(/([^:]+):([^@]+)@([^:]+):(\d+)\/([^?]+)/);
-  if (match) {
-    return { user: match[1], password: match[2], host: match[3], port: match[4], database: match[5] };
-  }
-  return null;
-}
+const { getDbConfig } = require('../database/config');
 
 function loadManifest() {
   try {

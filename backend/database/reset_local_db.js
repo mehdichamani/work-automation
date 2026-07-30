@@ -1,23 +1,6 @@
 const { Client } = require('pg');
-const fs = require('fs');
-const path = require('path');
 const readline = require('readline');
-
-// Manually parse .env from the root of workspace
-const envPath = path.join(__dirname, '..', '..', '.env');
-let databaseUrl = 'postgresql://postgres:postgrespassword@localhost:5432/edari';
-
-try {
-  if (fs.existsSync(envPath)) {
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const match = envContent.match(/DATABASE_URL=(.+)/);
-    if (match) {
-      databaseUrl = match[1].trim();
-    }
-  }
-} catch (e) {
-  console.log('Failed to read .env file, using default connection string');
-}
+const { getDbConfig } = require('./config');
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -31,13 +14,11 @@ rl.question('Are you sure you want to WIPE the local database? This will delete 
     process.exit(0);
   }
 
-  const urlObj = new URL(databaseUrl.startsWith('postgresql://') ? databaseUrl : 'postgresql://' + databaseUrl);
-  const targetDb = urlObj.pathname.substring(1) || 'edari';
+  const dbConfig = getDbConfig();
+  const targetDb = dbConfig.database || 'edari';
 
   console.log(`Connecting to database "${targetDb}" to wipe it...`);
-  const client = new Client({
-    connectionString: databaseUrl,
-  });
+  const client = new Client(dbConfig);
 
   try {
     await client.connect();

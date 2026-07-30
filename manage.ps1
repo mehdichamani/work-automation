@@ -1,5 +1,23 @@
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+function Load-Env {
+    $envPath = Join-Path $scriptDir ".env"
+    if (Test-Path $envPath) {
+        Get-Content $envPath | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
+                $parts = $line.Split("=", 2)
+                $key = $parts[0].Trim()
+                $value = $parts[1].Trim().Trim('"').Trim("'")
+                [System.Environment]::SetEnvironmentVariable($key, $value, "Process")
+            }
+        }
+    }
+}
+
+# Load environment variables on startup
+Load-Env
+
 function Show-Header {
     Clear-Host
     Write-Host "==============================================" -ForegroundColor Cyan

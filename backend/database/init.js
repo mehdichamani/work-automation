@@ -7,31 +7,11 @@ if (!isMainThread) {
   // =========================================================================
   // WORKER THREAD: Database Connection & Query Execution
   // =========================================================================
-  const { Pool } = require('pg');
-  
-  let databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    try {
-      const envPath = path.join(__dirname, '..', '..', '.env');
-      console.log('Worker: envPath =', envPath);
-      console.log('Worker: envPath exists? =', fs.existsSync(envPath));
-      if (fs.existsSync(envPath)) {
-        const envContent = fs.readFileSync(envPath, 'utf8');
-        const match = envContent.match(/DATABASE_URL=(.+)/);
-        if (match) {
-          databaseUrl = match[1].trim();
-          console.log('Worker: databaseUrl from .env file =', databaseUrl.replace(/:[^:@\s]+@/, ':***@'));
-        } else {
-          console.log('Worker: no DATABASE_URL match in .env file');
-        }
-      }
-    } catch (e) {
-      console.log('Worker: error reading .env:', e.message);
-    }
-  }
+  const { getDbConfig } = require('./config');
+  const dbConfig = getDbConfig();
   
   const pool = new Pool({
-    connectionString: databaseUrl || 'postgresql://postgres:postgrespassword@localhost:5432/edari',
+    ...dbConfig,
     max: 2, // Optimize connection count since each worker thread executes queries strictly sequentially
     idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
     connectionTimeoutMillis: 5000 // Fast failure on connection timeout
