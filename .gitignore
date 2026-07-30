@@ -7,3 +7,4 @@ backend/.jwt_secret
 token.txt
 backend/uploads/
 .env*
+!.env.example

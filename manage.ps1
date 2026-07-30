@@ -153,8 +153,9 @@ do {
             # Start via PM2
             pm2 start ecosystem.config.js
             
-            Write-Host "`nApplication successfully started. Opening browser..." -ForegroundColor Green
-            Start-Process "http://localhost:2833"
+            $appPort = if ($env:PORT) { $env:PORT } else { "2833" }
+            Write-Host "`nApplication successfully started on port $appPort. Opening browser..." -ForegroundColor Green
+            Start-Process "http://localhost:$appPort"
             Read-Host "Press Enter to return to the menu..."
         }
         "7" {
