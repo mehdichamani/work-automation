@@ -6,5 +6,6 @@ frontend/node_modules
 backend/.jwt_secret
 token.txt
 backend/uploads/
+frontend/dist/
 .env*
 !.env.example
