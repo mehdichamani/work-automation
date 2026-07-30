@@ -7,6 +7,7 @@ if (!isMainThread) {
   // =========================================================================
   // WORKER THREAD: Database Connection & Query Execution
   // =========================================================================
+  const { Pool } = require('pg');
   const { getDbConfig } = require('./config');
   const dbConfig = getDbConfig();
   
@@ -95,6 +96,9 @@ function initSyncPg() {
   stateArray[0] = 0; // Idle
   
   worker = new Worker(__filename);
+  worker.on('error', (err) => {
+    console.error('Database Worker Thread Error:', err);
+  });
   worker.unref(); // Allow the program to exit if the worker is running
   worker.postMessage({ type: 'init', sab });
 }
@@ -664,8 +668,6 @@ async function initDatabase() {
         tech_manager_approved INTEGER DEFAULT 0,
         tech_manager_approved_at TEXT,
         tech_manager_id INTEGER REFERENCES users(id),
-        pm_approved INTEGER DEFAULT 0,
-        pm_approved_at TEXT,
         pm_id INTEGER REFERENCES users(id),
         warehouse_approved INTEGER DEFAULT 0,
         warehouse_approved_at TEXT,
