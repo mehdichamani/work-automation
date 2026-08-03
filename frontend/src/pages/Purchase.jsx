@@ -4,7 +4,7 @@ import api from '../api/axios';
 import toast from 'react-hot-toast';
 import { toJalali } from '../utils/dateUtils';
 
-const emptyItem = { item_code: '', description: '', purchase_location: 'Urmia', technical_specs: '', requested_quantity: 0, approved_quantity: 0, usage_location: '', price: 0 };
+const emptyItem = { item_code: '', description: '', purchase_location: 'Urmia', technical_specs: '', requested_quantity: 0, approved_quantity: 0, usage_location: '', price: 0, unit: '' };
 
 const statusMap = {
   pending_supervisor: { text: 'در انتظار سرپرست', color: 'bg-blue-100 text-blue-700' },
@@ -39,7 +39,7 @@ function ItemCard({ item, index, readOnly, onUpdate, onRemove, canRemove }) {
           </div>
           <div className="bg-white p-2 rounded-lg">
             <span className="text-gray-400 block">تعداد درخواستی</span>
-            <span className="font-medium">{item.requested_quantity}</span>
+            <span className="font-medium">{item.requested_quantity} {item.unit || ''}</span>
           </div>
           <div className="bg-white p-2 rounded-lg">
             <span className="text-gray-400 block">تعداد تأیید شده</span>
@@ -89,13 +89,17 @@ function ItemCard({ item, index, readOnly, onUpdate, onRemove, canRemove }) {
           <input type="number" min="0" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" value={item.requested_quantity || ''} onChange={e => onUpdate(index, 'requested_quantity', Number(e.target.value))} />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">قیمت (ریال)</label>
-          <input type="number" min="0" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="قیمت" value={item.price || ''} onChange={e => onUpdate(index, 'price', Number(e.target.value))} />
+          <label className="block text-xs text-gray-500 mb-1">واحد *</label>
+          <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="مثلا: عدد، لیتر، کیلوگرم" value={item.unit || ''} onChange={e => onUpdate(index, 'unit', e.target.value)} />
         </div>
       </div>
       <div>
         <label className="block text-xs text-gray-500 mb-1">محل مصرف</label>
         <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="محل مصرف" value={item.usage_location} onChange={e => onUpdate(index, 'usage_location', e.target.value)} />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">قیمت (ریال)</label>
+        <input type="number" min="0" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="قیمت" value={item.price || ''} onChange={e => onUpdate(index, 'price', Number(e.target.value))} />
       </div>
     </div>
   );

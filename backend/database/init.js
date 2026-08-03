@@ -789,6 +789,7 @@ async function initDatabase() {
         approved_quantity REAL DEFAULT 0,
         usage_location TEXT,
         price REAL DEFAULT 0,
+        unit TEXT,
         FOREIGN KEY (request_id) REFERENCES purchase_requests(id) ON DELETE CASCADE
       );
     `);
@@ -1343,6 +1344,7 @@ async function initDatabase() {
   try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS budget_id INTEGER`); } catch (e) {}
   try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS budget_comment TEXT`); } catch (e) {}
   try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS budget_date TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_items ADD COLUMN IF NOT EXISTS unit TEXT`); } catch (e) {}
   try { db.exec(`ALTER TABLE mission_requests ADD COLUMN IF NOT EXISTS start_time TEXT`); } catch (e) {}
   try { db.exec(`ALTER TABLE mission_requests ADD COLUMN IF NOT EXISTS end_time TEXT`); } catch (e) {}
   try { db.exec(`ALTER TABLE mission_requests ADD COLUMN IF NOT EXISTS mission_type TEXT`); } catch (e) {}

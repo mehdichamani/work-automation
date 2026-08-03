@@ -19,11 +19,11 @@ module.exports = function (db) {
   function saveItems(requestId, items) {
     db.prepare('DELETE FROM purchase_items WHERE request_id = ?').run(requestId);
     const stmt = db.prepare(`
-      INSERT INTO purchase_items (request_id, row_index, item_code, description, purchase_location, technical_specs, requested_quantity, approved_quantity, usage_location, price)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO purchase_items (request_id, row_index, item_code, description, purchase_location, technical_specs, requested_quantity, approved_quantity, usage_location, price, unit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     items.forEach((item, i) => {
-      stmt.run(requestId, i + 1, item.item_code || '', item.description || '', item.purchase_location || 'Urmia', item.technical_specs || '', item.requested_quantity || 0, item.approved_quantity || 0, item.usage_location || '', item.price || 0);
+      stmt.run(requestId, i + 1, item.item_code || '', item.description || '', item.purchase_location || 'Urmia', item.technical_specs || '', item.requested_quantity || 0, item.approved_quantity || 0, item.usage_location || '', item.price || 0, item.unit || '');
     });
   }
 
