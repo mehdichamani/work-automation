@@ -750,9 +750,8 @@ async function initDatabase() {
         id SERIAL PRIMARY KEY,
         request_number TEXT,
         user_id INTEGER NOT NULL,
-        items TEXT NOT NULL,
+        department TEXT,
         description TEXT,
-        estimated_cost TEXT,
         urgency TEXT DEFAULT 'normal',
         status TEXT DEFAULT 'pending_supervisor',
         supervisor_id INTEGER,
@@ -761,8 +760,36 @@ async function initDatabase() {
         manager_id INTEGER,
         manager_comment TEXT,
         manager_date TEXT,
+        warehouse_id INTEGER,
+        warehouse_comment TEXT,
+        warehouse_date TEXT,
+        factory_manager_id INTEGER,
+        factory_manager_comment TEXT,
+        factory_manager_date TEXT,
+        budget_id INTEGER,
+        budget_comment TEXT,
+        budget_date TEXT,
         created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS purchase_items (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER NOT NULL,
+        row_index INTEGER DEFAULT 0,
+        item_code TEXT,
+        description TEXT,
+        purchase_location TEXT CHECK (purchase_location IN ('Tehran', 'Urmia')),
+        technical_specs TEXT,
+        requested_quantity REAL DEFAULT 0,
+        approved_quantity REAL DEFAULT 0,
+        usage_location TEXT,
+        price REAL DEFAULT 0,
+        FOREIGN KEY (request_id) REFERENCES purchase_requests(id) ON DELETE CASCADE
       );
     `);
   } catch (e) {}
@@ -1306,6 +1333,16 @@ async function initDatabase() {
     } catch (e) {}
   }
   try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS reason TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS department TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS warehouse_id INTEGER`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS warehouse_comment TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS warehouse_date TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS factory_manager_id INTEGER`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS factory_manager_comment TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS factory_manager_date TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS budget_id INTEGER`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS budget_comment TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS budget_date TEXT`); } catch (e) {}
   try { db.exec(`ALTER TABLE mission_requests ADD COLUMN IF NOT EXISTS start_time TEXT`); } catch (e) {}
   try { db.exec(`ALTER TABLE mission_requests ADD COLUMN IF NOT EXISTS end_time TEXT`); } catch (e) {}
   try { db.exec(`ALTER TABLE mission_requests ADD COLUMN IF NOT EXISTS mission_type TEXT`); } catch (e) {}
