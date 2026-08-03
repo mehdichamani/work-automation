@@ -34,8 +34,8 @@ function ItemCard({ item, index, readOnly, onUpdate, onRemove, canRemove }) {
             <span className="font-medium">{item.purchase_location === 'Tehran' ? 'تهران' : 'ارومیه'}</span>
           </div>
           <div className="bg-white p-2 rounded-lg">
-            <span className="text-gray-400 block">محل مصرف</span>
-            <span className="font-medium">{item.usage_location || '-'}</span>
+            <span className="text-gray-400 block">قیمت</span>
+            <span className="font-medium">{item.price ? Number(item.price).toLocaleString() + ' ریال' : '-'}</span>
           </div>
           <div className="bg-white p-2 rounded-lg">
             <span className="text-gray-400 block">تعداد درخواستی</span>
@@ -46,8 +46,8 @@ function ItemCard({ item, index, readOnly, onUpdate, onRemove, canRemove }) {
             <span className="font-medium">{item.approved_quantity || '-'}</span>
           </div>
           <div className="bg-white p-2 rounded-lg col-span-2">
-            <span className="text-gray-400 block">قیمت</span>
-            <span className="font-medium">{item.price ? Number(item.price).toLocaleString() + ' ریال' : '-'}</span>
+            <span className="text-gray-400 block">محل مصرف</span>
+            <span className="font-medium">{item.usage_location || '-'}</span>
           </div>
         </div>
       </div>
@@ -89,13 +89,13 @@ function ItemCard({ item, index, readOnly, onUpdate, onRemove, canRemove }) {
           <input type="number" min="0" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" value={item.requested_quantity || ''} onChange={e => onUpdate(index, 'requested_quantity', Number(e.target.value))} />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">محل مصرف</label>
-          <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="محل مصرف" value={item.usage_location} onChange={e => onUpdate(index, 'usage_location', e.target.value)} />
+          <label className="block text-xs text-gray-500 mb-1">قیمت (ریال)</label>
+          <input type="number" min="0" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="قیمت" value={item.price || ''} onChange={e => onUpdate(index, 'price', Number(e.target.value))} />
         </div>
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">قیمت (ریال)</label>
-        <input type="number" min="0" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="قیمت" value={item.price || ''} onChange={e => onUpdate(index, 'price', Number(e.target.value))} />
+        <label className="block text-xs text-gray-500 mb-1">محل مصرف</label>
+        <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="محل مصرف" value={item.usage_location} onChange={e => onUpdate(index, 'usage_location', e.target.value)} />
       </div>
     </div>
   );
