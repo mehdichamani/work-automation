@@ -46,10 +46,13 @@ function Menu {
     Write-Host "8. Enable Autostart on user login"
     Write-Host "9. Disable Autostart on user login"
     Write-Host ""
-    Write-Host "--- System ---" -ForegroundColor Gray
-    Write-Host "10. Exit"
+    Write-Host "--- Deploy (Production) ---" -ForegroundColor Gray
+    Write-Host "10. Pull + Init DB + Restart (Full Deploy)"
     Write-Host ""
-    $choice = Read-Host "Enter option (1-10)"
+    Write-Host "--- System ---" -ForegroundColor Gray
+    Write-Host "11. Exit"
+    Write-Host ""
+    $choice = Read-Host "Enter option (1-11)"
     return $choice
 }
 
@@ -192,10 +195,56 @@ do {
             Read-Host "Press Enter to return to the menu..."
         }
         "10" {
+            Show-Header
+            Write-Host "=== Full Deploy: Pull + Init DB + Restart ===" -ForegroundColor Cyan
+            Write-Host ""
+
+            Write-Host "[1/5] Pulling latest changes from git..." -ForegroundColor Green
+            Set-Location $scriptDir
+            git pull origin main
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: git pull failed!" -ForegroundColor Red
+                Read-Host "Press Enter to return to the menu..."
+                return
+            }
+
+            Write-Host "`n[2/5] Installing backend dependencies..." -ForegroundColor Green
+            Set-Location "$scriptDir\backend"
+            npm install --include=dev
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: npm install failed in backend!" -ForegroundColor Red
+                Read-Host "Press Enter to return to the menu..."
+                return
+            }
+
+            Write-Host "`n[3/5] Installing frontend dependencies & building..." -ForegroundColor Green
+            Set-Location "$scriptDir\frontend"
+            npm install --include=dev
+            npm run build
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: Frontend build failed!" -ForegroundColor Red
+                Read-Host "Press Enter to return to the menu..."
+                return
+            }
+
+            Write-Host "`n[4/5] Initializing database..." -ForegroundColor Green
+            Set-Location "$scriptDir\backend"
+            node database/init_local_db.js
+
+            Write-Host "`n[5/5] Restarting server with PM2..." -ForegroundColor Green
+            Set-Location $scriptDir
+            pm2 restart ecosystem.config.js
+
+            Write-Host "`n=== Deploy completed successfully! ===" -ForegroundColor Green
+            $appPort = if ($env:PORT) { $env:PORT } else { "2833" }
+            Write-Host "Application is running on port $appPort" -ForegroundColor Cyan
+            Read-Host "Press Enter to return to the menu..."
+        }
+        "11" {
             break
         }
         default {
-            Write-Host "Invalid option. Please enter a number between 1 and 10." -ForegroundColor Red
+            Write-Host "Invalid option. Please enter a number between 1 and 11." -ForegroundColor Red
             Start-Sleep -Seconds 2
         }
     }
