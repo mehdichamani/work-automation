@@ -24,6 +24,23 @@ function formatDateTime(dt) {
   return timePart ? `${datePart} — ساعت ${timePart}` : datePart;
 }
 
+function isThursday(dateStr) {
+  if (!dateStr) return false;
+  return moment(dateStr, 'jYYYY/jMM/jDD').day() === 4;
+}
+
+function getOvertimeHourOptions(minHour) {
+  const options = [];
+  for (let h = minHour; h <= 23; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      const time = `${String(h).padStart(2, '0')}:${m === 0 ? '00' : '30'}`;
+      options.push(time);
+    }
+  }
+  options.push('24:00');
+  return options;
+}
+
 export default function Overtime() {
   const { user, hasPermission } = useAuth();
   const [tab, setTab] = useState('my');
@@ -55,15 +72,6 @@ export default function Overtime() {
   const [showEndCal, setShowEndCal] = useState(false);
   const [editShowStartCal, setEditShowStartCal] = useState(false);
   const [editShowEndCal, setEditShowEndCal] = useState(false);
-
-  // Generate 24 hours options in 30-min intervals
-  const hourOptions = [];
-  for (let h = 0; h < 24; h++) {
-    const hh = String(h).padStart(2, '0');
-    hourOptions.push(`${hh}:00`);
-    hourOptions.push(`${hh}:30`);
-  }
-  hourOptions.push('24:00');
 
   useEffect(() => {
     if (user && ['admin', 'manager', 'supervisor'].includes(user.role)) {
@@ -484,7 +492,7 @@ export default function Overtime() {
                   <label className="block text-sm font-medium mb-1">ساعت شروع</label>
                   <select value={form.start_hour} onChange={(e) => setForm({...form, start_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
                     <option value="">انتخاب ساعت</option>
-                    {hourOptions.map(o => (
+                    {getOvertimeHourOptions(isThursday(form.start_date) ? 12 : 17).map(o => (
                       <option key={`start_${o}`} value={o}>{o}</option>
                     ))}
                   </select>
@@ -511,7 +519,7 @@ export default function Overtime() {
                   <label className="block text-sm font-medium mb-1">ساعت پایان</label>
                   <select value={form.end_hour} onChange={(e) => setForm({...form, end_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
                     <option value="">انتخاب ساعت</option>
-                    {hourOptions.map(o => (
+                    {getOvertimeHourOptions(isThursday(form.end_date) ? 12 : 17).map(o => (
                       <option key={`end_${o}`} value={o}>{o}</option>
                     ))}
                   </select>
@@ -566,7 +574,7 @@ export default function Overtime() {
                   <label className="block text-sm font-medium mb-1">ساعت شروع</label>
                   <select value={editForm.start_hour} onChange={(e) => setEditForm({...editForm, start_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
                     <option value="">انتخاب ساعت</option>
-                    {hourOptions.map(o => (
+                    {getOvertimeHourOptions(isThursday(editForm.start_date) ? 12 : 17).map(o => (
                       <option key={`edit_start_${o}`} value={o}>{o}</option>
                     ))}
                   </select>
@@ -592,7 +600,7 @@ export default function Overtime() {
                   <label className="block text-sm font-medium mb-1">ساعت پایان</label>
                   <select value={editForm.end_hour} onChange={(e) => setEditForm({...editForm, end_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
                     <option value="">انتخاب ساعت</option>
-                    {hourOptions.map(o => (
+                    {getOvertimeHourOptions(isThursday(editForm.end_date) ? 12 : 17).map(o => (
                       <option key={`edit_end_${o}`} value={o}>{o}</option>
                     ))}
                   </select>
@@ -648,7 +656,7 @@ export default function Overtime() {
                   <label className="block text-sm font-medium mb-1">ساعت پایان جدید</label>
                   <select value={modForm.end_hour} onChange={(e) => setModForm(prev => ({ ...prev, end_hour: e.target.value }))} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
                     <option value="">انتخاب ساعت</option>
-                    {hourOptions.map(o => (
+                    {getOvertimeHourOptions(isThursday(modForm.end_date) ? 12 : 17).map(o => (
                       <option key={`mod_end_${o}`} value={o}>{o}</option>
                     ))}
                   </select>
