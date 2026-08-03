@@ -16,6 +16,91 @@ const statusMap = {
   rejected: { text: 'رد شده', color: 'bg-red-100 text-red-700' },
 };
 
+function ItemCard({ item, index, readOnly, onUpdate, onRemove, canRemove }) {
+  if (readOnly) {
+    return (
+      <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="bg-primary-100 text-primary-700 text-xs font-bold px-2.5 py-1 rounded-lg">{index + 1}</span>
+          <span className="text-xs text-gray-400">{item.item_code}</span>
+        </div>
+        <div>
+          <div className="text-sm font-bold text-gray-800">{item.description}</div>
+          {item.technical_specs && <div className="text-xs text-gray-500 mt-1">مشخصات فنی: {item.technical_specs}</div>}
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div className="bg-white p-2 rounded-lg">
+            <span className="text-gray-400 block">محل خرید</span>
+            <span className="font-medium">{item.purchase_location === 'Tehran' ? 'تهران' : 'ارومیه'}</span>
+          </div>
+          <div className="bg-white p-2 rounded-lg">
+            <span className="text-gray-400 block">محل مصرف</span>
+            <span className="font-medium">{item.usage_location || '-'}</span>
+          </div>
+          <div className="bg-white p-2 rounded-lg">
+            <span className="text-gray-400 block">تعداد درخواستی</span>
+            <span className="font-medium">{item.requested_quantity}</span>
+          </div>
+          <div className="bg-white p-2 rounded-lg">
+            <span className="text-gray-400 block">تعداد تأیید شده</span>
+            <span className="font-medium">{item.approved_quantity || '-'}</span>
+          </div>
+          <div className="bg-white p-2 rounded-lg col-span-2">
+            <span className="text-gray-400 block">قیمت</span>
+            <span className="font-medium">{item.price ? Number(item.price).toLocaleString() + ' ریال' : '-'}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="bg-primary-100 text-primary-700 text-xs font-bold px-2.5 py-1 rounded-lg">ردیف {index + 1}</span>
+        {canRemove && (
+          <button onClick={() => onRemove(index)} className="text-red-400 hover:text-red-600 text-xs font-medium">حذف ردیف</button>
+        )}
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">شرح کالا *</label>
+        <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="شرح کالا" value={item.description} onChange={e => onUpdate(index, 'description', e.target.value)} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">کد کالا</label>
+          <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="کد" value={item.item_code} onChange={e => onUpdate(index, 'item_code', e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">محل خرید</label>
+          <div className="flex gap-1 bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <button type="button" onClick={() => onUpdate(index, 'purchase_location', 'Tehran')} className={`flex-1 py-2.5 text-xs font-medium transition-all ${item.purchase_location === 'Tehran' ? 'bg-primary-500 text-white' : 'text-gray-500'}`}>تهران</button>
+            <button type="button" onClick={() => onUpdate(index, 'purchase_location', 'Urmia')} className={`flex-1 py-2.5 text-xs font-medium transition-all ${item.purchase_location === 'Urmia' ? 'bg-primary-500 text-white' : 'text-gray-500'}`}>ارومیه</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">مشخصات فنی</label>
+        <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="مدل، ابعاد، جنس و..." value={item.technical_specs} onChange={e => onUpdate(index, 'technical_specs', e.target.value)} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">تعداد درخواستی</label>
+          <input type="number" min="0" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" value={item.requested_quantity || ''} onChange={e => onUpdate(index, 'requested_quantity', Number(e.target.value))} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">محل مصرف</label>
+          <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="محل مصرف" value={item.usage_location} onChange={e => onUpdate(index, 'usage_location', e.target.value)} />
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">قیمت (ریال)</label>
+        <input type="number" min="0" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="قیمت" value={item.price || ''} onChange={e => onUpdate(index, 'price', Number(e.target.value))} />
+      </div>
+    </div>
+  );
+}
+
 export default function Purchase() {
   const { user } = useAuth();
   const [requests, setRequests] = useState([]);
@@ -107,127 +192,18 @@ export default function Purchase() {
     return false;
   };
 
-  const renderItemsTable = (itemsList, readOnly = false, onUpdate = null) => (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm border border-gray-300">
-        <thead className="bg-gray-100">
-          <tr>
-            <th className="border border-gray-300 px-2 py-2 text-center text-xs">ردیف</th>
-            <th className="border border-gray-300 px-2 py-2 text-center text-xs">کد کالا</th>
-            <th className="border border-gray-300 px-2 py-2 text-center text-xs">شرح کالا</th>
-            <th className="border border-gray-300 px-2 py-2 text-center text-xs" colSpan="2">محل خرید</th>
-            <th className="border border-gray-300 px-2 py-2 text-center text-xs">مشخصات فنی</th>
-            <th className="border border-gray-300 px-2 py-2 text-center text-xs">تعداد درخواستی</th>
-            <th className="border border-gray-300 px-2 py-2 text-center text-xs">تعداد تأیید شده</th>
-            <th className="border border-gray-300 px-2 py-2 text-center text-xs">محل مصرف</th>
-            <th className="border border-gray-300 px-2 py-2 text-center text-xs">قیمت</th>
-            {!readOnly && <th className="border border-gray-300 px-2 py-2 text-center text-xs">عملیات</th>}
-          </tr>
-          <tr>
-            <th className="border border-gray-300 px-2 py-1"></th>
-            <th className="border border-gray-300 px-2 py-1"></th>
-            <th className="border border-gray-300 px-2 py-1"></th>
-            <th className="border border-gray-300 px-2 py-1 text-center text-[10px]">تهران</th>
-            <th className="border border-gray-300 px-2 py-1 text-center text-[10px]">ارومیه</th>
-            <th className="border border-gray-300 px-2 py-1"></th>
-            <th className="border border-gray-300 px-2 py-1"></th>
-            <th className="border border-gray-300 px-2 py-1"></th>
-            <th className="border border-gray-300 px-2 py-1"></th>
-            <th className="border border-gray-300 px-2 py-1"></th>
-            {!readOnly && <th className="border border-gray-300 px-2 py-1"></th>}
-          </tr>
-        </thead>
-        <tbody>
-          {itemsList.map((item, i) => (
-            <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-              <td className="border border-gray-300 px-2 py-1.5 text-center text-xs font-bold">{i + 1}</td>
-              <td className="border border-gray-300 px-1 py-1">
-                {readOnly ? (
-                  <span className="text-xs block text-center">{item.item_code}</span>
-                ) : (
-                  <input className="w-full px-1 py-1 text-xs border-0 bg-transparent text-center focus:ring-1 focus:ring-primary-500 rounded" value={item.item_code} onChange={e => onUpdate(i, 'item_code', e.target.value)} />
-                )}
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                {readOnly ? (
-                  <span className="text-xs block">{item.description}</span>
-                ) : (
-                  <input className="w-full px-1 py-1 text-xs border-0 bg-transparent focus:ring-1 focus:ring-primary-500 rounded" value={item.description} onChange={e => onUpdate(i, 'description', e.target.value)} />
-                )}
-              </td>
-              <td className="border border-gray-300 px-1 py-1 text-center">
-                {readOnly ? (
-                  <span className="text-xs">{item.purchase_location === 'Tehran' ? '✓' : ''}</span>
-                ) : (
-                  <input type="radio" name={`loc_${i}`} checked={item.purchase_location === 'Tehran'} onChange={() => onUpdate(i, 'purchase_location', 'Tehran')} className="w-3 h-3" />
-                )}
-              </td>
-              <td className="border border-gray-300 px-1 py-1 text-center">
-                {readOnly ? (
-                  <span className="text-xs">{item.purchase_location === 'Urmia' ? '✓' : ''}</span>
-                ) : (
-                  <input type="radio" name={`loc_${i}`} checked={item.purchase_location === 'Urmia'} onChange={() => onUpdate(i, 'purchase_location', 'Urmia')} className="w-3 h-3" />
-                )}
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                {readOnly ? (
-                  <span className="text-xs block">{item.technical_specs}</span>
-                ) : (
-                  <input className="w-full px-1 py-1 text-xs border-0 bg-transparent focus:ring-1 focus:ring-primary-500 rounded" value={item.technical_specs} onChange={e => onUpdate(i, 'technical_specs', e.target.value)} />
-                )}
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                {readOnly ? (
-                  <span className="text-xs block text-center">{item.requested_quantity}</span>
-                ) : (
-                  <input type="number" min="0" className="w-full px-1 py-1 text-xs border-0 bg-transparent text-center focus:ring-1 focus:ring-primary-500 rounded" value={item.requested_quantity} onChange={e => onUpdate(i, 'requested_quantity', Number(e.target.value))} />
-                )}
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                {readOnly ? (
-                  <span className="text-xs block text-center">{item.approved_quantity}</span>
-                ) : (
-                  <input type="number" min="0" className="w-full px-1 py-1 text-xs border-0 bg-transparent text-center focus:ring-1 focus:ring-primary-500 rounded" value={item.approved_quantity} onChange={e => onUpdate(i, 'approved_quantity', Number(e.target.value))} />
-                )}
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                {readOnly ? (
-                  <span className="text-xs block">{item.usage_location}</span>
-                ) : (
-                  <input className="w-full px-1 py-1 text-xs border-0 bg-transparent focus:ring-1 focus:ring-primary-500 rounded" value={item.usage_location} onChange={e => onUpdate(i, 'usage_location', e.target.value)} />
-                )}
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                {readOnly ? (
-                  <span className="text-xs block text-center">{item.price ? Number(item.price).toLocaleString() : '-'}</span>
-                ) : (
-                  <input type="number" min="0" className="w-full px-1 py-1 text-xs border-0 bg-transparent text-center focus:ring-1 focus:ring-primary-500 rounded" value={item.price} onChange={e => onUpdate(i, 'price', Number(e.target.value))} />
-                )}
-              </td>
-              {!readOnly && (
-                <td className="border border-gray-300 px-1 py-1 text-center">
-                  {itemsList.length > 1 && (
-                    <button onClick={() => removeItem(i)} className="text-red-400 hover:text-red-600 text-lg leading-none">&times;</button>
-                  )}
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-
   return (
-    <div className="animate-fade-in space-y-6">
-      <div className="bg-gradient-to-l from-primary-500 to-primary-700 text-white rounded-2xl p-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">درخواست خرید کالا</h1>
-          <p className="text-primary-100 text-sm mt-1">مدیریت درخواست‌های خرید تجهیزات و کالا</p>
+    <div className="animate-fade-in space-y-4 sm:space-y-6">
+      <div className="bg-gradient-to-l from-primary-500 to-primary-700 text-white rounded-2xl p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold">درخواست خرید کالا</h1>
+            <p className="text-primary-100 text-xs sm:text-sm mt-1">مدیریت درخواست‌های خرید تجهیزات و کالا</p>
+          </div>
+          <button onClick={() => setShowForm(true)} className="bg-white/20 hover:bg-white/30 backdrop-blur text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all self-start sm:self-auto">
+            + درخواست جدید
+          </button>
         </div>
-        <button onClick={() => setShowForm(true)} className="bg-white/20 hover:bg-white/30 backdrop-blur text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all">
-          + درخواست جدید
-        </button>
       </div>
 
       <div className="flex gap-2">
@@ -240,103 +216,145 @@ export default function Purchase() {
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 overflow-y-auto py-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-5xl shadow-2xl mx-4">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold">ثبت درخواست خرید جدید</h3>
-              <div className="text-left text-xs text-gray-500">
-                <div>تاریخ: {toJalali(new Date().toISOString())}</div>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-2 sm:p-4">
+            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl my-2 sm:my-4">
+              <div className="sticky top-0 bg-white rounded-t-2xl border-b px-4 sm:px-6 py-4 flex items-center justify-between z-10">
+                <h3 className="text-base sm:text-lg font-bold">ثبت درخواست خرید جدید</h3>
+                <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
               </div>
-            </div>
 
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-xl">
-                لطفا اقلام مشروحه زیر را جهت مصرف در قسمت تعیین شده، برای واحد <span className="font-bold text-primary-600">{formData.department || '...'}</span> خریداری نمایید.
-              </p>
-            </div>
+              <div className="px-4 sm:px-6 py-4 space-y-4">
+                <div className="bg-gray-50 p-3 rounded-xl text-sm text-gray-600">
+                  لطفا اقلام مشروحه زیر را جهت مصرف در قسمت تعیین شده، برای واحد <span className="font-bold text-primary-600">{formData.department || '...'}</span> خریداری نمایید.
+                </div>
 
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">واحد متقاضی</label>
-                <input className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500" placeholder="نام واحد سازمانی" value={formData.department} onChange={e => setFormData({ ...formData, department: e.target.value })} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">واحد متقاضی *</label>
+                    <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500" placeholder="نام واحد سازمانی" value={formData.department} onChange={e => setFormData({ ...formData, department: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">فوریت</label>
+                    <select className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500" value={formData.urgency} onChange={e => setFormData({ ...formData, urgency: e.target.value })}>
+                      <option value="normal">عادی</option>
+                      <option value="urgent">فوری</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-700">اقلام درخواستی</span>
+                    <button onClick={addItem} className="text-primary-500 text-xs font-medium hover:text-primary-600">+ افزودن ردیف</button>
+                  </div>
+                  {items.map((item, i) => (
+                    <ItemCard key={i} item={item} index={i} readOnly={false} onUpdate={updateItem} onRemove={removeItem} canRemove={items.length > 1} />
+                  ))}
+                </div>
+
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">دلیل خرید</label>
+                  <textarea className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500" rows="2" placeholder="دلیل خرید" value={formData.reason} onChange={e => setFormData({ ...formData, reason: e.target.value })} />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">فوریت</label>
-                <select className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500" value={formData.urgency} onChange={e => setFormData({ ...formData, urgency: e.target.value })}>
-                  <option value="normal">عادی</option>
-                  <option value="urgent">فوری</option>
-                </select>
+
+              <div className="sticky bottom-0 bg-white rounded-b-2xl border-t px-4 sm:px-6 py-4 flex gap-3">
+                <button onClick={submitRequest} disabled={submitLoading} className="flex-1 bg-primary-500 text-white py-3 rounded-xl text-sm font-medium hover:bg-primary-600 transition-all disabled:opacity-50">
+                  {submitLoading ? 'در حال ارسال...' : 'ثبت درخواست'}
+                </button>
+                <button onClick={() => setShowForm(false)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl text-sm font-medium hover:bg-gray-200 transition-all">انصراف</button>
               </div>
-            </div>
-
-            <div className="mb-4">
-              {renderItemsTable(items, false, updateItem)}
-              <button onClick={addItem} className="mt-2 text-primary-500 text-sm font-medium hover:text-primary-600 transition-all">+ افزودن ردیف</button>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">دلیل خرید</label>
-              <textarea className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500" rows="2" placeholder="دلیل خرید" value={formData.reason} onChange={e => setFormData({ ...formData, reason: e.target.value })} />
-            </div>
-
-            <div className="flex gap-3 pt-2 border-t">
-              <button onClick={submitRequest} disabled={submitLoading} className="bg-primary-500 text-white px-6 py-2.5 rounded-xl text-sm font-medium hover:bg-primary-600 transition-all disabled:opacity-50">
-                {submitLoading ? 'در حال ارسال...' : 'ثبت درخواست'}
-              </button>
-              <button onClick={() => setShowForm(false)} className="bg-gray-100 text-gray-700 px-6 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-200 transition-all">انصراف</button>
             </div>
           </div>
         </div>
       )}
 
       {detail && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 overflow-y-auto py-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-5xl shadow-2xl mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold">جزئیات درخواست خرید شماره {detail.request_number}</h3>
-              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-2 sm:p-4">
+            <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl my-2 sm:my-4">
+              <div className="sticky top-0 bg-white rounded-t-2xl border-b px-4 sm:px-6 py-4 flex items-center justify-between z-10">
+                <h3 className="text-base sm:text-lg font-bold truncate">درخواست {detail.request_number}</h3>
+                <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+              </div>
+
+              <div className="px-4 sm:px-6 py-4 space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                  <div className="bg-gray-50 p-2.5 rounded-xl">
+                    <span className="text-gray-400 text-xs block">شماره</span>
+                    <span className="font-bold font-mono">{detail.request_number}</span>
+                  </div>
+                  <div className="bg-gray-50 p-2.5 rounded-xl">
+                    <span className="text-gray-400 text-xs block">تاریخ</span>
+                    <span>{toJalali(detail.created_at)}</span>
+                  </div>
+                  <div className="bg-gray-50 p-2.5 rounded-xl">
+                    <span className="text-gray-400 text-xs block">واحد</span>
+                    <span className="font-bold">{detail.department || detail.department_name || '-'}</span>
+                  </div>
+                  <div className="bg-gray-50 p-2.5 rounded-xl">
+                    <span className="text-gray-400 text-xs block">درخواست‌دهنده</span>
+                    <span>{detail.user_name}</span>
+                  </div>
+                  <div className="bg-gray-50 p-2.5 rounded-xl">
+                    <span className="text-gray-400 text-xs block">وضعیت</span>
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${(statusMap[detail.status] || statusMap.pending_supervisor).color}`}>
+                      {(statusMap[detail.status] || statusMap.pending_supervisor).text}
+                    </span>
+                  </div>
+                  <div className="bg-gray-50 p-2.5 rounded-xl">
+                    <span className="text-gray-400 text-xs block">فوریت</span>
+                    <span className={detail.urgency === 'urgent' ? 'text-red-500 font-bold' : ''}>{detail.urgency === 'urgent' ? 'فوری' : 'عادی'}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">اقلام درخواستی</h4>
+                  <div className="space-y-3">
+                    {(detail.items || []).map((item, i) => (
+                      <ItemCard key={i} item={item} index={i} readOnly={true} />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">گردش کار و امضاها</h4>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="bg-gray-50 p-3 rounded-xl">
+                      <div className="text-gray-400 text-xs mb-1">درخواست‌کننده</div>
+                      <div className="font-bold text-sm">{detail.user_name}</div>
+                      <div className="text-xs text-gray-400 mt-1">{toJalali(detail.created_at)}</div>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-xl">
+                      <div className="text-gray-400 text-xs mb-1">تایید انبار</div>
+                      <div className="font-bold text-sm">{detail.warehouse_name || <span className="text-gray-300">در انتظار</span>}</div>
+                      {detail.warehouse_date && <div className="text-xs text-gray-400 mt-1">{toJalali(detail.warehouse_date)}</div>}
+                      {detail.warehouse_comment && <div className="text-xs text-gray-500 mt-1 truncate">{detail.warehouse_comment}</div>}
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-xl">
+                      <div className="text-gray-400 text-xs mb-1">تایید مدیر کارخانه</div>
+                      <div className="font-bold text-sm">{detail.factory_manager_name || <span className="text-gray-300">در انتظار</span>}</div>
+                      {detail.factory_manager_date && <div className="text-xs text-gray-400 mt-1">{toJalali(detail.factory_manager_date)}</div>}
+                      {detail.factory_manager_comment && <div className="text-xs text-gray-500 mt-1 truncate">{detail.factory_manager_comment}</div>}
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-xl">
+                      <div className="text-gray-400 text-xs mb-1">تایید واحد بودجه</div>
+                      <div className="font-bold text-sm">{detail.budget_name || <span className="text-gray-300">در انتظار</span>}</div>
+                      {detail.budget_date && <div className="text-xs text-gray-400 mt-1">{toJalali(detail.budget_date)}</div>}
+                      {detail.budget_comment && <div className="text-xs text-gray-500 mt-1 truncate">{detail.budget_comment}</div>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {canApprove(detail) && (
+                <div className="sticky bottom-0 bg-white rounded-b-2xl border-t px-4 sm:px-6 py-4 flex gap-3">
+                  <button onClick={() => { approveRequest(detail.id); setDetail(null); }} className="flex-1 bg-green-500 text-white py-3 rounded-xl text-sm font-medium hover:bg-green-600 transition-all shadow-sm">تایید</button>
+                  <button onClick={() => { rejectRequest(detail.id); setDetail(null); }} className="flex-1 bg-red-500 text-white py-3 rounded-xl text-sm font-medium hover:bg-red-600 transition-all shadow-sm">رد</button>
+                </div>
+              )}
             </div>
-
-            <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
-              <div><span className="text-gray-500">شماره:</span> <span className="font-bold">{detail.request_number}</span></div>
-              <div><span className="text-gray-500">تاریخ:</span> <span>{toJalali(detail.created_at)}</span></div>
-              <div><span className="text-gray-500">واحد:</span> <span className="font-bold">{detail.department || detail.department_name}</span></div>
-              <div><span className="text-gray-500">درخواست‌دهنده:</span> <span>{detail.user_name}</span></div>
-              <div><span className="text-gray-500">وضعیت:</span> <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${(statusMap[detail.status] || statusMap.pending_supervisor).color}`}>{(statusMap[detail.status] || statusMap.pending_supervisor).text}</span></div>
-              <div><span className="text-gray-500">فوریت:</span> <span>{detail.urgency === 'urgent' ? 'فوری' : 'عادی'}</span></div>
-            </div>
-
-            {renderItemsTable(detail.items || [], true)}
-
-            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div className="bg-gray-50 p-3 rounded-xl">
-                <div className="text-gray-500 text-xs mb-1">امضای درخواست‌کننده</div>
-                <div className="font-bold">{detail.user_name}</div>
-                <div className="text-xs text-gray-400">{toJalali(detail.created_at)}</div>
-              </div>
-              <div className="bg-gray-50 p-3 rounded-xl">
-                <div className="text-gray-500 text-xs mb-1">تایید انبار</div>
-                <div className="font-bold">{detail.warehouse_name || '-'}</div>
-                <div className="text-xs text-gray-400">{detail.warehouse_date ? toJalali(detail.warehouse_date) : 'در انتظار'}</div>
-              </div>
-              <div className="bg-gray-50 p-3 rounded-xl">
-                <div className="text-gray-500 text-xs mb-1">تایید مدیر کارخانه</div>
-                <div className="font-bold">{detail.factory_manager_name || '-'}</div>
-                <div className="text-xs text-gray-400">{detail.factory_manager_date ? toJalali(detail.factory_manager_date) : 'در انتظار'}</div>
-              </div>
-              <div className="bg-gray-50 p-3 rounded-xl">
-                <div className="text-gray-500 text-xs mb-1">تایید واحد بودجه</div>
-                <div className="font-bold">{detail.budget_name || '-'}</div>
-                <div className="text-xs text-gray-400">{detail.budget_date ? toJalali(detail.budget_date) : 'در انتظار'}</div>
-              </div>
-            </div>
-
-            {canApprove(detail) && (
-              <div className="flex gap-3 mt-4 pt-4 border-t">
-                <button onClick={() => { approveRequest(detail.id); setDetail(null); }} className="bg-green-500 text-white px-6 py-2.5 rounded-xl text-sm font-medium hover:bg-green-600 transition-all shadow-sm">تایید</button>
-                <button onClick={() => { rejectRequest(detail.id); setDetail(null); }} className="bg-red-500 text-white px-6 py-2.5 rounded-xl text-sm font-medium hover:bg-red-600 transition-all shadow-sm">رد</button>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -353,47 +371,78 @@ export default function Purchase() {
             <p className="text-gray-400 text-sm">درخواستی وجود ندارد</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50/80"><tr>
-              <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">شماره</th>
-              <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">تاریخ</th>
-              <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">واحد</th>
-              <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">اقلام</th>
-              <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">وضعیت</th>
-              <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">عملیات</th>
-            </tr></thead>
-            <tbody>
+          <div>
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50/80"><tr>
+                  <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">شماره</th>
+                  <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">تاریخ</th>
+                  <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">واحد</th>
+                  <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">اقلام</th>
+                  <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">وضعیت</th>
+                  <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase">عملیات</th>
+                </tr></thead>
+                <tbody>
+                  {requests.map(r => (
+                    <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50/50 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs">{r.request_number}</td>
+                      <td className="px-4 py-3 text-xs">{toJalali(r.created_at)}</td>
+                      <td className="px-4 py-3 text-xs">{r.department || r.department_name || '-'}</td>
+                      <td className="px-4 py-3 text-xs">
+                        <button onClick={() => loadDetail(r.id)} className="text-primary-500 hover:text-primary-700 underline">مشاهده</button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${(statusMap[r.status] || statusMap.pending_supervisor).color}`}>
+                          {(statusMap[r.status] || statusMap.pending_supervisor).text}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1.5">
+                          <button onClick={() => loadDetail(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-600 transition-all">جزئیات</button>
+                          {canApprove(r) && (
+                            <>
+                              <button onClick={() => approveRequest(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-all shadow-sm">تایید</button>
+                              <button onClick={() => rejectRequest(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-all shadow-sm">رد</button>
+                            </>
+                          )}
+                          {r.user_id === user.id && r.status === 'pending_supervisor' && (
+                            <button onClick={() => deleteRequest(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-600 transition-all">حذف</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="sm:hidden divide-y divide-gray-100">
               {requests.map(r => (
-                <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs">{r.request_number}</td>
-                  <td className="px-4 py-3 text-xs">{toJalali(r.created_at)}</td>
-                  <td className="px-4 py-3 text-xs">{r.department || r.department_name || '-'}</td>
-                  <td className="px-4 py-3 text-xs">
-                    <button onClick={() => loadDetail(r.id)} className="text-primary-500 hover:text-primary-700 underline">مشاهده اقلام</button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${(statusMap[r.status] || statusMap.pending_supervisor).color}`}>
+                <div key={r.id} className="p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs text-gray-500">{r.request_number}</span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${(statusMap[r.status] || statusMap.pending_supervisor).color}`}>
                       {(statusMap[r.status] || statusMap.pending_supervisor).text}
                     </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-1.5">
-                      <button onClick={() => loadDetail(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-600 transition-all">جزئیات</button>
-                      {canApprove(r) && (
-                        <>
-                          <button onClick={() => approveRequest(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-all shadow-sm">تایید</button>
-                          <button onClick={() => rejectRequest(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-all shadow-sm">رد</button>
-                        </>
-                      )}
-                      {r.user_id === user.id && r.status === 'pending_supervisor' && (
-                        <button onClick={() => deleteRequest(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-600 transition-all">حذف</button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+                  </div>
+                  <div className="text-xs text-gray-500">{toJalali(r.created_at)}</div>
+                  <div className="text-sm font-medium">{r.department || r.department_name || '-'}</div>
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={() => loadDetail(r.id)} className="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all">جزئیات</button>
+                    {canApprove(r) && (
+                      <>
+                        <button onClick={() => approveRequest(r.id)} className="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-all">تایید</button>
+                        <button onClick={() => rejectRequest(r.id)} className="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-all">رد</button>
+                      </>
+                    )}
+                    {r.user_id === user.id && r.status === 'pending_supervisor' && (
+                      <button onClick={() => deleteRequest(r.id)} className="px-3 py-2 rounded-lg text-xs font-medium bg-gray-100 text-gray-500 hover:text-red-600 transition-all">حذف</button>
+                    )}
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </div>
         )}
       </div>
     </div>
