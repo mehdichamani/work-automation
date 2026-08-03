@@ -110,7 +110,7 @@ export default function Purchase() {
   const [activeTab, setActiveTab] = useState('my');
   const [detail, setDetail] = useState(null);
   const [items, setItems] = useState([{ ...emptyItem }]);
-  const [formData, setFormData] = useState({ department: '', urgency: 'normal', reason: '' });
+  const [formData, setFormData] = useState({ department: user.department_name || '', urgency: 'normal', reason: '' });
 
   useEffect(() => { loadRequests(); }, [activeTab]);
 
@@ -148,7 +148,7 @@ export default function Purchase() {
       toast.success('درخواست ثبت شد');
       setShowForm(false);
       setItems([{ ...emptyItem }]);
-      setFormData({ department: '', urgency: 'normal', reason: '' });
+      setFormData({ department: user.department_name || '', urgency: 'normal', reason: '' });
       loadRequests();
     } catch (err) { toast.error(err.response?.data?.error || 'خطا'); }
     finally { setSubmitLoading(false); }
@@ -231,8 +231,8 @@ export default function Purchase() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">واحد متقاضی *</label>
-                    <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500" placeholder="نام واحد سازمانی" value={formData.department} onChange={e => setFormData({ ...formData, department: e.target.value })} />
+                    <label className="block text-xs text-gray-500 mb-1">واحد متقاضی</label>
+                    <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-100 text-gray-600 cursor-not-allowed" value={formData.department} readOnly />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">فوریت</label>
