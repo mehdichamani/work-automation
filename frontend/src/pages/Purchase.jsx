@@ -16,7 +16,7 @@ const statusMap = {
   rejected: { text: 'رد شده', color: 'bg-red-100 text-red-700' },
 };
 
-function ItemCard({ item, index, readOnly, onUpdate, onRemove, canRemove }) {
+function ItemCard({ item, index, readOnly, onUpdate, onRemove, canRemove, codeEditable }) {
   if (readOnly) {
     return (
       <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
@@ -67,11 +67,13 @@ function ItemCard({ item, index, readOnly, onUpdate, onRemove, canRemove }) {
         <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="شرح کالا" value={item.description} onChange={e => onUpdate(index, 'description', e.target.value)} />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">کد کالا</label>
-          <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="کد" value={item.item_code} onChange={e => onUpdate(index, 'item_code', e.target.value)} />
-        </div>
-        <div>
+        {codeEditable && (
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">کد کالا</label>
+            <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500" placeholder="کد کالا" value={item.item_code} onChange={e => onUpdate(index, 'item_code', e.target.value)} />
+          </div>
+        )}
+        <div className={codeEditable ? '' : 'col-span-2'}>
           <label className="block text-xs text-gray-500 mb-1">محل خرید</label>
           <div className="flex gap-1 bg-white border border-gray-200 rounded-xl overflow-hidden">
             <button type="button" onClick={() => onUpdate(index, 'purchase_location', 'Tehran')} className={`flex-1 py-2.5 text-xs font-medium transition-all ${item.purchase_location === 'Tehran' ? 'bg-primary-500 text-white' : 'text-gray-500'}`}>تهران</button>
@@ -113,6 +115,7 @@ export default function Purchase() {
   const [showForm, setShowForm] = useState(false);
   const [activeTab, setActiveTab] = useState('my');
   const [detail, setDetail] = useState(null);
+  const [detailItems, setDetailItems] = useState([]);
   const [items, setItems] = useState([{ ...emptyItem }]);
   const [formData, setFormData] = useState({ department: user.department_name || '', urgency: 'normal', reason: '' });
 
@@ -132,8 +135,17 @@ export default function Purchase() {
     try {
       const res = await api.get(`/purchase/${id}`);
       setDetail(res.data.request);
+      setDetailItems((res.data.request.items || []).map(it => ({ ...it })));
     } catch (err) { toast.error('خطا در بارگذاری جزئیات'); }
   };
+
+  const updateDetailItem = (i, field, value) => {
+    const newItems = [...detailItems];
+    newItems[i][field] = value;
+    setDetailItems(newItems);
+  };
+
+  const isWarehouseStage = detail && detail.status === 'pending_warehouse' && user.role === 'admin';
 
   const addItem = () => setItems([...items, { ...emptyItem }]);
   const removeItem = (i) => setItems(items.filter((_, idx) => idx !== i));
@@ -160,7 +172,11 @@ export default function Purchase() {
 
   const approveRequest = async (id) => {
     try {
-      await api.post(`/purchase/${id}/approve`, { comment: '' });
+      const payload = { comment: '' };
+      if (detail && detail.id === id && detail.status === 'pending_warehouse') {
+        payload.items = detailItems;
+      }
+      await api.post(`/purchase/${id}/approve`, payload);
       toast.success('تایید شد');
       loadRequests();
       if (detail && detail.id === id) loadDetail(id);
@@ -253,7 +269,7 @@ export default function Purchase() {
                     <button onClick={addItem} className="text-primary-500 text-xs font-medium hover:text-primary-600">+ افزودن ردیف</button>
                   </div>
                   {items.map((item, i) => (
-                    <ItemCard key={i} item={item} index={i} readOnly={false} onUpdate={updateItem} onRemove={removeItem} canRemove={items.length > 1} />
+                    <ItemCard key={i} item={item} index={i} readOnly={false} codeEditable={false} onUpdate={updateItem} onRemove={removeItem} canRemove={items.length > 1} />
                   ))}
                 </div>
 
@@ -314,10 +330,22 @@ export default function Purchase() {
                 </div>
 
                 <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">اقلام درخواستی</h4>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">
+                    اقلام درخواستی
+                    {isWarehouseStage && <span className="text-xs font-normal text-gray-400 mr-2">کد کالاها توسط انبار تکمیل میشود</span>}
+                  </h4>
                   <div className="space-y-3">
-                    {(detail.items || []).map((item, i) => (
-                      <ItemCard key={i} item={item} index={i} readOnly={true} />
+                    {(isWarehouseStage ? detailItems : (detail.items || [])).map((item, i) => (
+                      <ItemCard
+                        key={i}
+                        item={item}
+                        index={i}
+                        readOnly={!isWarehouseStage}
+                        codeEditable={isWarehouseStage}
+                        onUpdate={updateDetailItem}
+                        onRemove={() => {}}
+                        canRemove={false}
+                      />
                     ))}
                   </div>
                 </div>
