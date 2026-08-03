@@ -28,6 +28,23 @@ function formatDateTime(dt) {
   return timePart ? `${datePart} — ساعت ${timePart}` : datePart;
 }
 
+function isThursday(dateStr) {
+  if (!dateStr) return false;
+  return moment(dateStr, 'jYYYY/jMM/jDD').day() === 4;
+}
+
+function getHourOptions(maxHour) {
+  const options = [];
+  for (let h = 8; h <= maxHour; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      if (h === maxHour && m > 0) break;
+      const time = `${String(h).padStart(2, '0')}:${m === 0 ? '00' : '30'}`;
+      options.push(time);
+    }
+  }
+  return options;
+}
+
 export default function Leave() {
   const { user, hasPermission } = useAuth();
   const [tab, setTab] = useState('my');
@@ -622,25 +639,9 @@ export default function Leave() {
                   <label className="block text-sm font-medium mb-1">ساعت شروع</label>
                   <select value={form.start_hour} onChange={(e) => setForm({...form, start_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
                     <option value="">انتخاب ساعت</option>
-                    <option value="08:00">08:00</option>
-                    <option value="08:30">08:30</option>
-                    <option value="09:00">09:00</option>
-                    <option value="09:30">09:30</option>
-                    <option value="10:00">10:00</option>
-                    <option value="10:30">10:30</option>
-                    <option value="11:00">11:00</option>
-                    <option value="11:30">11:30</option>
-                    <option value="12:00">12:00</option>
-                    <option value="12:30">12:30</option>
-                    <option value="13:00">13:00</option>
-                    <option value="13:30">13:30</option>
-                    <option value="14:00">14:00</option>
-                    <option value="14:30">14:30</option>
-                    <option value="15:00">15:00</option>
-                    <option value="15:30">15:30</option>
-                    <option value="16:00">16:00</option>
-                    <option value="16:30">16:30</option>
-                    <option value="17:00">17:00</option>
+                    {getHourOptions(isThursday(form.start_date) ? 12 : 17).map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -665,25 +666,9 @@ export default function Leave() {
                   <label className="block text-sm font-medium mb-1">ساعت پایان</label>
                   <select value={form.end_hour} onChange={(e) => setForm({...form, end_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
                     <option value="">انتخاب ساعت</option>
-                    <option value="08:00">08:00</option>
-                    <option value="08:30">08:30</option>
-                    <option value="09:00">09:00</option>
-                    <option value="09:30">09:30</option>
-                    <option value="10:00">10:00</option>
-                    <option value="10:30">10:30</option>
-                    <option value="11:00">11:00</option>
-                    <option value="11:30">11:30</option>
-                    <option value="12:00">12:00</option>
-                    <option value="12:30">12:30</option>
-                    <option value="13:00">13:00</option>
-                    <option value="13:30">13:30</option>
-                    <option value="14:00">14:00</option>
-                    <option value="14:30">14:30</option>
-                    <option value="15:00">15:00</option>
-                    <option value="15:30">15:30</option>
-                    <option value="16:00">16:00</option>
-                    <option value="16:30">16:30</option>
-                    <option value="17:00">17:00</option>
+                    {getHourOptions(isThursday(form.end_date) ? 12 : 17).map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -736,25 +721,9 @@ export default function Leave() {
                   <label className="block text-sm font-medium mb-1">ساعت شروع</label>
                   <select value={editForm.start_hour} onChange={(e) => setEditForm({...editForm, start_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
                     <option value="">انتخاب ساعت</option>
-                    <option value="08:00">08:00</option>
-                    <option value="08:30">08:30</option>
-                    <option value="09:00">09:00</option>
-                    <option value="09:30">09:30</option>
-                    <option value="10:00">10:00</option>
-                    <option value="10:30">10:30</option>
-                    <option value="11:00">11:00</option>
-                    <option value="11:30">11:30</option>
-                    <option value="12:00">12:00</option>
-                    <option value="12:30">12:30</option>
-                    <option value="13:00">13:00</option>
-                    <option value="13:30">13:30</option>
-                    <option value="14:00">14:00</option>
-                    <option value="14:30">14:30</option>
-                    <option value="15:00">15:00</option>
-                    <option value="15:30">15:30</option>
-                    <option value="16:00">16:00</option>
-                    <option value="16:30">16:30</option>
-                    <option value="17:00">17:00</option>
+                    {getHourOptions(isThursday(editForm.start_date) ? 12 : 17).map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -778,25 +747,9 @@ export default function Leave() {
                   <label className="block text-sm font-medium mb-1">ساعت پایان</label>
                   <select value={editForm.end_hour} onChange={(e) => setEditForm({...editForm, end_hour: e.target.value})} className="w-full px-4 py-3 border rounded-xl" dir="ltr">
                     <option value="">انتخاب ساعت</option>
-                    <option value="08:00">08:00</option>
-                    <option value="08:30">08:30</option>
-                    <option value="09:00">09:00</option>
-                    <option value="09:30">09:30</option>
-                    <option value="10:00">10:00</option>
-                    <option value="10:30">10:30</option>
-                    <option value="11:00">11:00</option>
-                    <option value="11:30">11:30</option>
-                    <option value="12:00">12:00</option>
-                    <option value="12:30">12:30</option>
-                    <option value="13:00">13:00</option>
-                    <option value="13:30">13:30</option>
-                    <option value="14:00">14:00</option>
-                    <option value="14:30">14:30</option>
-                    <option value="15:00">15:00</option>
-                    <option value="15:30">15:30</option>
-                    <option value="16:00">16:00</option>
-                    <option value="16:30">16:30</option>
-                    <option value="17:00">17:00</option>
+                    {getHourOptions(isThursday(editForm.end_date) ? 12 : 17).map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1811,14 +1764,9 @@ export default function Leave() {
                       className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
                     >
                       <option value="">انتخاب ساعت</option>
-                      {Array.from({ length: 19 }, (_, i) => {
-                        const h = Math.floor(i / 2) + 8;
-                        const m = i % 2 === 0 ? '00' : '30';
-                        const time = `${String(h).padStart(2, '0')}:${m}`;
-                        return (
-                          <option key={time} value={time}>{time}</option>
-                        );
-                      })}
+                      {getHourOptions(isThursday(modForm.end_date) ? 12 : 17).map(t => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
                     </select>
                   </div>
 
