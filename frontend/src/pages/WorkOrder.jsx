@@ -75,7 +75,7 @@ export default function WorkOrder() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">درخواست کار داخلی</h1>
-        <button onClick={() => setShowForm(!showForm)} className="bg-primary-500 text-white px-4 py-2 rounded-lg hover:bg-primary-600">
+        <button onClick={() => setShowForm(!showForm)} className="bg-primary-500 text-white px-4 py-2 min-h-[44px] rounded-lg hover:bg-primary-600">
           + درخواست جدید
         </button>
       </div>
@@ -83,7 +83,7 @@ export default function WorkOrder() {
       <div className="flex gap-2 border-b pb-2">
         {['my', 'all'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-t-lg text-sm ${activeTab === tab ? 'bg-primary-500 text-white' : 'bg-gray-100'}`}>
+            className={`px-4 py-2 min-h-[44px] rounded-t-lg text-sm ${activeTab === tab ? 'bg-primary-500 text-white' : 'bg-gray-100'}`}>
             {tab === 'my' ? 'درخواست‌های من' : 'همه درخواست‌ها'}
           </button>
         ))}
@@ -92,21 +92,21 @@ export default function WorkOrder() {
       {showForm && (
         <div className="bg-white rounded-xl p-6 shadow-sm border">
           <h3 className="font-bold mb-4">ثبت درخواست کار جدید</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <input className="border rounded-lg p-2 text-sm" placeholder="عنوان کار" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
-            <input className="border rounded-lg p-2 text-sm" placeholder="نوع کار" value={formData.work_type} onChange={e => setFormData({ ...formData, work_type: e.target.value })} />
-            <textarea className="col-span-2 border rounded-lg p-2 text-sm" placeholder="توضیحات" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
-            <select className="border rounded-lg p-2 text-sm" value={formData.priority} onChange={e => setFormData({ ...formData, priority: e.target.value })}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <input className="w-full border rounded-lg p-2 text-sm" placeholder="عنوان کار" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
+            <input className="w-full border rounded-lg p-2 text-sm" placeholder="نوع کار" value={formData.work_type} onChange={e => setFormData({ ...formData, work_type: e.target.value })} />
+            <textarea className="col-span-2 w-full border rounded-lg p-2 text-sm" placeholder="توضیحات" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
+            <select className="w-full border rounded-lg p-2 text-sm" value={formData.priority} onChange={e => setFormData({ ...formData, priority: e.target.value })}>
               <option value="low">اولویت پایین</option>
               <option value="normal">اولویت متوسط</option>
               <option value="high">اولویت بالا</option>
             </select>
-            <input className="border rounded-lg p-2 text-sm" placeholder="هزینه تقریبی" value={formData.estimated_cost} onChange={e => setFormData({ ...formData, estimated_cost: e.target.value })} />
+            <input className="w-full border rounded-lg p-2 text-sm" placeholder="هزینه تقریبی" value={formData.estimated_cost} onChange={e => setFormData({ ...formData, estimated_cost: e.target.value })} />
             <JalaliDatePicker value={formData.deadline} onChange={(v) => setFormData({ ...formData, deadline: v })} placeholder="مهلت اجرا" />
           </div>
           <div className="flex gap-2 mt-4">
-            <button onClick={submitRequest} className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm">ثبت</button>
-            <button onClick={() => setShowForm(false)} className="bg-gray-200 px-4 py-2 rounded-lg text-sm">انصراف</button>
+            <button onClick={submitRequest} className="bg-green-500 text-white px-4 py-2 min-h-[44px] rounded-lg text-sm">ثبت</button>
+            <button onClick={() => setShowForm(false)} className="bg-gray-200 px-4 py-2 min-h-[44px] rounded-lg text-sm">انصراف</button>
           </div>
         </div>
       )}
@@ -115,48 +115,50 @@ export default function WorkOrder() {
         {loading ? <div className="p-8 text-center">در حال بارگذاری...</div> : requests.length === 0 ? (
           <div className="p-8 text-center text-gray-400">درخواستی وجود ندارد</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50"><tr>
-              <th className="p-3 text-right">شماره</th>
-              <th className="p-3 text-right">عنوان</th>
-              <th className="p-3 text-right">نوع</th>
-              <th className="p-3 text-right">اولویت</th>
-              <th className="p-3 text-right">مهلت</th>
-              <th className="p-3 text-right">وضعیت</th>
-              <th className="p-3 text-right">عملیات</th>
-            </tr></thead>
-            <tbody>
-              {requests.map(r => (
-                <tr key={r.id} className="border-t hover:bg-gray-50">
-                  <td className="p-3 font-mono text-xs">{r.request_number}</td>
-                  <td className="p-3 text-sm font-medium">{r.title}</td>
-                  <td className="p-3 text-xs">{r.work_type}</td>
-                  <td className="p-3">{priorityBadge(r.priority)}</td>
-                  <td className="p-3 text-xs">{r.deadline ? toJalali(r.deadline) : '-'}</td>
-                  <td className="p-3">{statusBadge(r.status)}</td>
-                  <td className="p-3">
-                    <div className="flex gap-1">
-                      {r.status === 'pending_supervisor' && (user.role === 'supervisor' || user.role === 'admin') && (
-                        <>
-                          <button onClick={() => approveRequest(r.id)} className="text-green-600 text-xs hover:underline">تایید</button>
-                          <button onClick={() => rejectRequest(r.id)} className="text-red-600 text-xs hover:underline">رد</button>
-                        </>
-                      )}
-                      {r.status === 'pending_manager' && (user.role === 'manager' || user.role === 'admin') && (
-                        <>
-                          <button onClick={() => approveRequest(r.id)} className="text-green-600 text-xs hover:underline">تایید</button>
-                          <button onClick={() => rejectRequest(r.id)} className="text-red-600 text-xs hover:underline">رد</button>
-                        </>
-                      )}
-                      {r.user_id === user.id && r.status === 'pending_supervisor' && (
-                        <button onClick={() => deleteRequest(r.id)} className="text-red-400 text-xs hover:underline">حذف</button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50"><tr>
+                <th className="p-3 text-right">شماره</th>
+                <th className="p-3 text-right">عنوان</th>
+                <th className="p-3 text-right">نوع</th>
+                <th className="p-3 text-right">اولویت</th>
+                <th className="p-3 text-right">مهلت</th>
+                <th className="p-3 text-right">وضعیت</th>
+                <th className="p-3 text-right">عملیات</th>
+              </tr></thead>
+              <tbody>
+                {requests.map(r => (
+                  <tr key={r.id} className="border-t hover:bg-gray-50">
+                    <td className="p-3 font-mono text-xs">{r.request_number}</td>
+                    <td className="p-3 text-sm font-medium">{r.title}</td>
+                    <td className="p-3 text-xs">{r.work_type}</td>
+                    <td className="p-3">{priorityBadge(r.priority)}</td>
+                    <td className="p-3 text-xs">{r.deadline ? toJalali(r.deadline) : '-'}</td>
+                    <td className="p-3">{statusBadge(r.status)}</td>
+                    <td className="p-3">
+                      <div className="flex gap-1">
+                        {r.status === 'pending_supervisor' && (user.role === 'supervisor' || user.role === 'admin') && (
+                          <>
+                            <button onClick={() => approveRequest(r.id)} className="text-green-600 text-xs hover:underline px-3 py-2 min-h-[44px]">تایید</button>
+                            <button onClick={() => rejectRequest(r.id)} className="text-red-600 text-xs hover:underline px-3 py-2 min-h-[44px]">رد</button>
+                          </>
+                        )}
+                        {r.status === 'pending_manager' && (user.role === 'manager' || user.role === 'admin') && (
+                          <>
+                            <button onClick={() => approveRequest(r.id)} className="text-green-600 text-xs hover:underline px-3 py-2 min-h-[44px]">تایید</button>
+                            <button onClick={() => rejectRequest(r.id)} className="text-red-600 text-xs hover:underline px-3 py-2 min-h-[44px]">رد</button>
+                          </>
+                        )}
+                        {r.user_id === user.id && r.status === 'pending_supervisor' && (
+                          <button onClick={() => deleteRequest(r.id)} className="text-red-400 text-xs hover:underline px-3 py-2 min-h-[44px]">حذف</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

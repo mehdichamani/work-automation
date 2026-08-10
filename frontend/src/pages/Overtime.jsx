@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import JalaliCalendar from '../components/JalaliCalendar';
 import Pagination from '../components/Pagination';
 import { printTable } from '../utils/printUtils';
+import { toJalaliDateTime } from '../utils/dateUtils';
 
 const statusMap = {
   pending_supervisor: { text: 'در انتظار سرپرست', color: 'bg-blue-100 text-blue-700' },
@@ -15,14 +16,7 @@ const statusMap = {
   seen_security: { text: 'رویت شده (حراست)', color: 'bg-purple-100 text-purple-700' },
 };
 
-function formatDateTime(dt) {
-  if (!dt) return null;
-  const clean = dt.replace('T', ' ').replace('Z', '');
-  const parts = clean.split(' ');
-  const datePart = parts[0] || '';
-  const timePart = parts[1] ? parts[1].substring(0, 5) : '';
-  return timePart ? `${datePart} — ساعت ${timePart}` : datePart;
-}
+// (now using toJalaliDateTime from dateUtils.js)
 
 function isThursday(dateStr) {
   if (!dateStr) return false;
@@ -710,19 +704,20 @@ export default function Overtime() {
                 🖨️ چاپ
               </button>
             </div>
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="p-3 text-right">سازه زمانی</th>
-                  <th className="p-3 text-right">مدت</th>
-                  <th className="p-3 text-right">وضعیت</th>
-                  <th className="p-3 text-right">توضیحات و فرآیند تایید</th>
-                  <th className="p-3 text-right">عملیات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {myRequests.map(reqItem => (
-                  <tr key={reqItem.id} className="border-t hover:bg-gray-50">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="p-3 text-right">سازه زمانی</th>
+                    <th className="p-3 text-right">مدت</th>
+                    <th className="p-3 text-right">وضعیت</th>
+                    <th className="p-3 text-right">توضیحات و فرآیند تایید</th>
+                    <th className="p-3 text-right">عملیات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {myRequests.map(reqItem => (
+                    <tr key={reqItem.id} className="border-t hover:bg-gray-50">
                     <td className="p-3 text-gray-700">
                       از {reqItem.start_date} ساعت {reqItem.start_hour} <br/>
                       تا {reqItem.end_date} ساعت {reqItem.end_hour}
@@ -789,7 +784,7 @@ export default function Overtime() {
                       placeholder="توضیحات"
                       value={comments[reqItem.id] || ''}
                       onChange={(e) => setComments({ ...comments, [reqItem.id]: e.target.value })}
-                      className="px-3 py-2 border rounded-lg text-sm w-40"
+                      className="px-3 py-2 border rounded-lg text-sm w-full sm:w-40"
                     />
                     <button onClick={() => approveSupervisor(reqItem.id)} className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium">تایید</button>
                     <button onClick={() => rejectSupervisor(reqItem.id)} className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium">رد</button>
@@ -818,7 +813,7 @@ export default function Overtime() {
                     )}
                   </div>
                   <div className="flex gap-2">
-                    <input type="text" placeholder="توضیحات" value={comments[reqItem.id] || ''} onChange={(e) => setComments({ ...comments, [reqItem.id]: e.target.value })} className="px-3 py-2 border rounded-lg text-sm w-40" />
+                    <input type="text" placeholder="توضیحات" value={comments[reqItem.id] || ''} onChange={(e) => setComments({ ...comments, [reqItem.id]: e.target.value })} className="px-3 py-2 border rounded-lg text-sm w-full sm:w-40" />
                     <button onClick={() => approveManager(reqItem.id)} className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium">تایید</button>
                     <button onClick={() => rejectManager(reqItem.id)} className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium">رد</button>
                   </div>
@@ -856,7 +851,7 @@ export default function Overtime() {
                   placeholder="جستجو نام..."
                   value={allRequestsSearch}
                   onChange={(e) => setAllRequestsSearch(e.target.value)}
-                  className="px-3 py-2 border rounded-xl text-sm w-64"
+                  className="px-3 py-2 border rounded-xl text-sm w-full sm:w-64"
                 />
                 <p className="text-sm text-gray-500">{allRequestsTotal} درخواست</p>
               </div>
@@ -895,16 +890,16 @@ export default function Overtime() {
                       {reqItem.reason && <div><span className="font-semibold text-gray-600">دلیل:</span> {reqItem.reason}</div>}
                       {reqItem.supervisor_name && <div className="text-blue-600"><span className="font-semibold">تایید سرپرست:</span> {reqItem.supervisor_name} {reqItem.supervisor_comment ? `(${reqItem.supervisor_comment})` : ''}</div>}
                       {reqItem.manager_name && <div className="text-green-600"><span className="font-semibold">تایید مدیر:</span> {reqItem.manager_name} {reqItem.manager_comment ? `(${reqItem.manager_comment})` : ''}</div>}
-                      {reqItem.security_name && <div className="text-purple-600"><span className="font-semibold">رویت حراست:</span> {reqItem.security_name} {reqItem.security_date ? `(${formatDateTime(reqItem.security_date)})` : ''}</div>}
-                      {reqItem.edited_by && <div className="text-orange-600 font-medium"><span className="font-semibold">اصلاح توسط:</span> {reqItem.editor_name} {reqItem.edited_at ? `(${formatDateTime(reqItem.edited_at)})` : ''} {reqItem.edit_reason ? `- علت: ${reqItem.edit_reason}` : ''}</div>}
+                      {reqItem.security_name && <div className="text-purple-600"><span className="font-semibold">رویت حراست:</span> {reqItem.security_name} {reqItem.security_date ? `(${toJalaliDateTime(reqItem.security_date)})` : ''}</div>}
+                      {reqItem.edited_by && <div className="text-orange-600 font-medium"><span className="font-semibold">اصلاح توسط:</span> {reqItem.editor_name} {reqItem.edited_at ? `(${toJalaliDateTime(reqItem.edited_at)})` : ''} {reqItem.edit_reason ? `- علت: ${reqItem.edit_reason}` : ''}</div>}
                     </td>
                     <td className="p-3">
                       <div className="flex gap-2">
                         {user.role === 'admin' && (
-                          <button onClick={() => adminDeleteRequest(reqItem.id)} className="bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded text-xs transition-colors">حذف ادمین</button>
+                           <button onClick={() => adminDeleteRequest(reqItem.id)} className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded text-xs transition-colors">حذف ادمین</button>
                         )}
                         {reqItem.status === 'seen_security' && !reqItem.edited_by && (hasPermission('overtime_edit_after_seen') || user.role === 'admin') && (
-                          <button onClick={() => openModifyRequest(reqItem)} className="bg-orange-50 hover:bg-orange-100 text-orange-600 px-2 py-1 rounded text-xs transition-colors">کاهش/اصلاح</button>
+                           <button onClick={() => openModifyRequest(reqItem)} className="bg-orange-50 hover:bg-orange-100 text-orange-600 px-3 py-2 rounded text-xs transition-colors">کاهش/اصلاح</button>
                         )}
                       </div>
                     </td>

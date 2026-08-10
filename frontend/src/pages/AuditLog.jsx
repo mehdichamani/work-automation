@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
+import { toJalaliDateTime } from '../utils/dateUtils';
 
 export default function AuditLog() {
   const [logs, setLogs] = useState([]);
@@ -55,6 +56,7 @@ export default function AuditLog() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50/80">
               <tr>
@@ -68,7 +70,7 @@ export default function AuditLog() {
             <tbody className="divide-y divide-gray-100">
               {logs.map((log) => (
                 <tr key={log.id} className="hover:bg-gray-50/50">
-                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{new Date(log.created_at).toLocaleString('fa-IR')}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{toJalaliDateTime(log.created_at)}</td>
                   <td className="px-4 py-3 text-sm">{log.user_name || '-'}</td>
                   <td className="px-4 py-3 text-sm"><span className="bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full text-xs">{moduleLabels[log.module_name] || log.module_name}</span></td>
                   <td className="px-4 py-3 text-sm text-gray-600">{log.action}</td>
@@ -80,6 +82,7 @@ export default function AuditLog() {
               )}
             </tbody>
           </table>
+          </div>
           <div className="flex justify-center gap-2 p-4">
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50">قبلی</button>
             <span className="px-3 py-1 text-sm text-gray-500">صفحه {page}</span>

@@ -167,7 +167,7 @@ export function printLetter(letter, history = []) {
       
       <div class="meta">
         <div class="meta-item"><span class="meta-label">شماره:</span><span class="meta-value">${escapeHtml(letter.letter_number) || '-'}</span></div>
-        <div class="meta-item"><span class="meta-label">تاریخ ثبت:</span><span class="meta-value">${letter.created_at?.split('T')[0] || '-'}</span></div>
+        <div class="meta-item"><span class="meta-label">تاریخ ثبت:</span><span class="meta-value">${jalaliDate(letter.created_at) || '-'}</span></div>
         <div class="meta-item">
           <span class="meta-label">اولویت:</span>
           <span class="priority priority-${letter.priority}">${{normal:'عادی',important:'مهم',very_important:'خیلی مهم'}[letter.priority] || letter.priority}</span>
@@ -198,7 +198,7 @@ export function printLetter(letter, history = []) {
             <div class="history-item">
               <span class="history-badge" style="background:${{created:'#3b82f6',sent_to_manager:'#eab308',approved:'#22c55e',rejected:'#ef4444',archived:'#8b5cf6',forwarded:'#6366f1',seen_unit:'#6b7280'}[h.action] || '#6b7280'}">${{created:'ثبت',sent_to_manager:'ارسال به مدیر',approved:'تایید',rejected:'رد',archived:'بایگانی',forwarded:'ارجاع',seen_unit:'رویت واحد'}[h.action] || h.action}</span>
               <span>${escapeHtml(h.user_name)}</span>
-              <span style="color:#9ca3af">${h.created_at?.replace('T', ' ').substring(0, 16) || ''}</span>
+              <span style="color:#9ca3af">${jalaliDate(h.created_at) || ''}</span>
               ${h.comment ? `<span style="color:#6b7280">- ${escapeHtml(h.comment)}</span>` : ''}
             </div>
           `).join('')}

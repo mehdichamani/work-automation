@@ -4,6 +4,7 @@ import api from '../api/axios';
 import toast from 'react-hot-toast';
 import Pagination from '../components/Pagination';
 import { printTable, printLetter } from '../utils/printUtils';
+import { toJalaliDateTime } from '../utils/dateUtils';
 
 const statusMap = {
   pending_central: { text: 'در انتظار سانترال', color: 'bg-blue-100 text-blue-700' },
@@ -497,7 +498,7 @@ export default function Letters() {
                   { key: 'subject', label: 'موضوع' },
 { key: 'priority', label: 'اولویت', render: (v) => ({priority_1:'اولویت 1',priority_2:'اولویت 2',priority_3:'اولویت 3'}[v] || v) },
                   { key: 'status', label: 'وضعیت', render: (v) => ({pending_central:'در انتظار سانترال',pending_manager:'در انتظار مدیر',approved:'تایید شده',rejected:'رد شده',archived:'بایگانی شده',forwarded:'ارجاع شده'}[v] || v) },
-                  { key: 'created_at', label: 'تاریخ', render: (v) => v?.split('T')[0] || '-' },
+                  { key: 'created_at', label: 'تاریخ', render: (v) => toJalaliDateTime(v) },
                 ], filteredMy)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
                   چاپ لیست
@@ -515,7 +516,7 @@ export default function Letters() {
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusMap[l.status]?.color}`}>{statusMap[l.status]?.text}</span>
                     </div>
                     <h4 className="font-bold text-sm">{l.subject}</h4>
-                    <p className="text-xs text-gray-500 mt-1">شماره: {l.letter_number || '-'} | {l.created_at?.split('T')[0]}</p>
+                    <p className="text-xs text-gray-500 mt-1">شماره: {l.letter_number || '-'} | {toJalaliDateTime(l.created_at)}</p>
                     {l.manager_name && <p className="text-xs text-gray-400 mt-0.5">مدیر: {l.manager_name}</p>}
                     {l.manager_comment && (
                       <p className={`text-xs mt-1 p-2 rounded-lg ${l.status === 'rejected' ? 'bg-red-50 text-red-700 font-medium border border-red-100' : 'bg-blue-50 text-blue-700'}`}>
@@ -784,8 +785,8 @@ export default function Letters() {
                  { key: 'manager_name', label: 'مدیر' },
                  { key: 'priority', label: 'اولویت', render: (v) => ({priority_1:'اولویت 1',priority_2:'اولویت 2',priority_3:'اولویت 3'}[v] || v) },
                  { key: 'status', label: 'وضعیت', render: (v) => ({archived:'بایگانی شده',forwarded:'ارجاع شده'}[v] || v) },
-                 { key: 'created_at', label: 'تاریخ', render: (v) => v?.split('T')[0] || '-' },
-               ], filteredArchived)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap">
+{ key: 'created_at', label: 'تاریخ', render: (v) => toJalaliDateTime(v) },
+                ], filteredArchived)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap">
                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
                  چاپ
                </button>
@@ -848,7 +849,7 @@ export default function Letters() {
                 { key: 'manager_name', label: 'مدیر' },
                 { key: 'priority', label: 'اولویت', render: (v) => ({priority_1:'اولویت 1',priority_2:'اولویت 2',priority_3:'اولویت 3'}[v] || v) },
                 { key: 'status', label: 'وضعیت', render: (v) => ({pending_central:'در انتظار سانترال',pending_manager:'در انتظار مدیر',approved:'تایید شده',rejected:'رد شده',archived:'بایگانی شده',forwarded:'ارجاع شده'}[v] || v) },
-                { key: 'created_at', label: 'تاریخ', render: (v) => v?.split('T')[0] || '-' },
+                { key: 'created_at', label: 'تاریخ', render: (v) => toJalaliDateTime(v) },
               ], filteredAll)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
                 چاپ لیست
@@ -877,7 +878,7 @@ export default function Letters() {
                       <td className="p-3 text-xs cursor-pointer" onClick={() => viewHistory(l.id)}>{l.manager_name || '-'}</td>
                       <td className="p-3 cursor-pointer" onClick={() => viewHistory(l.id)}><span className={`px-2 py-1 rounded text-xs ${priorityMap[l.priority]?.color}`}>{priorityMap[l.priority]?.text}</span></td>
                       <td className="p-3 cursor-pointer" onClick={() => viewHistory(l.id)}><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusMap[l.status]?.color}`}>{statusMap[l.status]?.text}</span></td>
-                      <td className="p-3 text-xs text-gray-500 cursor-pointer" onClick={() => viewHistory(l.id)}>{l.created_at?.split('T')[0]}</td>
+                      <td className="p-3 text-xs text-gray-500 cursor-pointer" onClick={() => viewHistory(l.id)}>{toJalaliDateTime(l.created_at)}</td>
                       <td className="p-3 text-center">
                         <button onClick={(e) => { e.stopPropagation(); printLetter(l); }} className="text-gray-400 hover:text-primary-500 p-1.5 rounded-lg hover:bg-gray-100 transition-colors" title="چاپ نامه">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>

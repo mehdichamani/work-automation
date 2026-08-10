@@ -10,8 +10,6 @@ const statusMap = {
   pending_supervisor: { text: 'در انتظار سرپرست', color: 'bg-blue-100 text-blue-700' },
   pending_manager: { text: 'در انتظار مدیر', color: 'bg-yellow-100 text-yellow-700' },
   pending_warehouse: { text: 'در انتظار انبار', color: 'bg-orange-100 text-orange-700' },
-  pending_factory_manager: { text: 'در انتظار مدیر کارخانه', color: 'bg-purple-100 text-purple-700' },
-  pending_budget: { text: 'در انتظار بودجه', color: 'bg-indigo-100 text-indigo-700' },
   approved: { text: 'تایید شده', color: 'bg-green-100 text-green-700' },
   rejected: { text: 'رد شده', color: 'bg-red-100 text-red-700' },
 };
@@ -207,8 +205,6 @@ export default function Purchase() {
     if (r.status === 'pending_supervisor' && (user.role === 'supervisor' || user.role === 'admin')) return true;
     if (r.status === 'pending_manager' && (user.role === 'manager' || user.role === 'admin')) return true;
     if (r.status === 'pending_warehouse' && user.role === 'admin') return true;
-    if (r.status === 'pending_factory_manager' && (user.role === 'manager' || user.role === 'admin')) return true;
-    if (r.status === 'pending_budget' && user.role === 'admin') return true;
     return false;
   };
 
@@ -363,18 +359,6 @@ export default function Purchase() {
                       <div className="font-bold text-sm">{detail.warehouse_name || <span className="text-gray-300">در انتظار</span>}</div>
                       {detail.warehouse_date && <div className="text-xs text-gray-400 mt-1">{toJalali(detail.warehouse_date)}</div>}
                       {detail.warehouse_comment && <div className="text-xs text-gray-500 mt-1 truncate">{detail.warehouse_comment}</div>}
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-xl">
-                      <div className="text-gray-400 text-xs mb-1">تایید مدیر کارخانه</div>
-                      <div className="font-bold text-sm">{detail.factory_manager_name || <span className="text-gray-300">در انتظار</span>}</div>
-                      {detail.factory_manager_date && <div className="text-xs text-gray-400 mt-1">{toJalali(detail.factory_manager_date)}</div>}
-                      {detail.factory_manager_comment && <div className="text-xs text-gray-500 mt-1 truncate">{detail.factory_manager_comment}</div>}
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-xl">
-                      <div className="text-gray-400 text-xs mb-1">تایید واحد بودجه</div>
-                      <div className="font-bold text-sm">{detail.budget_name || <span className="text-gray-300">در انتظار</span>}</div>
-                      {detail.budget_date && <div className="text-xs text-gray-400 mt-1">{toJalali(detail.budget_date)}</div>}
-                      {detail.budget_comment && <div className="text-xs text-gray-500 mt-1 truncate">{detail.budget_comment}</div>}
                     </div>
                   </div>
                 </div>

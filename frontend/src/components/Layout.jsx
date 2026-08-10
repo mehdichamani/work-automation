@@ -36,6 +36,7 @@ const menuItems = [
   { path: '/workflow', label: 'گردش کار', icon: '🔄', permission: 'workflow_view' },
   { path: '/signature', label: 'امضای دیجیتال', icon: '✍️', permission: 'signature_view' },
   { path: '/chat', label: 'چت داخلی', icon: '💬', permission: 'chat_view' },
+  { path: '/learning', label: 'آموزش', icon: '📚', permission: 'learning_view' },
 ];
 
 const roleLabels = {

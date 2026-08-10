@@ -4,6 +4,7 @@ import api from '../api/axios';
 import toast from 'react-hot-toast';
 import { printJobApplication } from '../utils/printUtils';
 import CameraCapture from '../components/CameraCapture';
+import { toJalali } from '../utils/dateUtils';
 
 const inputClass = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition";
 const inputDisabledClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700 outline-none";
@@ -222,7 +223,7 @@ export default function JobApplication() {
               {submittedData.application_number && (
                 <p className="text-sm text-amber-700 mt-1">شماره پرسشنامه: <span className="font-bold">{submittedData.application_number}</span></p>
               )}
-              <p className="text-sm text-amber-600 mt-1">تاریخ ثبت: <span className="font-bold">{submittedData.created_at ? new Date(submittedData.created_at).toLocaleDateString('fa-IR') : '-'}</span></p>
+              <p className="text-sm text-amber-600 mt-1">تاریخ ثبت: <span className="font-bold">{submittedData.created_at ? toJalali(submittedData.created_at) : '-'}</span></p>
               <p className="text-sm text-amber-600 mt-1">پرسشنامه شما ثبت شده و امکان ویرایش یا ثبت مجدد وجود ندارد.</p>
               {submittedData.status && (
                 <p className="text-sm text-amber-600 mt-1">وضعیت بررسی: <span className="font-bold">{submittedData.status === 'new' ? 'جدید' : submittedData.status === 'reviewed' ? 'بررسی شده' : submittedData.status === 'accepted' ? 'پذیرفته شده' : 'رد شده'}</span></p>

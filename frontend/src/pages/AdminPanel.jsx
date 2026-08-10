@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import { printJobApplication } from '../utils/printUtils';
+import { toJalali, toJalaliDateTime } from '../utils/dateUtils';
 import PermMatrixMode from '../components/PermMatrixMode';
 
 const roleLabels = { admin: 'مدیر سیستم', manager: 'مدیر', supervisor: 'سرپرست', user: 'کاربر', applicant: 'متقاضی استخدام' };
@@ -1027,7 +1028,7 @@ export default function AdminPanel() {
                       <tr key={i} className="border-t hover:bg-gray-50">
                         <td className="p-4 font-mono text-xs text-gray-700">{b.filename}</td>
                         <td className="p-4 text-gray-600">{formatSize(b.size)}</td>
-                        <td className="p-4 text-gray-600 text-xs">{new Date(b.created).toLocaleString('fa-IR')}</td>
+                        <td className="p-4 text-gray-600 text-xs">{toJalaliDateTime(b.created)}</td>
                         <td className="p-4">
                           <div className="flex gap-2">
                             <button onClick={() => downloadBackup(b.filename)} className="text-blue-500 hover:text-blue-700 text-xs font-medium px-3 py-1 rounded-lg hover:bg-blue-50 transition-colors">
@@ -1231,7 +1232,7 @@ export default function AdminPanel() {
                               {priorityLabels[a.priority]}
                             </span>
                             <span className="text-[10px] text-gray-400">
-                              توسط {a.creator_name || 'نامشخص'} • {new Date(a.created_at).toLocaleDateString('fa-IR')}
+                              توسط {a.creator_name || 'نامشخص'} • {toJalali(a.created_at)}
                             </span>
                           </div>
                         </div>
@@ -1433,7 +1434,7 @@ export default function AdminPanel() {
                       </td>
                           <td className="p-3">{a.education_level || '-'}</td>
                           <td className="p-3" dir="ltr">{a.phone_number || '-'}</td>
-                          <td className="p-3 text-xs">{new Date(a.created_at).toLocaleDateString('fa-IR')}</td>
+                          <td className="p-3 text-xs">{toJalali(a.created_at)}</td>
                           <td className="p-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${s.color}`}>{s.text}</span></td>
                           <td className="p-3">
                             <div className="flex gap-2">

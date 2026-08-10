@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
+import { toJalali, toJalaliDateTime } from '../utils/dateUtils';
 
 const CATEGORIES = {
   general: 'عمومی', hardware: 'سخت‌افزار', software: 'نرم‌افزار',
@@ -224,7 +225,7 @@ export default function ITRequest() {
                 <span className={`text-[10px] px-2 py-0.5 rounded ${STATUS_COLORS[r.status]}`}>
                   {STATUSES[r.status] || r.status}
                 </span>
-                <span className="text-[10px] text-gray-400">{new Date(r.created_at).toLocaleDateString('fa-IR')}</span>
+                <span className="text-[10px] text-gray-400">{toJalali(r.created_at)}</span>
               </div>
             </div>
           ))}
@@ -292,7 +293,7 @@ export default function ITRequest() {
                   }`}>
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-medium text-xs">{r.user_name || r.actor_name || 'سیستم'}</span>
-                      <span className="text-[10px] text-gray-400">{new Date(r.created_at || r.action_date).toLocaleString('fa-IR')}</span>
+                      <span className="text-[10px] text-gray-400">{toJalaliDateTime(r.created_at || r.action_date)}</span>
                     </div>
                     <p className="text-gray-700 whitespace-pre-wrap">{r.comment || r.action || ''}</p>
                   </div>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
-import { toJalali } from '../utils/dateUtils';
+import { toJalali, toJalaliDateTime } from '../utils/dateUtils';
 import JalaliDatePicker from '../components/JalaliDatePicker';
 import { printTable } from '../utils/printUtils';
 
@@ -173,7 +173,7 @@ export default function Repair() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-6">ثبت درخواست تعمیرات جدید</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">عنوان درخواست</label>
                 <input className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all" placeholder="عنوان درخواست" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
@@ -294,7 +294,7 @@ export default function Repair() {
                       <div key={i} className="text-xs bg-gray-50 p-2 rounded-lg">
                         <span className="font-medium">{h.user_name}</span> — {h.action}
                         {h.comment && <span className="text-gray-500"> ({h.comment})</span>}
-                        <span className="text-gray-400 mr-2">{new Date(h.created_at).toLocaleString('fa-IR')}</span>
+                        <span className="text-gray-400 mr-2">{toJalaliDateTime(h.created_at)}</span>
                       </div>
                     ))}
                   </div>
@@ -318,6 +318,7 @@ export default function Repair() {
             <p className="text-gray-400 text-sm">درخواستی وجود ندارد</p>
           </div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50/80"><tr>
               <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">شماره</th>
@@ -362,14 +363,14 @@ export default function Repair() {
                       <div className="flex gap-1.5">
                         {r.status === 'pending_supervisor' && (user.role === 'supervisor' || user.role === 'admin') && (
                           <>
-                            <button onClick={() => approveRequest(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-all shadow-sm">تایید</button>
-                            <button onClick={() => rejectRequest(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-all shadow-sm">رد</button>
+                            <button onClick={() => approveRequest(r.id)} className="px-3 py-2.5 rounded-lg text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-all shadow-sm">تایید</button>
+                            <button onClick={() => rejectRequest(r.id)} className="px-3 py-2.5 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-all shadow-sm">رد</button>
                           </>
                         )}
                         {r.status === 'pending_manager' && (user.role === 'manager' || user.role === 'admin') && (
                           <>
-                            <button onClick={() => approveRequest(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-all shadow-sm">تایید</button>
-                            <button onClick={() => rejectRequest(r.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-all shadow-sm">رد</button>
+                            <button onClick={() => approveRequest(r.id)} className="px-3 py-2.5 rounded-lg text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-all shadow-sm">تایید</button>
+                            <button onClick={() => rejectRequest(r.id)} className="px-3 py-2.5 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-all shadow-sm">رد</button>
                           </>
                         )}
                         {r.user_id === user.id && r.status === 'pending_supervisor' && (
@@ -382,6 +383,7 @@ export default function Repair() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

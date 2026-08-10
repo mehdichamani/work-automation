@@ -134,7 +134,7 @@ export default function SecurityReport() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl">
             <h3 className="font-bold text-lg mb-4">ثبت گزارش جدید</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="relative">
                 <label className="text-sm text-gray-600 mb-1 block">تاریخ <span className="text-red-500">*</span></label>
                 <button type="button" onClick={() => setShowDateCal(!showDateCal)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-left focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all" dir="ltr">

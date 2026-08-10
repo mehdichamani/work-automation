@@ -3,6 +3,7 @@ import api from '../api/axios';
 import moment from 'moment-jalaali';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { toJalali } from '../utils/dateUtils';
 
 const STATUS_MAP = {
   pending_central: { label: 'در انتظار سانترال', color: 'bg-yellow-100 text-yellow-800', icon: '⏳' },
@@ -238,7 +239,7 @@ export default function DailyWorkReport() {
                       <div className="w-8 h-8 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-xs font-bold shrink-0">{i + 1}</div>
                       <div>
                         <div className="font-medium">{h.user_name} — {h.action}</div>
-                        <div className="text-gray-500 text-xs">{h.created_at}</div>
+                        <div className="text-gray-500 text-xs">{toJalali(h.created_at)}</div>
                         {h.comment && <div className="text-gray-600 mt-1">{h.comment}</div>}
                       </div>
                     </div>

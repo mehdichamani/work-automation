@@ -1563,7 +1563,7 @@ async function initDatabase() {
     `);
   } catch (e) {}
 
-  try {
+try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS job_application_counter (
         id SERIAL PRIMARY KEY,
@@ -1573,6 +1573,75 @@ async function initDatabase() {
       );
     `);
   } catch (e) {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS educational_materials (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        category TEXT NOT NULL DEFAULT 'pdf',
+        file_url TEXT NOT NULL,
+        file_type TEXT,
+        file_size INTEGER DEFAULT 0,
+        thumbnail_url TEXT,
+        target_audience TEXT DEFAULT 'all',
+        tags TEXT[],
+        is_active BOOLEAN DEFAULT true,
+        uploaded_by INTEGER NOT NULL REFERENCES users(id),
+        view_count INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+        updated_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
+      );
+    `);
+  } catch (e) {}
+
+  // =========================================================================
+  // AUTO-UPDATE updated_at TRIGGER (equivalent of Mongoose timestamps: true)
+  // Creates updated_at column on all tables that have created_at but lack updated_at,
+  // and installs a trigger to auto-update it on every UPDATE.
+  // =========================================================================
+  try {
+    db.exec(`
+      CREATE OR REPLACE FUNCTION update_updated_at_column()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        NEW.updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text);
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+    `);
+  } catch (e) {}
+
+  const tablesNeedingUpdatedAt = [
+    'departments', 'users', 'leave_requests', 'leave_change_logs', 'official_holidays',
+    'letters', 'letter_attachments', 'inventory_items', 'cardex', 'restaurant_menu',
+    'restaurant_reservations', 'notifications', 'signatures', 'activity_log',
+    'work_shifts', 'user_shift_assignments', 'shift_change_requests', 'announcements',
+    'backup_logs', 'repair_external_items', 'repair_external_history',
+    'purchase_requests', 'mission_requests', 'work_orders', 'payment_requests',
+    'repair_requests', 'it_requests', 'conference_bookings', 'security_reports',
+    'daily_output', 'project_supply_requests', 'inspection_requests',
+    'letter_history', 'daily_work_report_history', 'chat_rooms', 'chat_messages',
+    'digital_signatures', 'signature_logs', 'workflow_instances', 'workflow_steps_log',
+    'sms_codes', 'attachments', 'permissions', 'csv_imports_log',
+    'job_applications', 'job_application_attachments', 'push_subscriptions',
+  ];
+
+  for (const tbl of tablesNeedingUpdatedAt) {
+    try {
+      db.exec(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS updated_at TEXT DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)`);
+    } catch (e) {}
+    try {
+      db.exec(`
+        DROP TRIGGER IF EXISTS trg_${tbl}_updated_at ON ${tbl};
+        CREATE TRIGGER trg_${tbl}_updated_at
+          BEFORE UPDATE ON ${tbl}
+          FOR EACH ROW
+          EXECUTE FUNCTION update_updated_at_column();
+      `);
+    } catch (e) {}
+  }
 
   const indexes = [
     "CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)",
@@ -1629,6 +1698,11 @@ async function initDatabase() {
     "CREATE INDEX IF NOT EXISTS idx_inspection_user ON inspection_requests(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_activity_log_module ON activity_log(module_name)",
     "CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_educational_created ON educational_materials(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_educational_category ON educational_materials(category)",
+    "CREATE INDEX IF NOT EXISTS idx_educational_target ON educational_materials(target_audience)",
+    "CREATE INDEX IF NOT EXISTS idx_educational_active ON educational_materials(is_active)",
+    "CREATE INDEX IF NOT EXISTS idx_educational_uploaded ON educational_materials(uploaded_by)",
   ];
   for (const sql of indexes) {
     try { db.exec(sql); } catch (e) {}

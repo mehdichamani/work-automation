@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import moment from 'moment-jalaali';
+import { toJalali } from '../utils/dateUtils';
 import toast from 'react-hot-toast';
 
 export default function Dashboard() {
@@ -115,7 +116,7 @@ export default function Dashboard() {
                     {priorityBadges[a.priority]}
                     <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{audienceLabels[a.target_audience]}</span>
                   </div>
-                  <span className="text-[10px] text-gray-400">{new Date(a.created_at).toLocaleDateString('fa-IR')}</span>
+                  <span className="text-[10px] text-gray-400">{toJalali(a.created_at)}</span>
                 </div>
                 {a.body && <p className="text-sm text-gray-600 whitespace-pre-wrap">{a.body}</p>}
                 {a.image_path && <img src={a.image_path} alt={a.title} className="mt-2 w-full max-h-48 object-cover rounded-xl" />}

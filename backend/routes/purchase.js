@@ -182,27 +182,13 @@ module.exports = function (db) {
         const warehouseUsers = db.prepare("SELECT id FROM users WHERE role = 'admin'").all();
         warehouseUsers.forEach(w => notify(w.id, 'درخواست خرید نیاز به تایید انبار', `درخواست شماره ${request.request_number} توسط مدیر تایید شد`, '/purchase'));
       } else if (request.status === 'pending_warehouse') {
-        newStatus = 'pending_factory_manager';
+        newStatus = 'approved';
         db.prepare('UPDATE purchase_requests SET warehouse_id = ?, warehouse_comment = ?, warehouse_date = ?, status = ? WHERE id = ?')
           .run(req.user.id, comment, now, newStatus, req.params.id);
-        historyAction = 'تایید انبار';
+        historyAction = 'تایید نهایی انبار';
         if (items && items.length > 0) {
           saveItems(req.params.id, items);
         }
-        const factoryManagers = db.prepare("SELECT id FROM users WHERE role = 'manager'").all();
-        factoryManagers.forEach(fm => notify(fm.id, 'درخواست خرید نیاز به تایید مدیر کارخانه', `درخواست شماره ${request.request_number} توسط انبار تایید شد`, '/purchase'));
-      } else if (request.status === 'pending_factory_manager') {
-        newStatus = 'pending_budget';
-        db.prepare('UPDATE purchase_requests SET factory_manager_id = ?, factory_manager_comment = ?, factory_manager_date = ?, status = ? WHERE id = ?')
-          .run(req.user.id, comment, now, newStatus, req.params.id);
-        historyAction = 'تایید مدیر کارخانه';
-        const budgetUsers = db.prepare("SELECT id FROM users WHERE role = 'admin'").all();
-        budgetUsers.forEach(b => notify(b.id, 'درخواست خرید نیاز به تایید بودجه', `درخواست شماره ${request.request_number} توسط مدیر کارخانه تایید شد`, '/purchase'));
-      } else if (request.status === 'pending_budget') {
-        newStatus = 'approved';
-        db.prepare('UPDATE purchase_requests SET budget_id = ?, budget_comment = ?, budget_date = ?, status = ? WHERE id = ?')
-          .run(req.user.id, comment, now, newStatus, req.params.id);
-        historyAction = 'تایید واحد بودجه';
       } else {
         return res.status(400).json({ error: 'وضعیت درخواست نامعتبر است' });
       }
@@ -238,14 +224,6 @@ module.exports = function (db) {
         db.prepare('UPDATE purchase_requests SET warehouse_id = ?, warehouse_comment = ?, warehouse_date = ?, status = ? WHERE id = ?')
           .run(req.user.id, comment, now, 'rejected', req.params.id);
         historyAction = 'رد توسط انبار';
-      } else if (request.status === 'pending_factory_manager') {
-        db.prepare('UPDATE purchase_requests SET factory_manager_id = ?, factory_manager_comment = ?, factory_manager_date = ?, status = ? WHERE id = ?')
-          .run(req.user.id, comment, now, 'rejected', req.params.id);
-        historyAction = 'رد توسط مدیر کارخانه';
-      } else if (request.status === 'pending_budget') {
-        db.prepare('UPDATE purchase_requests SET budget_id = ?, budget_comment = ?, budget_date = ?, status = ? WHERE id = ?')
-          .run(req.user.id, comment, now, 'rejected', req.params.id);
-        historyAction = 'رد توسط واحد بودجه';
       } else {
         return res.status(400).json({ error: 'وضعیت درخواست نامعتبر است' });
       }

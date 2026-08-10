@@ -110,7 +110,7 @@ export default function ProjectSupply() {
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-lg mb-4">ثبت درخواست تامین کالای پروژه</h3>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">نام پروژه</label>
                   <input className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all" placeholder="نام پروژه" value={formData.project_name} onChange={e => setFormData({ ...formData, project_name: e.target.value })} />
@@ -178,6 +178,7 @@ export default function ProjectSupply() {
             <p className="text-gray-400">درخواستی وجود ندارد</p>
           </div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50/80">
               <tr>
@@ -215,14 +216,14 @@ export default function ProjectSupply() {
                     <div className="flex gap-1">
                       {r.status === 'pending_supervisor' && (user.role === 'supervisor' || user.role === 'admin') && (
                         <>
-                          <button onClick={() => approveRequest(r.id)} className="bg-green-50 text-green-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-100 transition-all">تایید</button>
-                          <button onClick={() => rejectRequest(r.id)} className="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-100 transition-all">رد</button>
+                          <button onClick={() => approveRequest(r.id)} className="bg-green-50 text-green-600 px-3 py-2.5 rounded-lg text-xs font-medium hover:bg-green-100 transition-all">تایید</button>
+                          <button onClick={() => rejectRequest(r.id)} className="bg-red-50 text-red-600 px-3 py-2.5 rounded-lg text-xs font-medium hover:bg-red-100 transition-all">رد</button>
                         </>
                       )}
                       {r.status === 'pending_manager' && (user.role === 'manager' || user.role === 'admin') && (
                         <>
-                          <button onClick={() => approveRequest(r.id)} className="bg-green-50 text-green-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-100 transition-all">تایید</button>
-                          <button onClick={() => rejectRequest(r.id)} className="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-100 transition-all">رد</button>
+                          <button onClick={() => approveRequest(r.id)} className="bg-green-50 text-green-600 px-3 py-2.5 rounded-lg text-xs font-medium hover:bg-green-100 transition-all">تایید</button>
+                          <button onClick={() => rejectRequest(r.id)} className="bg-red-50 text-red-600 px-3 py-2.5 rounded-lg text-xs font-medium hover:bg-red-100 transition-all">رد</button>
                         </>
                       )}
                       {r.user_id === user.id && r.status === 'pending_supervisor' && (
@@ -234,6 +235,7 @@ export default function ProjectSupply() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

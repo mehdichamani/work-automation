@@ -111,7 +111,7 @@ export default function Payment() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl">
             <h3 className="text-lg font-bold mb-6">ثبت درخواست وجه جدید</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">مبلغ (تومان)</label>
                 <input className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all" type="number" placeholder="مبلغ (تومان)" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} />
@@ -171,7 +171,8 @@ export default function Payment() {
             <p className="text-gray-400 text-sm">درخواستی وجود ندارد</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
             <thead className="bg-gray-50/80"><tr>
               <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">شماره</th>
               <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">تاریخ</th>

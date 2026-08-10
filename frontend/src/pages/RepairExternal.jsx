@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
-import { toJalali } from '../utils/dateUtils';
+import { toJalali, toJalaliDateTime } from '../utils/dateUtils';
 import JalaliDatePicker from '../components/JalaliDatePicker';
 import RepairExternalPrintView from '../components/RepairExternalPrintView';
 
@@ -386,7 +386,7 @@ export default function RepairExternal() {
                   <div key={i} className="text-xs bg-gray-50 p-2 rounded-lg">
                     <span className="font-medium">{h.user_name}</span> — {h.action}
                     {h.comment && <span className="text-gray-500"> ({h.comment})</span>}
-                    <span className="text-gray-400 mr-2">{new Date(h.created_at).toLocaleString('fa-IR')}</span>
+                    <span className="text-gray-400 mr-2">{toJalaliDateTime(h.created_at)}</span>
                   </div>
                 ))}
               </div>

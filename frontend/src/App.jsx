@@ -35,6 +35,8 @@ const Chat = lazy(() => import('./pages/Chat'));
 const AuditLog = lazy(() => import('./pages/AuditLog'));
 const Profile = lazy(() => import('./pages/Profile'));
 const DailyWorkReport = lazy(() => import('./pages/DailyWorkReport'));
+const LearningViewer = lazy(() => import('./pages/LearningViewer'));
+const EducationalManager = lazy(() => import('./pages/EducationalManager'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 function PrivateRoute({ children, allowedRoles, requiredPermission }) {
@@ -88,6 +90,8 @@ function AppRoutes() {
           <Route path="/audit-log" element={<PrivateRoute allowedRoles={['admin']}><AuditLog /></PrivateRoute>} />
           <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
           <Route path="/daily-work-report" element={<PrivateRoute><DailyWorkReport /></PrivateRoute>} />
+          <Route path="/learning" element={<PrivateRoute><LearningViewer /></PrivateRoute>} />
+          <Route path="/admin/educational" element={<PrivateRoute allowedRoles={['admin']}><EducationalManager /></PrivateRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>

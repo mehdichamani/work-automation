@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
+import moment from 'moment-jalaali';
 
 export default function Chat() {
   const { user } = useAuth();
@@ -166,7 +167,7 @@ export default function Chat() {
                       )}
                       <p className="text-sm whitespace-pre-wrap">{m.message}</p>
                       <p className={`text-[10px] mt-1 ${m.user_id === user.id ? 'text-primary-200' : 'text-gray-400'}`}>
-                        {new Date(m.created_at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}
+                        {moment(m.created_at).format('HH:mm')}
                       </p>
                     </div>
                   </div>

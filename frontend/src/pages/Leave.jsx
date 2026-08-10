@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import JalaliCalendar from '../components/JalaliCalendar';
 import Pagination from '../components/Pagination';
 import { printLeaveAll, printTable } from '../utils/printUtils';
+import { toJalaliDateTime } from '../utils/dateUtils';
 import LeavePrintView from '../components/LeavePrintView';
 
 const statusMap = {
@@ -18,15 +19,7 @@ const statusMap = {
 };
 
 // فرمت‌بندی تاریخ و ساعت از فرمت ISO/SQLite
-function formatDateTime(dt) {
-  if (!dt) return null;
-  // format: 'YYYY-MM-DD HH:MM:SS' or ISO string
-  const clean = dt.replace('T', ' ').replace('Z', '');
-  const parts = clean.split(' ');
-  const datePart = parts[0] || '';
-  const timePart = parts[1] ? parts[1].substring(0, 5) : '';
-  return timePart ? `${datePart} — ساعت ${timePart}` : datePart;
-}
+// (now using toJalaliDateTime from dateUtils.js)
 
 function isThursday(dateStr) {
   if (!dateStr) return false;
@@ -1095,7 +1088,7 @@ export default function Leave() {
                     <td className="p-3 font-bold">{leave.days_count}</td>
                     <td className="p-3 text-xs text-gray-500" dir="ltr">
                       {leave.created_at ? (
-                        <span className="whitespace-nowrap">{formatDateTime(leave.created_at)}</span>
+                        <span className="whitespace-nowrap">{toJalaliDateTime(leave.created_at)}</span>
                       ) : '—'}
                     </td>
                     <td className="p-3">
@@ -1429,7 +1422,7 @@ export default function Leave() {
                       <p className="text-xs text-gray-500">درخواست توسط کاربر در سیستم ثبت گردید.</p>
                       {selectedLeave.created_at && (
                         <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mt-2 font-mono bg-gray-50 px-2 py-1 rounded-lg border w-fit" dir="ltr">
-                          <span>📅</span> {formatDateTime(selectedLeave.created_at)}
+                          <span>📅</span> {toJalaliDateTime(selectedLeave.created_at)}
                         </div>
                       )}
                     </div>
@@ -1485,7 +1478,7 @@ export default function Leave() {
                               <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
                                 <p><span className="text-gray-400">نام سرپرست:</span> <span className="font-semibold text-gray-700">{selectedLeave.supervisor_name || 'نامشخص'}</span></p>
                                 {hasComment && <p><span className="text-gray-400">علت/توضیح:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
-                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{formatDateTime(hasDate)}</span></p>}
+                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(hasDate)}</span></p>}
                               </div>
                             )}
                           </div>
@@ -1549,7 +1542,7 @@ export default function Leave() {
                                 <p><span className="text-gray-400">نام اداری:</span> <span className="font-semibold text-gray-700">{selectedLeave.admin_name || 'نامشخص'}</span></p>
                                 {hasComment && <p><span className="text-gray-400">توضیح:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
                                 {selectedLeave.remaining_leave_days != null && <p><span className="text-gray-400">مانده مرخصی:</span> <span className="font-semibold text-gray-700">{selectedLeave.remaining_leave_days} روز</span></p>}
-                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{formatDateTime(hasDate)}</span></p>}
+                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(hasDate)}</span></p>}
                               </div>
                             )}
                           </div>
@@ -1607,7 +1600,7 @@ export default function Leave() {
                               <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
                                 <p><span className="text-gray-400">نام مدیر:</span> <span className="font-semibold text-gray-700">{selectedLeave.manager_name || 'نامشخص'}</span></p>
                                 {hasComment && <p><span className="text-gray-400">توضیح/علت:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
-                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{formatDateTime(hasDate)}</span></p>}
+                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(hasDate)}</span></p>}
                               </div>
                             )}
                           </div>
@@ -1655,7 +1648,7 @@ export default function Leave() {
                             {showDetail && (
                               <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
                                 <p><span className="text-gray-400">مامور انتظامات:</span> <span className="font-semibold text-gray-700">{selectedLeave.security_name || 'انتظامات'}</span></p>
-                                {selectedLeave.security_date && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ رویت:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{formatDateTime(selectedLeave.security_date)}</span></p>}
+                                {selectedLeave.security_date && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ رویت:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(selectedLeave.security_date)}</span></p>}
                               </div>
                             )}
                           </div>
@@ -1678,7 +1671,7 @@ export default function Leave() {
                           <p><span className="text-gray-400">اصلاح‌کننده:</span> <span className="font-semibold text-gray-700">{selectedLeave.editor_name || 'نامشخص'}</span></p>
                           <p><span className="text-gray-400">علت اصلاح:</span> <span className="font-semibold text-gray-700">{selectedLeave.edit_reason}</span></p>
                           {selectedLeave.edited_at && (
-                            <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اصلاح:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{formatDateTime(selectedLeave.edited_at)}</span></p>
+                            <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اصلاح:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(selectedLeave.edited_at)}</span></p>
                           )}
                         </div>
                       </div>

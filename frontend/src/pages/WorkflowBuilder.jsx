@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import { toJalali } from '../utils/dateUtils';
 
 const MODULE_LABELS = {
   purchase: 'درخواست خرید', mission: 'ماموریت', work_order: 'دستور کار',
@@ -283,7 +284,7 @@ export default function WorkflowBuilder() {
                     <td className="px-4 py-3">{MODULE_LABELS[inst.module_name] || inst.module_name}</td>
                     <td className="px-4 py-3">مرحله {inst.current_step + 1}</td>
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs ${st.color}`}>{st.label}</span></td>
-                    <td className="px-4 py-3 text-gray-500">{new Date(inst.created_at).toLocaleDateString('fa-IR')}</td>
+                    <td className="px-4 py-3 text-gray-500">{toJalali(inst.created_at)}</td>
                     <td className="px-4 py-3">
                       {inst.status === 'active' && (
                         <div className="flex gap-2">

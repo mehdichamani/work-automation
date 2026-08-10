@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
+import { toJalali, toJalaliDateTime } from '../utils/dateUtils';
 import SignaturePad from '../components/SignaturePad';
 
 export default function SignatureManager() {
@@ -154,7 +155,7 @@ export default function SignatureManager() {
                 )}
               </div>
               <p className="text-xs text-gray-400 text-center mt-2">
-                تاریخ ایجاد: {new Date(signature.created_at).toLocaleDateString('fa-IR')}
+                تاریخ ایجاد: {toJalali(signature.created_at)}
               </p>
             </div>
             <div className="flex gap-2">
@@ -315,7 +316,7 @@ export default function SignatureManager() {
             {signLogs.map((log, i) => (
               <div key={i} className="flex items-center justify-between text-sm p-2 bg-gray-50 rounded-lg">
                 <span>{log.module_name} - رکورد #{log.record_id}</span>
-                <span className="text-gray-400">{new Date(log.created_at).toLocaleString('fa-IR')}</span>
+                <span className="text-gray-400">{toJalaliDateTime(log.created_at)}</span>
               </div>
             ))}
           </div>

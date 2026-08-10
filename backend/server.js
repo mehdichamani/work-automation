@@ -106,6 +106,7 @@ async function startServer() {
   app.use('/api/signature', require('./routes/signature')(db));
   app.use('/api/chat', require('./routes/chat')(db));
   app.use('/api/daily-work-report', require('./routes/dailyWorkReport')(db));
+  app.use('/api/educational', require('./routes/educational')(db));
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', company: 'اروم شیشه ساچی', timestamp: new Date().toISOString() });

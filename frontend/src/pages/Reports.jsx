@@ -3,6 +3,7 @@ import moment from 'moment-jalaali';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { toJalali } from '../utils/dateUtils';
 
 const COLORS = ['#2563eb', '#16a34a', '#eab308', '#9333ea', '#ef4444', '#06b6d4', '#f97316', '#ec4899'];
 
@@ -81,7 +82,7 @@ export default function Reports() {
     const rows = reqs.map((r, i) => [
       i + 1,
       r._module,
-      r.created_at ? new Date(r.created_at).toLocaleDateString('fa-IR') : '',
+      r.created_at ? toJalali(r.created_at) : '',
       r.status,
       r.description || r.title || '',
     ]);
@@ -294,7 +295,7 @@ export default function Reports() {
                       <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="px-3 py-2 text-gray-500">{i + 1}</td>
                         <td className="px-3 py-2 font-medium">{r._module}</td>
-                        <td className="px-3 py-2 text-gray-500">{r.created_at ? new Date(r.created_at).toLocaleDateString('fa-IR') : '-'}</td>
+                        <td className="px-3 py-2 text-gray-500">{r.created_at ? toJalali(r.created_at) : '-'}</td>
                         <td className="px-3 py-2">
                           <span className={`px-2 py-0.5 rounded text-xs ${
                             r.status === 'approved' ? 'bg-green-100 text-green-700' :
