@@ -84,16 +84,64 @@ export default function LeavePrintView({ leave, onClose }) {
     if (!el) return;
     const clone = el.cloneNode(true);
     const wrapper = document.createElement('div');
+    wrapper.id = 'pw';
     wrapper.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:999999;background:#fff;display:flex;align-items:center;justify-content:center;';
-    clone.style.cssText = 'position:relative;width:297mm;height:210mm;overflow:hidden;background:#fff;';
+
+    clone.style.cssText = 'position:absolute;width:767px;height:537px;overflow:hidden;background:#fff;';
+
     wrapper.appendChild(clone);
     document.body.appendChild(wrapper);
+
     const s = document.createElement('style');
-    s.id='pstyle';
-    s.textContent='@media print{body>*:not(#pw){display:none!important}#pw{position:static!important}#pw>div{position:relative!important;width:297mm!important;height:210mm!important}@page{size:297mm 210mm landscape;margin:0}}';
+    s.id = 'pstyle';
+    s.textContent = `
+      @media print {
+        body > *:not(#pw) {
+          display: none !important;
+        }
+        #pw {
+          position: fixed !important;
+          left: 0 !important;
+          top: 0 !important;
+          width: 297mm !important;
+          height: 210mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #fff !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        #pw > div {
+          position: absolute !important;
+          left: 50% !important;
+          top: 50% !important;
+          width: 767px !important;
+          height: 537px !important;
+          transform: translate(-50%, -50%) scale(1.46) !important;
+          transform-origin: center center !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #fff !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        @page {
+          size: 297mm 210mm landscape;
+          margin: 0;
+        }
+      }
+    `;
     document.head.appendChild(s);
-    wrapper.id='pw';
-    setTimeout(()=>{window.print();setTimeout(()=>{wrapper.remove();s.remove();},500);},300);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        wrapper.remove();
+        s.remove();
+      }, 500);
+    }, 300);
   };
 
   if (loading) return <div className="text-center py-4 text-gray-400">در حال بارگذاری...</div>;
@@ -214,7 +262,7 @@ export default function LeavePrintView({ leave, onClose }) {
               <img
                 src={supervisorSig.scanned_signature || supervisorSig.signature_data}
                 alt="امضای سرپرست"
-                style={{ width: 150, height: 150, objectFit: 'contain' }}
+                style={{ width: 150, height: 150, objectFit: 'contain', mixBlendMode: 'multiply' }}
               />
             )}
           </div>
@@ -225,7 +273,7 @@ export default function LeavePrintView({ leave, onClose }) {
               <img
                 src={managerSig.scanned_signature || managerSig.signature_data}
                 alt="امضای مدیر"
-                style={{ width: 150, height: 150, objectFit: 'contain' }}
+                style={{ width: 150, height: 150, objectFit: 'contain', mixBlendMode: 'multiply' }}
               />
             )}
           </div>
@@ -236,7 +284,7 @@ export default function LeavePrintView({ leave, onClose }) {
               <img
                 src={adminSig.scanned_signature || adminSig.signature_data}
                 alt="امضای اداری"
-                style={{ width: 150, height: 150, objectFit: 'contain' }}
+                style={{ width: 150, height: 150, objectFit: 'contain', mixBlendMode: 'multiply' }}
               />
             )}
           </div>
@@ -247,7 +295,7 @@ export default function LeavePrintView({ leave, onClose }) {
               <img
                 src={userSig.scanned_signature || userSig.signature_data}
                 alt="امضای کارگزینی"
-                style={{ width: 150, height: 150, objectFit: 'contain' }}
+                style={{ width: 150, height: 150, objectFit: 'contain', mixBlendMode: 'multiply' }}
               />
             )}
           </div>
