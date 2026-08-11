@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 
+import { useEffect } from 'react';
+
 export default function Login() {
   const [mode, setMode] = useState('password');
   const [username, setUsername] = useState('');
@@ -15,6 +17,20 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  const [theme] = useState(() => {
+    return localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  });
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.body.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.body.classList.remove('dark');
+    }
+  }, [theme]);
 
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
@@ -75,57 +91,57 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f0f9ff] flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute inset-0 flex items-center justify-center opacity-100">
+    <div className="min-h-screen bg-[#f0f9ff] dark:bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden transition-colors duration-200">
+      <div className="absolute inset-0 flex items-center justify-center opacity-10 dark:opacity-[0.03]">
         <img src="/background.webp" alt="" className="w-full h-full object-contain" />
       </div>
-      <div className="w-full max-w-md">
-        <div className="glass-card rounded-2xl shadow-2xl p-8">
+      <div className="w-full max-w-md relative z-10">
+        <div className="glass-card bg-white/50 dark:bg-slate-900/50 rounded-2xl shadow-2xl p-8 border border-white/20 dark:border-slate-800/50 backdrop-blur-md">
           <div className="text-center mb-6">
-            <div className="w-20 h-20 bg-primary-100 rounded-2xl mx-auto flex items-center justify-center mb-4 overflow-hidden">
+            <div className="w-20 h-20 bg-primary-100 dark:bg-slate-800 rounded-2xl mx-auto flex items-center justify-center mb-4 overflow-hidden">
               <img src="/logo.webp" alt="لوگو" className="w-full h-full object-contain" />
             </div>
-            <h1 className="text-2xl font-bold text-primary-700">اروم شیشه ساچی</h1>
-            <p className="text-gray-500 text-sm mt-1">سیستم اتوماسیون اداری</p>
+            <h1 className="text-2xl font-bold text-primary-700 dark:text-primary-400">اروم شیشه ساچی</h1>
+            <p className="text-gray-500 dark:text-slate-400 text-sm mt-1">سیستم اتوماسیون اداری</p>
           </div>
 
-          <div className="flex mb-6 bg-gray-100 rounded-xl p-1">
+          <div className="flex mb-6 bg-gray-100 dark:bg-slate-800 rounded-xl p-1">
             <button
               type="button"
               onClick={() => setMode('password')}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'password' ? 'bg-primary-500 text-white shadow' : 'text-gray-600'}`}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'password' ? 'bg-primary-500 text-white shadow' : 'text-gray-600 dark:text-slate-300'}`}
             >
               رمز عبور
             </button>
             <button
               type="button"
               onClick={() => setMode('sms')}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'sms' ? 'bg-primary-500 text-white shadow' : 'text-gray-600'}`}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'sms' ? 'bg-primary-500 text-white shadow' : 'text-gray-600 dark:text-slate-300'}`}
             >
               کد پیامکی
             </button>
           </div>
 
           {mode === 'password' ? (
-            <form onSubmit={handlePasswordLogin} className="space-y-4">
+            <form onSubmit={handlePasswordLogin} className="space-y-4 text-right">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">کد پرسنلی</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">کد پرسنلی</label>
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent text-center text-lg"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent text-center text-lg outline-none"
                   placeholder="کد پرسنلی"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">رمز عبور</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">رمز عبور</label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent text-center text-lg"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent text-center text-lg outline-none"
                   placeholder="رمز عبور"
                   required
                 />
@@ -139,14 +155,14 @@ export default function Login() {
               </button>
             </form>
           ) : (
-            <form onSubmit={handleSmsLogin} className="space-y-4">
+            <form onSubmit={handleSmsLogin} className="space-y-4 text-right">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">شماره موبایل</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">شماره موبایل</label>
                 <input
                   type="text"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent text-center text-lg"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent text-center text-lg outline-none"
                   placeholder="09141234567"
                   dir="ltr"
                   required
@@ -154,12 +170,12 @@ export default function Login() {
               </div>
               {codeSent && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">کد تأیید</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">کد تأیید</label>
                   <input
                     type="text"
                     value={smsCode}
                     onChange={(e) => setSmsCode(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent text-center text-2xl tracking-[0.5em]"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent text-center text-2xl tracking-[0.5em] outline-none"
                     placeholder="------"
                     maxLength={6}
                     dir="ltr"
@@ -180,7 +196,7 @@ export default function Login() {
                     type="button"
                     disabled={countdown > 0}
                     onClick={handleSendCode}
-                    className="w-full text-primary-600 hover:text-primary-700 py-2 text-sm disabled:text-gray-400"
+                    className="w-full text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 py-2 text-sm disabled:text-gray-400"
                   >
                     {countdown > 0 ? `ارسال مجدد (${countdown} ثانیه)` : 'ارسال مجدد کد'}
                   </button>

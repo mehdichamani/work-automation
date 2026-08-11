@@ -12,6 +12,12 @@
     font-feature-settings: "ss01";
     direction: rtl;
     background: #f0f9ff;
+    @apply text-slate-800 transition-colors duration-200;
+  }
+
+  html.dark body {
+    background: #0b0f19;
+    @apply text-slate-100;
   }
 }
 
@@ -20,10 +26,18 @@
 }
 ::-webkit-scrollbar-track {
   background: #e2e8f0;
+  transition: background-color 0.2s;
+}
+html.dark ::-webkit-scrollbar-track {
+  background: #1e293b;
 }
 ::-webkit-scrollbar-thumb {
   background: #1e40af;
   border-radius: 4px;
+  transition: background-color 0.2s;
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: #3b82f6;
 }
 
 .animate-fade-in {
@@ -65,6 +79,11 @@
 .main-content {
   position: relative;
   background-color: #f0f9ff;
+  transition: background-color 0.2s ease-in-out;
+}
+
+html.dark .main-content {
+  background-color: #0b0f19;
 }
 
 .main-content::before {
@@ -77,6 +96,10 @@
   background-position: center;
   opacity: 0.5;
   pointer-events: none;
+}
+
+html.dark .main-content::before {
+  opacity: 0.03;
 }
 
 /* Touch-friendly targets - minimum 44px for mobile */
