@@ -24,6 +24,7 @@ export default function WorkflowBuilder() {
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [form, setForm] = useState({ name: '', module_name: 'purchase', steps: [] });
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState({}); // Track loading state per instance to prevent double-clicks
   const [tab, setTab] = useState('templates');
 
   useEffect(() => {
@@ -113,7 +114,7 @@ export default function WorkflowBuilder() {
       toast.success('حذف شد');
       loadTemplates();
     } catch (err) {
-      toast.error('خطا در حذف');
+      toast.error(err.response?.data?.error || 'خطا در حذف');
     }
   };
 
@@ -125,14 +126,19 @@ export default function WorkflowBuilder() {
   };
 
   const handleAction = async (instanceId, action) => {
+    if (actionLoading[instanceId]) return;
     const comment = prompt(action === 'approve' ? 'توضیحات (اختیاری):' : 'دلیل رد:');
     if (action === 'reject' && !comment) return;
+
+    setActionLoading(prev => ({ ...prev, [instanceId]: true }));
     try {
       await api.post(`/workflow/instances/${instanceId}/action`, { action, comment: comment || '' });
       toast.success(action === 'approve' ? 'تأیید شد' : 'رد شد');
       loadInstances();
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا');
+    } finally {
+      setActionLoading(prev => ({ ...prev, [instanceId]: false }));
     }
   };
 
@@ -277,6 +283,7 @@ export default function WorkflowBuilder() {
             <tbody>
               {instances.map(inst => {
                 const st = statusLabels[inst.status] || statusLabels.active;
+                const isLoading = actionLoading[inst.id];
                 return (
                   <tr key={inst.id} className="border-b hover:bg-gray-50">
                     <td className="px-4 py-3">{inst.id}</td>
@@ -288,8 +295,12 @@ export default function WorkflowBuilder() {
                     <td className="px-4 py-3">
                       {inst.status === 'active' && (
                         <div className="flex gap-2">
-                          <button onClick={() => handleAction(inst.id, 'approve')} className="text-xs text-green-600 hover:text-green-800">تأیید</button>
-                          <button onClick={() => handleAction(inst.id, 'reject')} className="text-xs text-red-600 hover:text-red-800">رد</button>
+                          <button disabled={isLoading} onClick={() => handleAction(inst.id, 'approve')} className="text-xs text-green-600 hover:text-green-800 disabled:opacity-50">
+                            {isLoading ? '...' : 'تأیید'}
+                          </button>
+                          <button disabled={isLoading} onClick={() => handleAction(inst.id, 'reject')} className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50">
+                            {isLoading ? '...' : 'رد'}
+                          </button>
                         </div>
                       )}
                     </td>
