@@ -35,7 +35,7 @@ export default function RepairExternalPrintView({ request, items, history, signa
     const wrapper = document.createElement('div');
     wrapper.id = 'pm01pw';
     wrapper.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:999999;background:#fff;display:flex;align-items:center;justify-content:center;';
-    clone.style.cssText = 'position:relative;width:210mm;min-height:297mm;overflow:hidden;background:#fff;padding:15mm;font-family:Vazirmatn,Tahoma,sans-serif;direction:rtl;';
+    clone.style.cssText = 'position:relative;width:210mm;min-height:297mm;overflow:hidden;background:#fff;padding:10mm;font-family:Vazirmatn,Tahoma,sans-serif;direction:rtl;';
     wrapper.appendChild(clone);
     document.body.appendChild(wrapper);
     const s = document.createElement('style');
@@ -45,32 +45,31 @@ export default function RepairExternalPrintView({ request, items, history, signa
         body > *:not(#pm01pw) { display: none !important; }
         #pm01pw { position: static !important; }
         #pm01pw > div { position: relative !important; width: 210mm !important; min-height: 297mm !important; padding: 10mm !important; }
-        @page { size: A4 portrait; margin: 0; }
-        .pm01-section { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; break-inside: avoid; }
-        .pm01-sign-grid { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; break-inside: avoid; }
-        .pm01-sign-box { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; break-inside: avoid; border: 1px solid #333 !important; }
-        .pm01-sign-box img { display: block !important; max-width: 100% !important; height: auto !important; width: auto !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; object-fit: contain !important; }
+        @page { size: A4 portrait; margin: 10mm; }
+        .pm01-section { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; break-inside: avoid; page-break-inside: avoid; }
+        .pm01-sign-grid { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; break-inside: avoid; page-break-inside: avoid; }
+        .pm01-sign-box { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; break-inside: avoid; page-break-inside: avoid; border: 1px solid #333 !important; }
+        .pm01-sign-box img { display: block !important; max-width: 100% !important; max-height: 40px !important; width: auto !important; height: auto !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; object-fit: contain !important; mix-blend-mode: multiply !important; margin: 0 auto !important; }
         .pm01-section-title { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         .pm01-label { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         .pm01-value { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        .pm01-table th { background: #f0f0f0 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        .pm01-table td, .pm01-table th { border: 1px solid #999 !important; }
-        @page { size: A4 portrait; margin: 0; }
+        .pm01-table th { background: #f3f4f6 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        .pm01-table td, .pm01-table th { border: 1px solid #666 !important; }
       }
-      .pm01-section { border: 2px solid #333; border-radius: 6px; margin-bottom: 8px; padding: 8px; page-break-inside: avoid; }
-      .pm01-section-title { font-weight: bold; font-size: 11px; border-bottom: 1px solid #333; padding-bottom: 4px; margin-bottom: 6px; }
-      .pm01-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; font-size: 10px; }
-      .pm01-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; font-size: 10px; }
-      .pm01-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; font-size: 10px; }
-      .pm01-label { color: #666; font-size: 9px; }
-      .pm01-value { font-weight: bold; color: #1a1a1a; }
-      .pm01-table { width: 100%; border-collapse: collapse; font-size: 9px; margin-top: 4px; }
-      .pm01-table th, .pm01-table td { border: 1px solid #ccc; padding: 3px 5px; text-align: right; }
-      .pm01-table th { background: #f0f0f0; font-weight: bold; }
-      .pm01-sign-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; font-size: 9px; }
-      .pm01-sign-box { border: 1px solid #ccc; border-radius: 4px; padding: 4px; text-align: center; min-height: 40px; }
-      .pm01-check { display: inline-block; width: 12px; height: 12px; border: 1px solid #333; border-radius: 2px; margin-left: 3px; vertical-align: middle; text-align: center; line-height: 12px; font-size: 10px; }
-      .pm01-check.checked::after { content: '✓'; color: green; font-weight: bold; }
+      .pm01-section { border: 1.5px solid #333; border-radius: 6px; margin-bottom: 10px; padding: 10px; page-break-inside: avoid; break-inside: avoid; }
+      .pm01-section-title { font-weight: bold; font-size: 12px; border-bottom: 1.5px solid #333; padding-bottom: 4px; margin-bottom: 8px; color: #111; }
+      .pm01-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-size: 11px; }
+      .pm01-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 11px; }
+      .pm01-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; font-size: 11px; }
+      .pm01-label { color: #4b5563; font-size: 10px; font-weight: 500; }
+      .pm01-value { font-weight: 700; color: #111827; }
+      .pm01-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 6px; }
+      .pm01-table th, .pm01-table td { border: 1.5px solid #333; padding: 5px 8px; text-align: right; }
+      .pm01-table th { background: #f3f4f6; font-weight: 700; color: #111; }
+      .pm01-sign-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; font-size: 10px; }
+      .pm01-sign-box { border: 1.5px solid #333; border-radius: 4px; padding: 6px; text-align: center; min-height: 60px; display: flex; flex-direction: column; justify-content: space-between; }
+      .pm01-check { display: inline-block; width: 14px; height: 14px; border: 1.5px solid #333; border-radius: 3px; margin-left: 4px; vertical-align: middle; text-align: center; line-height: 11px; font-size: 11px; font-weight: bold; background: #fff; }
+      .pm01-check.checked::after { content: '✓'; color: #059669; }
     `;
     document.head.appendChild(s);
     setTimeout(() => { window.print(); setTimeout(() => { wrapper.remove(); s.remove(); }, 500); }, 300);
