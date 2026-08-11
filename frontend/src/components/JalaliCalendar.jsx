@@ -1,12 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import moment from 'moment-jalaali';
 import api from '../api/axios';
 
+// Global cache to prevent duplicate requests when multiple calendars are rendered or re-mounted
+let globalHolidays = null;
+let globalHolidaysPromise = null;
+
 function getJalaliDayOfWeek(jYear, jMonth, jDay) {
-  const anchor = moment('1405/01/01', 'jYYYY/jMM/jDD');
+  // Optimized: Use moment-jalaali direct day calculation instead of anchor comparison
   const target = moment(`${jYear}/${String(jMonth).padStart(2, '0')}/${String(jDay).padStart(2, '0')}`, 'jYYYY/jMM/jDD');
-  const diff = target.diff(anchor, 'days');
-  return ((diff % 7) + 7) % 7;
+  const mDay = target.day();
+  return (mDay + 1) % 7;
 }
 
 function getDaysInMonth(jYear, jMonth) {
@@ -25,41 +29,67 @@ const MONTH_NAMES = [
 export default function JalaliCalendar({ onSelect, selectedDate, showPast = false }) {
   const today = moment();
   const todayStr = today.format('jYYYY/jMM/jDD');
+  const currentJYear = today.jYear();
 
   const [viewYear, setViewYear] = useState(today.jYear());
   const [viewMonth, setViewMonth] = useState(today.jMonth() + 1);
   const [holidays, setHolidays] = useState({});
 
+  // Year range: 30 years in the past to 10 years in the future
+  const years = useMemo(() => {
+    return Array.from({ length: 41 }, (_, i) => currentJYear - 30 + i);
+  }, [currentJYear]);
+
   useEffect(() => {
-    api.get('/leave/holidays')
+    if (globalHolidays) {
+      setHolidays(globalHolidays);
+      return;
+    }
+    if (globalHolidaysPromise) {
+      globalHolidaysPromise.then(data => {
+        if (data) setHolidays(data);
+      });
+      return;
+    }
+
+    globalHolidaysPromise = api.get('/leave/holidays')
       .then(res => {
         const holMap = {};
         res.data.forEach(h => {
           holMap[h.holiday_date] = h.title || 'تعطیل رسمی';
         });
+        globalHolidays = holMap;
         setHolidays(holMap);
+        return holMap;
       })
-      .catch(err => console.error('Error fetching holidays in calendar:', err));
+      .catch(err => {
+        console.error('Error fetching holidays in calendar:', err);
+        globalHolidaysPromise = null; // Allow retry on subsequent mounts
+        return null;
+      });
   }, []);
 
-  const daysInMonth = getDaysInMonth(viewYear, viewMonth);
-  const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
-  const cells = [];
+  const cells = useMemo(() => {
+    const daysInMonth = getDaysInMonth(viewYear, viewMonth);
+    const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
+    const tempCells = [];
 
-  for (let i = 0; i < firstDay; i++) {
-    cells.push(null);
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = `${viewYear}/${String(viewMonth).padStart(2, '0')}/${String(d).padStart(2, '0')}`;
-    const isPast = dateStr < todayStr;
-    const isToday = dateStr === todayStr;
-    const isSelected = dateStr === selectedDate;
-    const holiday = holidays[dateStr];
-    const isThursday = getJalaliDayOfWeek(viewYear, viewMonth, d) === 5;
-    const isFriday = getJalaliDayOfWeek(viewYear, viewMonth, d) === 6;
+    for (let i = 0; i < firstDay; i++) {
+      tempCells.push(null);
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${viewYear}/${String(viewMonth).padStart(2, '0')}/${String(d).padStart(2, '0')}`;
+      const isPast = dateStr < todayStr;
+      const isToday = dateStr === todayStr;
+      const isSelected = dateStr === selectedDate;
+      const holiday = holidays[dateStr];
+      const isThursday = getJalaliDayOfWeek(viewYear, viewMonth, d) === 5;
+      const isFriday = getJalaliDayOfWeek(viewYear, viewMonth, d) === 6;
 
-    cells.push({ day: d, dateStr, isPast, isToday, isSelected, holiday, isThursday, isFriday });
-  }
+      tempCells.push({ day: d, dateStr, isPast, isToday, isSelected, holiday, isThursday, isFriday });
+    }
+    return tempCells;
+  }, [viewYear, viewMonth, selectedDate, showPast, holidays, todayStr]);
 
   const prevMonth = () => {
     if (viewMonth === 1) {
@@ -79,17 +109,72 @@ export default function JalaliCalendar({ onSelect, selectedDate, showPast = fals
     }
   };
 
+  const goToToday = () => {
+    setViewYear(today.jYear());
+    setViewMonth(today.jMonth() + 1);
+    if (onSelect) {
+      onSelect(todayStr);
+    }
+  };
+
   const weekDays = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه'];
   const weekDaysShort = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
 
   return (
     <div className="bg-white border rounded-xl p-4 shadow-xl w-full max-w-[320px] sm:max-w-none">
-      <div className="flex items-center justify-between mb-4">
-        <button type="button" onClick={prevMonth} className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-bold">&lt;</button>
-        <div className="text-center">
-          <span className="font-bold text-sm">{MONTH_NAMES[viewMonth - 1]} {viewYear}</span>
+      <div className="flex items-center justify-between mb-4 gap-2">
+        <button
+          type="button"
+          onClick={prevMonth}
+          className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-bold text-gray-600 transition-colors"
+          title="ماه قبل"
+        >
+          &lt;
+        </button>
+
+        <div className="flex items-center gap-1">
+          <select
+            value={viewMonth}
+            onChange={(e) => setViewMonth(parseInt(e.target.value, 10))}
+            className="bg-gray-50 border border-gray-200 text-gray-800 rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer"
+          >
+            {MONTH_NAMES.map((name, idx) => (
+              <option key={name} value={idx + 1}>
+                {name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={viewYear}
+            onChange={(e) => setViewYear(parseInt(e.target.value, 10))}
+            className="bg-gray-50 border border-gray-200 text-gray-800 rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer"
+          >
+            {years.map((yr) => (
+              <option key={yr} value={yr}>
+                {yr}
+              </option>
+            ))}
+          </select>
         </div>
-        <button type="button" onClick={nextMonth} className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-bold">&gt;</button>
+
+        <button
+          type="button"
+          onClick={goToToday}
+          className="px-2 py-1 rounded-lg bg-primary-50 hover:bg-primary-100 text-primary-600 text-xs font-bold transition-colors"
+          title="برو به امروز"
+        >
+          امروز
+        </button>
+
+        <button
+          type="button"
+          onClick={nextMonth}
+          className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-bold text-gray-600 transition-colors"
+          title="ماه بعد"
+        >
+          &gt;
+        </button>
       </div>
 
       <table className="w-full text-center text-xs border-collapse">
