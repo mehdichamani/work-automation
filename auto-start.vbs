@@ -2,7 +2,10 @@ Set WshShell = CreateObject("WScript.Shell")
 Set objFSO = CreateObject("Scripting.FileSystemObject")
 scriptDir = objFSO.GetParentFolderName(WScript.ScriptFullName)
 
-' اجرای Backend با PM2
 WshShell.CurrentDirectory = scriptDir
-WshShell.Run "cmd /c pm2 start ecosystem.config.js", 0, False
 
+' بررسی وجود فایل پیکربندی PM2 جهت جلوگیری از خطای ناخواسته
+If objFSO.FileExists(objFSO.BuildPath(scriptDir, "ecosystem.config.js")) Then
+    ' اجرای Backend با PM2 به صورت مخفی (بدون نمایش پنجره cmd)
+    WshShell.Run "cmd /c pm2 start ecosystem.config.js", 0, False
+End If
