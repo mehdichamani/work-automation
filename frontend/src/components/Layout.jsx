@@ -5,6 +5,7 @@ import api from '../api/axios';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import PWAInstall from './PWAInstall';
+import ErrorBoundary from './ErrorBoundary';
 
 const menuItems = [
   { path: '/', label: 'داشبورد', icon: '📊', permission: 'dashboard_view' },
@@ -70,6 +71,19 @@ export default function Layout({ children }) {
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [changePasswordForm, setChangePasswordForm] = useState({ oldPassword: '', newPassword: '', confirmNewPassword: '' });
   const [changePasswordLoading, setChangePasswordLoading] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (showChangePasswordModal) {
+          setShowChangePasswordModal(false);
+          setChangePasswordForm({ oldPassword: '', newPassword: '', confirmNewPassword: '' });
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showChangePasswordModal]);
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
@@ -351,16 +365,18 @@ export default function Layout({ children }) {
 
         <div className="flex-1 overflow-y-auto">
           <div className="p-4 md:p-6">
-            {children}
+            <ErrorBoundary>
+              {children}
+            </ErrorBoundary>
           </div>
         </div>
       </main>
 
       {/* Forced Password Change Modal (must_change_password === 1) */}
       {user?.must_change_password === 1 && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-fade-in text-right">
-            <h3 className="text-lg font-bold text-red-600 mb-2">⚠️ تغییر رمز عبور اجباری</h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[9999] p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl border border-red-100 text-right">
+            <h3 className="text-lg font-bold text-red-600 mb-2 font-vazir">⚠️ تغییر رمز عبور اجباری</h3>
             <p className="text-sm text-gray-500 mb-6 leading-6">
               به دلیل استفاده از رمز عبور پیش‌فرض (کد پرسنلی)، جهت حفظ امنیت حساب کاربری خود، لطفاً ابتدا رمز عبور جدیدی تعیین نمایید.
             </p>
@@ -371,7 +387,7 @@ export default function Layout({ children }) {
                   type="password"
                   value={changePasswordForm.oldPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, oldPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border rounded-xl text-center focus:ring-2 focus:ring-red-400 focus:border-transparent outline-none"
                   required
                 />
               </div>
@@ -381,7 +397,7 @@ export default function Layout({ children }) {
                   type="password"
                   value={changePasswordForm.newPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, newPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border rounded-xl text-center focus:ring-2 focus:ring-red-400 focus:border-transparent outline-none"
                   required
                 />
               </div>
@@ -391,7 +407,7 @@ export default function Layout({ children }) {
                   type="password"
                   value={changePasswordForm.confirmNewPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, confirmNewPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border rounded-xl text-center focus:ring-2 focus:ring-red-400 focus:border-transparent outline-none"
                   required
                 />
               </div>
@@ -399,14 +415,14 @@ export default function Layout({ children }) {
                 <button
                   type="submit"
                   disabled={changePasswordLoading}
-                  className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50"
+                  className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-all disabled:opacity-50 shadow-md shadow-red-500/20"
                 >
                   {changePasswordLoading ? 'در حال ثبت...' : 'تغییر رمز و ورود'}
                 </button>
                 <button
                   type="button"
                   onClick={() => { logout(); navigate('/login'); }}
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-3 rounded-xl font-bold transition-colors"
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-3 rounded-xl font-bold transition-colors"
                 >
                   خروج
                 </button>
@@ -418,9 +434,21 @@ export default function Layout({ children }) {
 
       {/* Optional Password Change Modal */}
       {showChangePasswordModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[5000] p-4">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-fade-in text-right">
-            <h3 className="text-lg font-bold text-gray-800 mb-6">🔑 تغییر رمز عبور</h3>
+        <div
+          onClick={() => { setShowChangePasswordModal(false); setChangePasswordForm({ oldPassword: '', newPassword: '', confirmNewPassword: '' }); }}
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[5000] p-4 animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl border border-gray-100 text-right relative"
+          >
+            <button
+              onClick={() => { setShowChangePasswordModal(false); setChangePasswordForm({ oldPassword: '', newPassword: '', confirmNewPassword: '' }); }}
+              className="absolute top-4 left-4 text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-all text-xs"
+            >
+              ✕
+            </button>
+            <h3 className="text-lg font-bold text-gray-800 mb-6 font-vazir">🔑 تغییر رمز عبور</h3>
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور فعلی</label>
@@ -428,7 +456,7 @@ export default function Layout({ children }) {
                   type="password"
                   value={changePasswordForm.oldPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, oldPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border rounded-xl text-center focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                   required
                 />
               </div>
@@ -438,7 +466,7 @@ export default function Layout({ children }) {
                   type="password"
                   value={changePasswordForm.newPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, newPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border rounded-xl text-center focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                   required
                 />
               </div>
@@ -448,7 +476,7 @@ export default function Layout({ children }) {
                   type="password"
                   value={changePasswordForm.confirmNewPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, confirmNewPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border rounded-xl text-center focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                   required
                 />
               </div>
@@ -456,14 +484,14 @@ export default function Layout({ children }) {
                 <button
                   type="submit"
                   disabled={changePasswordLoading}
-                  className="flex-1 bg-primary-500 hover:bg-primary-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50"
+                  className="flex-1 bg-primary-500 hover:bg-primary-600 text-white py-3 rounded-xl font-bold transition-all disabled:opacity-50 shadow-md shadow-primary-500/20"
                 >
                   {changePasswordLoading ? 'در حال ثبت...' : 'تغییر رمز'}
                 </button>
                 <button
                   type="button"
                   onClick={() => { setShowChangePasswordModal(false); setChangePasswordForm({ oldPassword: '', newPassword: '', confirmNewPassword: '' }); }}
-                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-xl font-bold transition-colors"
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-bold transition-colors"
                 >
                   انصراف
                 </button>
