@@ -1,5 +1,22 @@
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# Copy .env.example to .env if missing on startup
+$envPath = Join-Path $scriptDir ".env"
+if (-not (Test-Path $envPath)) {
+    $examplePath = Join-Path $scriptDir ".env.example"
+    if (Test-Path $examplePath) {
+        Write-Host "Warning: .env file not found. Automatically copying .env.example to .env..." -ForegroundColor Yellow
+        try {
+            Copy-Item -Path $examplePath -Destination $envPath -Force
+            Write-Host ".env created successfully. Please update database credentials as needed." -ForegroundColor Green
+        } catch {
+            Write-Host "Failed to automatically create .env file: $_" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "Warning: Neither .env nor .env.example were found in the root directory." -ForegroundColor Red
+    }
+}
+
 function Load-Env {
     $envPath = Join-Path $scriptDir ".env"
     if (Test-Path $envPath) {
@@ -34,7 +51,7 @@ function Menu {
     Write-Host "--- Database Actions ---" -ForegroundColor Gray
     Write-Host "1. Initialize/Create Local Database (If not exists)"
     Write-Host "2. Check Local PostgreSQL Service Status"
-    Write-Host "3. Start Local PostgreSQL Service (Needs Admin)"
+    Write-Host "3. Start Local PostgreSQL Service"
     Write-Host "4. Reset/Wipe Local Database (Fresh Start)"
     Write-Host ""
     Write-Host "--- Application Actions (Backend + Frontend) ---" -ForegroundColor Gray
@@ -62,99 +79,149 @@ do {
         "1" {
             Show-Header
             Write-Host "Initializing Local PostgreSQL Database with Prisma..." -ForegroundColor Green
-            Set-Location "$scriptDir\backend"
+            Set-Location (Join-Path $scriptDir "backend")
             npx prisma migrate deploy
-            npx prisma generate
-            Write-Host "`nSeeding database with default data..." -ForegroundColor Yellow
-            npm run db:seed
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: Prisma migrate deploy failed! Please check if your PostgreSQL service is running and credentials in .env are correct." -ForegroundColor Red
+            } else {
+                npx prisma generate
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: Prisma client generation failed!" -ForegroundColor Red
+                } else {
+                    Write-Host "`nSeeding database with default data..." -ForegroundColor Yellow
+                    npm run db:seed
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host "`nWarning: Database seeding failed or had some errors (may already be seeded)." -ForegroundColor Yellow
+                    } else {
+                        Write-Host "`nDatabase initialized and seeded successfully!" -ForegroundColor Green
+                    }
+                }
+            }
             Read-Host "`nPress Enter to return to the menu..."
         }
         "2" {
             Show-Header
             Write-Host "Checking local PostgreSQL service status..." -ForegroundColor Green
-            $services = Get-Service -Name *postgres* -ErrorAction SilentlyContinue
-            if ($services) {
-                foreach ($s in $services) {
-                    $color = if ($s.Status -eq 'Running') { 'Green' } else { 'Yellow' }
-                    Write-Host "Service: $($s.Name) ($($s.DisplayName)) - " -NoNewline -ForegroundColor Gray
-                    Write-Host "$($s.Status)" -ForegroundColor $color
+            if ($IsWindows -or $env:OS -like "*Windows*") {
+                $services = Get-Service -Name *postgres* -ErrorAction SilentlyContinue
+                if ($services) {
+                    foreach ($s in $services) {
+                        $color = if ($s.Status -eq 'Running') { 'Green' } else { 'Yellow' }
+                        Write-Host "Service: $($s.Name) ($($s.DisplayName)) - " -NoNewline -ForegroundColor Gray
+                        Write-Host "$($s.Status)" -ForegroundColor $color
+                    }
+                } else {
+                    Write-Host "No PostgreSQL service found on this system. Please verify installation." -ForegroundColor Red
                 }
             } else {
-                Write-Host "No PostgreSQL service found on this system. Please verify installation." -ForegroundColor Red
+                Write-Host "Windows Service check is not available on this platform." -ForegroundColor Yellow
+                Write-Host "You can check PostgreSQL status using standard platform commands:" -ForegroundColor Gray
+                Write-Host "  - Systemd: systemctl status postgresql" -ForegroundColor Cyan
+                Write-Host "  - Docker:  docker ps | grep postgres" -ForegroundColor Cyan
             }
             Read-Host "`nPress Enter to return to the menu..."
         }
         "3" {
             Show-Header
             Write-Host "Attempting to start PostgreSQL service..." -ForegroundColor Green
-            $services = Get-Service -Name *postgres* -ErrorAction SilentlyContinue
-            if ($services) {
-                foreach ($s in $services) {
-                    if ($s.Status -eq 'Running') {
-                        Write-Host "Service '$($s.Name)' is already running." -ForegroundColor Green
-                    } else {
-                        Write-Host "Starting service '$($s.Name)'..." -ForegroundColor Yellow
-                        try {
-                            Start-Service -Name $s.Name -ErrorAction Stop
-                            Write-Host "Service started successfully!" -ForegroundColor Green
-                        } catch {
-                            Write-Host "Failed to start service: $_" -ForegroundColor Red
-                            Write-Host "Note: Starting services may require Administrator privileges. Try running this prompt/PowerShell as Administrator." -ForegroundColor Yellow
+            if ($IsWindows -or $env:OS -like "*Windows*") {
+                $services = Get-Service -Name *postgres* -ErrorAction SilentlyContinue
+                if ($services) {
+                    foreach ($s in $services) {
+                        if ($s.Status -eq 'Running') {
+                            Write-Host "Service '$($s.Name)' is already running." -ForegroundColor Green
+                        } else {
+                            Write-Host "Starting service '$($s.Name)'..." -ForegroundColor Yellow
+                            try {
+                                Start-Service -Name $s.Name -ErrorAction Stop
+                                Write-Host "Service started successfully!" -ForegroundColor Green
+                            } catch {
+                                Write-Host "Failed to start service: $_" -ForegroundColor Red
+                                Write-Host "Note: Starting services may require Administrator privileges. Try running this prompt/PowerShell as Administrator." -ForegroundColor Yellow
+                            }
                         }
                     }
+                } else {
+                    Write-Host "No PostgreSQL service found." -ForegroundColor Red
                 }
             } else {
-                Write-Host "No PostgreSQL service found." -ForegroundColor Red
+                Write-Host "Windows Service management is not available on this platform." -ForegroundColor Yellow
+                Write-Host "You can start PostgreSQL using standard platform commands:" -ForegroundColor Gray
+                Write-Host "  - Systemd: sudo systemctl start postgresql" -ForegroundColor Cyan
+                Write-Host "  - Docker:  docker compose -f docker/docker-compose.yml up -d" -ForegroundColor Cyan
             }
             Read-Host "`nPress Enter to return to the menu..."
         }
         "4" {
             Show-Header
             Write-Host "Resetting Local Database (Fresh Start with Prisma)..." -ForegroundColor Green
-            Set-Location "$scriptDir\backend"
+            Set-Location (Join-Path $scriptDir "backend")
             npx prisma migrate reset --force
-            npx prisma generate
-            Write-Host "`nSeeding database with default data..." -ForegroundColor Yellow
-            npm run db:seed
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: Prisma migrate reset failed! Please check if PostgreSQL is running and credentials in .env are correct." -ForegroundColor Red
+            } else {
+                npx prisma generate
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: Prisma client generation failed!" -ForegroundColor Red
+                } else {
+                    Write-Host "`nSeeding database with default data..." -ForegroundColor Yellow
+                    npm run db:seed
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host "`nWarning: Database seeding failed or had some errors." -ForegroundColor Yellow
+                    } else {
+                        Write-Host "`nDatabase reset and seeded successfully!" -ForegroundColor Green
+                    }
+                }
+            }
             Read-Host "`nPress Enter to return to the menu..."
         }
         "5" {
             Show-Header
-            Write-Host "[1/4] Installing backend dependencies..." -ForegroundColor Green
-            Set-Location "$scriptDir\backend"
-            npm install --include=dev
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "`nError: npm install failed in backend!" -ForegroundColor Red
-                Read-Host "Press Enter to return to the menu..."
-                return
+            $success = $true
+
+            if ($success) {
+                Write-Host "[1/4] Installing backend dependencies..." -ForegroundColor Green
+                Set-Location (Join-Path $scriptDir "backend")
+                npm install --include=dev
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: npm install failed in backend!" -ForegroundColor Red
+                    $success = $false
+                }
             }
 
-            Write-Host "`n[2/4] Generating Prisma Client..." -ForegroundColor Green
-            npx prisma generate
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "`nError: Prisma generate failed!" -ForegroundColor Red
-                Read-Host "Press Enter to return to the menu..."
-                return
+            if ($success) {
+                Write-Host "`n[2/4] Generating Prisma Client..." -ForegroundColor Green
+                npx prisma generate
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: Prisma generate failed!" -ForegroundColor Red
+                    $success = $false
+                }
             }
 
-            Write-Host "`n[3/4] Installing frontend dependencies..." -ForegroundColor Green
-            Set-Location "$scriptDir\frontend"
-            npm install --include=dev
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "`nError: npm install failed in frontend!" -ForegroundColor Red
-                Read-Host "Press Enter to return to the menu..."
-                return
+            if ($success) {
+                Write-Host "`n[3/4] Installing frontend dependencies..." -ForegroundColor Green
+                Set-Location (Join-Path $scriptDir "frontend")
+                npm install --include=dev
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: npm install failed in frontend!" -ForegroundColor Red
+                    $success = $false
+                }
             }
             
-            Write-Host "`n[4/4] Generating React production bundle (Build)..." -ForegroundColor Green
-            npm run build
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "`nError: Frontend build failed!" -ForegroundColor Red
-                Read-Host "Press Enter to return to the menu..."
-                return
+            if ($success) {
+                Write-Host "`n[4/4] Generating React production bundle (Build)..." -ForegroundColor Green
+                npm run build
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: Frontend build failed!" -ForegroundColor Red
+                    $success = $false
+                }
             }
             
-            Write-Host "`nApplication install and build completed successfully!" -ForegroundColor Green
+            if ($success) {
+                Write-Host "`nApplication install and build completed successfully!" -ForegroundColor Green
+            } else {
+                Write-Host "`nApplication installation failed. Please check the logs above." -ForegroundColor Red
+            }
             Read-Host "Press Enter to return to the menu..."
         }
         "6" {
@@ -162,49 +229,79 @@ do {
             Write-Host "Starting server cluster with PM2..." -ForegroundColor Green
             Set-Location $scriptDir
             
+            if (-not (Get-Command pm2 -ErrorAction SilentlyContinue)) {
+                Write-Host "Warning: PM2 is not installed globally. Attempting to install PM2 globally..." -ForegroundColor Yellow
+                npm install -g pm2
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "Error: Failed to install PM2 globally. You can install it manually using: npm install -g pm2" -ForegroundColor Red
+                    Write-Host "Alternatively, you can start the application manually: node backend/server.js" -ForegroundColor Yellow
+                    Read-Host "Press Enter to return to the menu..."
+                    continue
+                }
+            }
+
             # Start via PM2
             pm2 start ecosystem.config.js
-            
-            $appPort = if ($env:PORT) { $env:PORT } else { "2833" }
-            Write-Host "`nApplication successfully started on port $appPort. Opening browser..." -ForegroundColor Green
-            Start-Process "http://localhost:$appPort"
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: PM2 failed to start the application!" -ForegroundColor Red
+            } else {
+                $appPort = if ($env:PORT) { $env:PORT } else { "2833" }
+                Write-Host "`nApplication successfully started on port $appPort. Opening browser..." -ForegroundColor Green
+                try {
+                    Start-Process "http://localhost:$appPort"
+                } catch {
+                    Write-Host "Could not open browser automatically. Please navigate to http://localhost:$appPort manually." -ForegroundColor Yellow
+                }
+            }
             Read-Host "Press Enter to return to the menu..."
         }
         "7" {
             Show-Header
             Write-Host "Stopping server cluster in PM2..." -ForegroundColor Green
             Set-Location $scriptDir
-            pm2 delete ecosystem.config.js
-            Write-Host "`nApplication has stopped." -ForegroundColor Green
+            if (Get-Command pm2 -ErrorAction SilentlyContinue) {
+                pm2 delete ecosystem.config.js
+                Write-Host "`nApplication has stopped." -ForegroundColor Green
+            } else {
+                Write-Host "PM2 is not installed, so the application is not running under PM2." -ForegroundColor Yellow
+            }
             Read-Host "Press Enter to return to the menu..."
         }
         "8" {
             Show-Header
-            Write-Host "Setting up autostart..." -ForegroundColor Green
-            $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
-            $shortcutPath = [System.IO.Path]::Combine($startupFolder, "EdariAutoStart.vbs")
-            $sourceVbs = [System.IO.Path]::Combine($scriptDir, "auto-start.vbs")
-            
-            try {
-                Copy-Item -Path $sourceVbs -Destination $shortcutPath -Force
-                Write-Host "Autostart script registered successfully!" -ForegroundColor Green
-                Write-Host "Path: $shortcutPath" -ForegroundColor Gray
-            } catch {
-                Write-Host "Failed to register autostart: $_" -ForegroundColor Red
+            if ($IsWindows -or $env:OS -like "*Windows*") {
+                Write-Host "Setting up autostart..." -ForegroundColor Green
+                $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
+                $shortcutPath = [System.IO.Path]::Combine($startupFolder, "EdariAutoStart.vbs")
+                $sourceVbs = [System.IO.Path]::Combine($scriptDir, "auto-start.vbs")
+
+                try {
+                    Copy-Item -Path $sourceVbs -Destination $shortcutPath -Force
+                    Write-Host "Autostart script registered successfully!" -ForegroundColor Green
+                    Write-Host "Path: $shortcutPath" -ForegroundColor Gray
+                } catch {
+                    Write-Host "Failed to register autostart: $_" -ForegroundColor Red
+                }
+            } else {
+                Write-Host "Autostart registration via Windows Startup folder is only supported on Windows operating systems." -ForegroundColor Yellow
             }
             Read-Host "Press Enter to return to the menu..."
         }
         "9" {
             Show-Header
-            Write-Host "Removing autostart..." -ForegroundColor Green
-            $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
-            $shortcutPath = [System.IO.Path]::Combine($startupFolder, "EdariAutoStart.vbs")
-            
-            if (Test-Path $shortcutPath) {
-                Remove-Item -Path $shortcutPath -Force
-                Write-Host "Autostart removed successfully." -ForegroundColor Green
+            if ($IsWindows -or $env:OS -like "*Windows*") {
+                Write-Host "Removing autostart..." -ForegroundColor Green
+                $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
+                $shortcutPath = [System.IO.Path]::Combine($startupFolder, "EdariAutoStart.vbs")
+
+                if (Test-Path $shortcutPath) {
+                    Remove-Item -Path $shortcutPath -Force
+                    Write-Host "Autostart removed successfully." -ForegroundColor Green
+                } else {
+                    Write-Host "Autostart script not found (already removed)." -ForegroundColor Yellow
+                }
             } else {
-                Write-Host "Autostart script not found (already removed)." -ForegroundColor Yellow
+                Write-Host "Autostart removal via Windows Startup folder is only supported on Windows operating systems." -ForegroundColor Yellow
             }
             Read-Host "Press Enter to return to the menu..."
         }
@@ -213,64 +310,91 @@ do {
             Write-Host "=== Full Deploy: Pull + Init DB + Restart ===" -ForegroundColor Cyan
             Write-Host ""
 
-            Write-Host "[1/7] Pulling latest changes from git..." -ForegroundColor Green
-            Set-Location $scriptDir
-            git pull origin main
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "`nError: git pull failed!" -ForegroundColor Red
-                Read-Host "Press Enter to return to the menu..."
-                return
+            $success = $true
+            if ($success) {
+                Write-Host "[1/7] Pulling latest changes from git..." -ForegroundColor Green
+                Set-Location $scriptDir
+                git pull origin main
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: git pull failed!" -ForegroundColor Red
+                    $success = $false
+                }
             }
 
-            Write-Host "`n[2/7] Installing backend dependencies..." -ForegroundColor Green
-            Set-Location "$scriptDir\backend"
-            npm install --include=dev
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "`nError: npm install failed in backend!" -ForegroundColor Red
-                Read-Host "Press Enter to return to the menu..."
-                return
+            if ($success) {
+                Write-Host "`n[2/7] Installing backend dependencies..." -ForegroundColor Green
+                Set-Location (Join-Path $scriptDir "backend")
+                npm install --include=dev
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: npm install failed in backend!" -ForegroundColor Red
+                    $success = $false
+                }
             }
 
-            Write-Host "`n[3/7] Generating Prisma Client..." -ForegroundColor Green
-            npm run prisma:generate
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "`nError: Prisma generate failed!" -ForegroundColor Red
-                Read-Host "Press Enter to return to the menu..."
-                return
+            if ($success) {
+                Write-Host "`n[3/7] Generating Prisma Client..." -ForegroundColor Green
+                npm run prisma:generate
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: Prisma generate failed!" -ForegroundColor Red
+                    $success = $false
+                }
             }
 
-            Write-Host "`n[4/7] Installing frontend dependencies & building..." -ForegroundColor Green
-            Set-Location "$scriptDir\frontend"
-            npm install --include=dev
-            npm run build
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "`nError: Frontend build failed!" -ForegroundColor Red
-                Read-Host "Press Enter to return to the menu..."
-                return
+            if ($success) {
+                Write-Host "`n[4/7] Installing frontend dependencies & building..." -ForegroundColor Green
+                Set-Location (Join-Path $scriptDir "frontend")
+                npm install --include=dev
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: Frontend npm install failed!" -ForegroundColor Red
+                    $success = $false
+                } else {
+                    npm run build
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host "`nError: Frontend build failed!" -ForegroundColor Red
+                        $success = $false
+                    }
+                }
             }
 
-            Write-Host "`n[5/7] Running database migrations (migrate:deploy)..." -ForegroundColor Green
-            Set-Location "$scriptDir\backend"
-            npm run migrate:deploy
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "`nError: Prisma migrations failed!" -ForegroundColor Red
-                Read-Host "Press Enter to return to the menu..."
-                return
+            if ($success) {
+                Write-Host "`n[5/7] Running database migrations (migrate:deploy)..." -ForegroundColor Green
+                Set-Location (Join-Path $scriptDir "backend")
+                npm run migrate:deploy
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nError: Prisma migrations failed!" -ForegroundColor Red
+                    $success = $false
+                }
             }
 
-            Write-Host "`n[6/7] Seeding database..." -ForegroundColor Green
-            npm run db:seed
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "`nWarning: Seed had errors (may be idempotent)." -ForegroundColor Yellow
+            if ($success) {
+                Write-Host "`n[6/7] Seeding database..." -ForegroundColor Green
+                npm run db:seed
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "`nWarning: Seed had errors (may be idempotent)." -ForegroundColor Yellow
+                }
             }
 
-            Write-Host "`n[7/7] Restarting server with PM2..." -ForegroundColor Green
-            Set-Location $scriptDir
-            pm2 restart ecosystem.config.js
+            if ($success) {
+                Write-Host "`n[7/7] Restarting server with PM2..." -ForegroundColor Green
+                Set-Location $scriptDir
+                if (Get-Command pm2 -ErrorAction SilentlyContinue) {
+                    pm2 restart ecosystem.config.js
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host "`nWarning: PM2 failed to restart. Attempting to start instead..." -ForegroundColor Yellow
+                        pm2 start ecosystem.config.js
+                    }
+                } else {
+                    Write-Host "Warning: PM2 is not installed globally. Could not restart process automatically." -ForegroundColor Yellow
+                }
+            }
 
-            Write-Host "`n=== Deploy completed successfully! ===" -ForegroundColor Green
-            $appPort = if ($env:PORT) { $env:PORT } else { "2833" }
-            Write-Host "Application is running on port $appPort" -ForegroundColor Cyan
+            if ($success) {
+                Write-Host "`n=== Deploy completed successfully! ===" -ForegroundColor Green
+                $appPort = if ($env:PORT) { $env:PORT } else { "2833" }
+                Write-Host "Application is running on port $appPort" -ForegroundColor Cyan
+            } else {
+                Write-Host "`n=== Deploy failed. Please fix the errors above and try again. ===" -ForegroundColor Red
+            }
             Read-Host "Press Enter to return to the menu..."
         }
         "11" {
