@@ -182,7 +182,7 @@ do {
             if ($success) {
                 Write-Host "[1/4] Installing backend dependencies..." -ForegroundColor Green
                 Set-Location (Join-Path $scriptDir "backend")
-                npm install --include=dev
+                npm install --include=dev --ignore-scripts
                 if ($LASTEXITCODE -ne 0) {
                     Write-Host "`nError: npm install failed in backend!" -ForegroundColor Red
                     $success = $false
@@ -324,7 +324,7 @@ do {
             if ($success) {
                 Write-Host "`n[2/7] Installing backend dependencies..." -ForegroundColor Green
                 Set-Location (Join-Path $scriptDir "backend")
-                npm install --include=dev
+                npm install --include=dev --ignore-scripts
                 if ($LASTEXITCODE -ne 0) {
                     Write-Host "`nError: npm install failed in backend!" -ForegroundColor Red
                     $success = $false
