@@ -1,58 +1,65 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow } = require('../utils/dbAdapter');
 
-module.exports = function(db) {
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  router.get('/', (req, res) => {
+  router.get('/', async (req, res) => {
     try {
-      const notifications = db.prepare(`
-        SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50
-      `).all(req.user.id);
-      res.json(notifications);
+      const notifications = await prisma.notification.findMany({
+        where: { userId: Number(req.user.id) },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+      res.json(mapRow(notifications));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/unread-count', (req, res) => {
+  router.get('/unread-count', async (req, res) => {
     try {
-      const result = db.prepare('SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0').get(req.user.id);
-      res.json({ count: result.count });
+      const count = await prisma.notification.count({ where: { userId: Number(req.user.id), isRead: false } });
+      res.json({ count });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/read-all', (req, res) => {
+  router.put('/read-all', async (req, res) => {
     try {
-      db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?').run(req.user.id);
+      await prisma.notification.updateMany({ where: { userId: Number(req.user.id) }, data: { isRead: true } });
       res.json({ message: 'همه خوانده شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/:id/read', (req, res) => {
+  router.put('/:id/read', async (req, res) => {
     try {
-      db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+      await prisma.notification.updateMany({
+        where: { id: Number(req.params.id), userId: Number(req.user.id) },
+        data: { isRead: true },
+      });
       res.json({ message: 'خوانده شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.delete('/:id', (req, res) => {
+  router.delete('/:id', async (req, res) => {
     try {
-      db.prepare('DELETE FROM notifications WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+      await prisma.notification.deleteMany({ where: { id: Number(req.params.id), userId: Number(req.user.id) } });
       res.json({ message: 'حذف شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/pending-counts', (req, res) => {
+  router.get('/pending-counts', async (req, res) => {
     try {
       const counts = {
         leave: 0,
@@ -63,59 +70,53 @@ module.exports = function(db) {
       };
 
       if (req.user.role === 'admin' || req.user.role === 'manager') {
-        const r = db.prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status IN ('pending_manager', 'pending_admin')").get();
-        counts.leave = parseInt(r.count, 10) || 0;
-        
-        const ro = db.prepare("SELECT COUNT(*) as count FROM overtime_requests WHERE status = 'pending_manager'").get();
-        counts.overtime = parseInt(ro.count, 10) || 0;
-      } else if (req.user.role === 'supervisor') {
-        const r = db.prepare(`
-          SELECT COUNT(*) as count 
-          FROM leave_requests 
-          WHERE status = 'pending_supervisor' 
-            AND user_id IN (SELECT id FROM users WHERE department_id = ? AND role != 'admin')
-        `).get(req.user.department_id);
-        counts.leave = parseInt(r.count, 10) || 0;
+        const r = await prisma.leaveRequest.count({ where: { status: { in: ['pending_manager', 'pending_admin'] } } });
+        counts.leave = parseInt(r, 10) || 0;
 
-        const ro = db.prepare(`
-          SELECT COUNT(*) as count 
-          FROM overtime_requests 
-          WHERE status = 'pending_supervisor' 
-            AND user_id IN (SELECT id FROM users WHERE department_id = ? AND role != 'admin')
-        `).get(req.user.department_id);
-        counts.overtime = parseInt(ro.count, 10) || 0;
+        const ro = await prisma.overtimeRequest.count({ where: { status: 'pending_manager' } });
+        counts.overtime = parseInt(ro, 10) || 0;
+      } else if (req.user.role === 'supervisor') {
+        const deptWhere = { status: 'pending_supervisor' };
+        if (req.user.department_id) {
+          deptWhere.user = { departmentId: Number(req.user.department_id), role: { not: 'admin' } };
+        }
+        const r = await prisma.leaveRequest.count({ where: deptWhere });
+        counts.leave = parseInt(r, 10) || 0;
+
+        const ro = await prisma.overtimeRequest.count({ where: deptWhere });
+        counts.overtime = parseInt(ro, 10) || 0;
       }
 
       let centralCount = 0;
       let isSantral = req.user.role === 'admin';
       if (!isSantral) {
-        const userPerm = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(req.user.id, 'letters_central');
+        const userPerm = await prisma.permission.findFirst({ where: { userId: Number(req.user.id), moduleKey: 'letters_central' } });
         if (userPerm !== null && userPerm !== undefined) {
-          isSantral = userPerm.is_enabled === 1;
+          isSantral = userPerm.isEnabled === true;
         } else if (req.user.department_id) {
-          const deptPerm = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL AND module_key = ?').get(req.user.department_id, 'letters_central');
+          const deptPerm = await prisma.permission.findFirst({ where: { departmentId: Number(req.user.department_id), userId: null, moduleKey: 'letters_central' } });
           if (deptPerm !== null && deptPerm !== undefined) {
-            isSantral = deptPerm.is_enabled === 1;
+            isSantral = deptPerm.isEnabled === true;
           }
         }
       }
       if (isSantral) {
-        const r = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status = 'pending_central'").get();
-        centralCount = parseInt(r.count, 10) || 0;
+        const r = await prisma.letter.count({ where: { status: 'pending_central' } });
+        centralCount = parseInt(r, 10) || 0;
       }
       let managerCount = 0;
       if (req.user.role === 'admin' || req.user.role === 'manager') {
-        const r = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status = 'pending_manager' AND selected_manager_id = ?").get(req.user.id);
-        managerCount = parseInt(r.count, 10) || 0;
+        const r = await prisma.letter.count({ where: { status: 'pending_manager', selectedManagerId: Number(req.user.id) } });
+        managerCount = parseInt(r, 10) || 0;
       }
       counts.letters = centralCount + managerCount;
 
-      const inv = db.prepare("SELECT COUNT(*) as count FROM cardex WHERE user_id = ? AND status = 'pending_user'").get(req.user.id);
-      counts.inventory = parseInt(inv.count, 10) || 0;
+      const inv = await prisma.cardex.count({ where: { userId: Number(req.user.id), status: 'pending_user' } });
+      counts.inventory = parseInt(inv, 10) || 0;
 
       if (req.user.role === 'admin' || req.user.role === 'manager') {
-        const r = db.prepare("SELECT COUNT(*) as count FROM job_applications WHERE status = 'pending'").get();
-        counts.jobApplication = parseInt(r.count, 10) || 0;
+        const r = await prisma.jobApplication.count({ where: { status: 'pending' } });
+        counts.jobApplication = parseInt(r, 10) || 0;
       }
 
       res.json(counts);

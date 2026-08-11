@@ -3,8 +3,10 @@ const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
 const { authMiddleware, roleGuard } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
-module.exports = function(db) {
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
@@ -13,8 +15,19 @@ module.exports = function(db) {
     fs.mkdirSync(uploadDir, { recursive: true });
   }
 
-  router.get('/users', (req, res) => {
-    if (req.user.role !== 'admin' && !hasAdminPerm(req.user, 'user_import_csv')) {
+  async function hasAdminPerm(user, key) {
+    if (user.role === 'admin') return true;
+    const p = await prisma.permission.findFirst({ where: { userId: user.id, moduleKey: key } });
+    if (p) return p.isEnabled;
+    if (user.department_id) {
+      const dp = await prisma.permission.findFirst({ where: { departmentId: Number(user.department_id), moduleKey: key, userId: null } });
+      if (dp) return dp.isEnabled;
+    }
+    return false;
+  }
+
+  router.get('/users', async (req, res) => {
+    if (req.user.role !== 'admin' && !(await hasAdminPerm(req.user, 'user_import_csv'))) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز' });
     }
     try {
@@ -23,35 +36,44 @@ module.exports = function(db) {
       const offset = (page - 1) * limit;
       const search = req.query.search || '';
       const activeOnly = req.query.active_only === '1';
-      
-      let whereClause = '';
-      const conditions = [];
-      const params = [];
-      
+
+      const where = {};
+
       if (search) {
-        conditions.push(`(u.full_name ILIKE $${params.length + 1} OR CAST(u.id AS TEXT) ILIKE $${params.length + 1})`);
-        params.push(`%${search}%`);
+        const numSearch = parseInt(search, 10);
+        const or = [{ fullName: { contains: search, mode: 'insensitive' } }];
+        if (!isNaN(numSearch)) or.push({ id: numSearch });
+        where.OR = or;
       }
       if (activeOnly) {
-        conditions.push(`u.is_active = 1`);
+        where.isActive = true;
       }
-      if (conditions.length > 0) {
-        whereClause = ' WHERE ' + conditions.join(' AND ');
-      }
-      
-      const countResult = db.prepare(`SELECT COUNT(*) as total FROM users u LEFT JOIN departments d ON u.department_id = d.id ${whereClause}`).get(...params);
-      const total = countResult ? countResult.total : 0;
-      
-      const users = db.prepare(`
-        SELECT u.id, u.id as username, u.full_name, u.role, u.department_id, u.is_active, u.created_at,
-               d.name as department_name
-        FROM users u
-        LEFT JOIN departments d ON u.department_id = d.id
-        ${whereClause}
-        ORDER BY u.id
-        LIMIT ${limit} OFFSET ${offset}
-      `).all(...params);
-      res.json({ data: users, total, page, limit });
+
+      const total = await prisma.user.count({ where });
+
+      const users = await prisma.user.findMany({
+        where,
+        orderBy: { id: 'asc' },
+        take: limit,
+        skip: offset,
+        select: {
+          id: true,
+          fullName: true,
+          role: true,
+          departmentId: true,
+          isActive: true,
+          createdAt: true,
+          department: { select: { name: true } },
+        },
+      });
+
+      const mapped = users.map(u => {
+        const flat = flattenJoins(u, { department_name: 'department.name' });
+        flat.username = flat.id;
+        return mapRow(flat);
+      });
+
+      res.json({ data: mapped, total, page, limit });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -64,26 +86,29 @@ module.exports = function(db) {
       if (!targetId || !full_name || !role) {
         return res.status(400).json({ error: 'کد پرسنلی، نام کامل و نقش الزامی هستند' });
       }
-      const existing = db.prepare('SELECT id, is_active FROM users WHERE id = ?').get(targetId);
-      if (existing && existing.is_active) {
+      const existing = await prisma.user.findUnique({ where: { id: targetId } });
+      if (existing && existing.isActive) {
         return res.status(400).json({ error: 'کد پرسنلی تکراری است' });
       }
-      const pass = password || String(targetId);
-      const mustChange = password ? 0 : 1;
+      const pass = password || require('crypto').randomBytes(8).toString('hex');
+      const mustChange = password ? false : true;
       const hash = await bcrypt.hash(pass, 10);
-      if (existing && !existing.is_active) {
-        db.prepare('UPDATE users SET password = ?, full_name = ?, role = ?, department_id = ?, is_active = 1, must_change_password = ? WHERE id = ?')
-          .run(hash, full_name, role, department_id || null, mustChange, targetId);
+      if (existing && !existing.isActive) {
+        await prisma.user.update({
+          where: { id: targetId },
+          data: { password: hash, fullName: full_name, role, departmentId: department_id || null, isActive: true, mustChangePassword: mustChange },
+        });
       } else {
-        db.prepare('INSERT INTO users (id, password, full_name, role, department_id, must_change_password) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(targetId, hash, full_name, role, department_id || null, mustChange);
+        await prisma.user.create({
+          data: { id: targetId, password: hash, fullName: full_name, role, departmentId: department_id || null, mustChangePassword: mustChange },
+        });
       }
-      
-      const existingBalance = db.prepare('SELECT id FROM leave_balance WHERE user_id = ?').get(targetId);
+
+      const existingBalance = await prisma.leaveBalance.findUnique({ where: { userId: targetId } });
       if (!existingBalance) {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(targetId);
+        await prisma.leaveBalance.create({ data: { userId: targetId, totalDays: 0, usedHours: 0 } });
       }
-      
+
       res.json({ id: targetId, message: 'کاربر با موفقیت ایجاد شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -93,206 +118,258 @@ module.exports = function(db) {
   router.put('/users/:id', roleGuard('admin'), async (req, res) => {
     try {
       const { full_name, role, department_id, is_active, password } = req.body;
-      const userId = req.params.id;
+      const userId = Number(req.params.id);
 
       if (password) {
         const hash = await bcrypt.hash(password, 10);
-        db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, userId);
+        await prisma.user.update({ where: { id: userId }, data: { password: hash } });
       }
 
-      db.prepare('UPDATE users SET full_name = ?, role = ?, department_id = ?, is_active = ? WHERE id = ?')
-        .run(full_name, role, department_id || null, is_active !== undefined ? is_active : 1, userId);
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          fullName: full_name,
+          role,
+          departmentId: department_id || null,
+          isActive: is_active !== undefined ? (is_active === true || is_active === 1 || is_active === '1') : true,
+        },
+      });
       res.json({ message: 'کاربر با موفقیت ویرایش شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.delete('/users/:id', roleGuard('admin'), (req, res) => {
+  router.delete('/users/:id', roleGuard('admin'), async (req, res) => {
     try {
-      const userId = req.params.id;
-      const user = db.prepare('SELECT role FROM users WHERE id = ?').get(userId);
+      const userId = Number(req.params.id);
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
       if (user && user.role === 'admin') {
         return res.status(400).json({ error: 'امکان حذف مدیر سیستم وجود ندارد' });
       }
-      db.transaction(() => {
-        db.prepare('DELETE FROM cardex WHERE user_id = ?').run(userId);
-        db.prepare('DELETE FROM cardex WHERE warehouse_user_id = ?').run(userId);
-        db.prepare('DELETE FROM user_shift_assignments WHERE user_id = ?').run(userId);
-        db.prepare('DELETE FROM shift_change_requests WHERE user_id = ?').run(userId);
-        db.prepare('DELETE FROM leave_requests WHERE user_id = ?').run(userId);
-        db.prepare('UPDATE leave_requests SET supervisor_id = NULL WHERE supervisor_id = ?').run(userId);
-        db.prepare('UPDATE leave_requests SET manager_id = NULL WHERE manager_id = ?').run(userId);
-        db.prepare('UPDATE leave_requests SET security_id = NULL WHERE security_id = ?').run(userId);
-        db.prepare('DELETE FROM overtime_requests WHERE user_id = ?').run(userId);
-        db.prepare('UPDATE overtime_requests SET supervisor_id = NULL WHERE supervisor_id = ?').run(userId);
-        db.prepare('UPDATE overtime_requests SET manager_id = NULL WHERE manager_id = ?').run(userId);
-        db.prepare('UPDATE overtime_requests SET security_id = NULL WHERE security_id = ?').run(userId);
-        db.prepare('UPDATE letters SET manager_id = NULL WHERE manager_id = ?').run(userId);
-        db.prepare('DELETE FROM notifications WHERE user_id = ?').run(userId);
-        db.prepare('DELETE FROM leave_balance WHERE user_id = ?').run(userId);
-        db.prepare('DELETE FROM signatures WHERE user_id = ?').run(userId);
-        db.prepare('DELETE FROM users WHERE id = ?').run(userId);
-      })();
+      await prisma.$transaction(async (tx) => {
+        await tx.cardex.deleteMany({ where: { userId } });
+        await tx.cardex.deleteMany({ where: { warehouseUserId: userId } });
+        await tx.userShiftAssignment.deleteMany({ where: { userId } });
+        await tx.shiftChangeRequest.deleteMany({ where: { userId } });
+        await tx.leaveRequest.deleteMany({ where: { userId } });
+        await tx.leaveRequest.updateMany({ where: { supervisorId: userId }, data: { supervisorId: null } });
+        await tx.leaveRequest.updateMany({ where: { managerId: userId }, data: { managerId: null } });
+        await tx.leaveRequest.updateMany({ where: { securityId: userId }, data: { securityId: null } });
+        await tx.overtimeRequest.deleteMany({ where: { userId } });
+        await tx.overtimeRequest.updateMany({ where: { supervisorId: userId }, data: { supervisorId: null } });
+        await tx.overtimeRequest.updateMany({ where: { managerId: userId }, data: { managerId: null } });
+        await tx.overtimeRequest.updateMany({ where: { securityId: userId }, data: { securityId: null } });
+        await tx.letter.updateMany({ where: { managerId: userId }, data: { managerId: null } });
+        await tx.notification.deleteMany({ where: { userId } });
+        await tx.leaveBalance.deleteMany({ where: { userId } });
+        await tx.signature.deleteMany({ where: { userId } });
+        await tx.user.deleteMany({ where: { id: userId } });
+      });
       res.json({ message: 'کاربر با موفقیت حذف شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/departments', (req, res) => {
+  router.get('/departments', async (req, res) => {
     try {
-      const departments = db.prepare('SELECT * FROM departments WHERE is_active = 1 ORDER BY id').all();
-      res.json(departments);
+      const departments = await prisma.department.findMany({
+        where: { isActive: true },
+        orderBy: { id: 'asc' },
+      });
+      res.json(mapRow(departments));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/departments', roleGuard('admin'), (req, res) => {
+  router.post('/departments', roleGuard('admin'), async (req, res) => {
     try {
       const { name, parent_id } = req.body;
       if (!name) {
         return res.status(400).json({ error: 'نام واحد الزامی است' });
       }
-      const result = db.prepare('INSERT INTO departments (name, parent_id) VALUES (?, ?)').run(name, parent_id || null);
-      res.json({ id: result.lastInsertRowid, message: 'واحد با موفقیت ایجاد شد' });
+      const result = await prisma.department.create({
+        data: { name, parentId: parent_id || null },
+      });
+      res.json({ id: result.id, message: 'واحد با موفقیت ایجاد شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/departments/:id', roleGuard('admin'), (req, res) => {
+  router.put('/departments/:id', roleGuard('admin'), async (req, res) => {
     try {
       const { name, parent_id } = req.body;
       if (!name) {
         return res.status(400).json({ error: 'نام واحد الزامی است' });
       }
-      db.prepare('UPDATE departments SET name = ?, parent_id = ? WHERE id = ?').run(name, parent_id || null, req.params.id);
+      await prisma.department.update({
+        where: { id: Number(req.params.id) },
+        data: { name, parentId: parent_id || null },
+      });
       res.json({ message: 'واحد با موفقیت ویرایش شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.delete('/departments/:id', roleGuard('admin'), (req, res) => {
+  router.delete('/departments/:id', roleGuard('admin'), async (req, res) => {
     try {
-      const deptId = req.params.id;
-      const userCount = db.prepare('SELECT COUNT(*) as count FROM users WHERE department_id = ? AND is_active = 1').get(deptId).count;
+      const deptId = Number(req.params.id);
+      const userCount = await prisma.user.count({ where: { departmentId: deptId, isActive: true } });
       if (userCount > 0) {
         return res.status(400).json({ error: `امکان حذف واحد وجود ندارد. ${userCount} کاربر فعال در این واحد هستند. ابتدا کاربران را منتقل یا غیرفعال کنید.` });
       }
-      db.prepare('UPDATE users SET department_id = NULL WHERE department_id = ?').run(deptId);
-      db.prepare('DELETE FROM letter_units WHERE unit_id = ?').run(deptId);
-      db.prepare('UPDATE departments SET is_active = 0 WHERE id = ?').run(deptId);
+      await prisma.user.updateMany({ where: { departmentId: deptId }, data: { departmentId: null } });
+      await prisma.letterUnit.deleteMany({ where: { unitId: deptId } });
+      await prisma.department.update({ where: { id: deptId }, data: { isActive: false } });
       res.json({ message: 'واحد با موفقیت حذف شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/departments/:id/supervisors', roleGuard('admin'), (req, res) => {
+  router.get('/departments/:id/supervisors', roleGuard('admin'), async (req, res) => {
     try {
-      const deptId = req.params.id;
-      const supervisors = db.prepare(`
-        SELECT u.id, u.full_name, u.id as username, u.role
-        FROM users u
-        WHERE u.department_id = ? AND u.is_active = 1
-        ORDER BY u.role = 'supervisor' DESC, u.full_name
-      `).all(deptId);
-      res.json(supervisors);
+      const deptId = Number(req.params.id);
+      const supervisors = await prisma.user.findMany({
+        where: { departmentId: deptId, isActive: true },
+        select: { id: true, fullName: true, role: true },
+      });
+      const sorted = supervisors.sort((a, b) => {
+        const sa = a.role === 'supervisor' ? 0 : 1;
+        const sb = b.role === 'supervisor' ? 0 : 1;
+        if (sa !== sb) return sa - sb;
+        return (a.fullName || '').localeCompare(b.fullName || '');
+      });
+      const mapped = sorted.map(u => {
+        const flat = { id: u.id, full_name: u.fullName, username: u.id, role: u.role };
+        return mapRow(flat);
+      });
+      res.json(mapped);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/departments/:id/promote-supervisor', roleGuard('admin'), (req, res) => {
+  router.put('/departments/:id/promote-supervisor', roleGuard('admin'), async (req, res) => {
     try {
       const { user_id } = req.body;
       if (!user_id) {
         return res.status(400).json({ error: 'انتخاب کاربر الزامی است' });
       }
-      const target = db.prepare('SELECT id, role, department_id FROM users WHERE id = ? AND is_active = 1').get(user_id);
+      const target = await prisma.user.findFirst({ where: { id: Number(user_id), isActive: true } });
       if (!target) {
         return res.status(404).json({ error: 'کاربر یافت نشد' });
       }
       if (target.role === 'admin') {
         return res.status(400).json({ error: 'امکان تغییر نقش مدیر سیستم وجود ندارد' });
       }
-      db.prepare('UPDATE users SET role = ?, department_id = ? WHERE id = ?').run('supervisor', req.params.id, user_id);
+      await prisma.user.update({
+        where: { id: Number(user_id) },
+        data: { role: 'supervisor', departmentId: Number(req.params.id) },
+      });
       res.json({ message: 'کاربر به سرپرست واحد ارتقا یافت' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/departments/:id/demote-supervisor', roleGuard('admin'), (req, res) => {
+  router.put('/departments/:id/demote-supervisor', roleGuard('admin'), async (req, res) => {
     try {
       const { user_id } = req.body;
       if (!user_id) {
         return res.status(400).json({ error: 'انتخاب کاربر الزامی است' });
       }
-      const target = db.prepare('SELECT id, role FROM users WHERE id = ? AND is_active = 1').get(user_id);
+      const target = await prisma.user.findFirst({ where: { id: Number(user_id), isActive: true } });
       if (!target) {
         return res.status(404).json({ error: 'کاربر یافت نشد' });
       }
-      db.prepare('UPDATE users SET role = ? WHERE id = ?').run('user', user_id);
+      await prisma.user.update({
+        where: { id: Number(user_id) },
+        data: { role: 'user' },
+      });
       res.json({ message: 'سمت سرپرستی حذف شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/departments/:id/add-member', roleGuard('admin'), (req, res) => {
+  router.put('/departments/:id/add-member', roleGuard('admin'), async (req, res) => {
     try {
       const { user_id } = req.body;
       if (!user_id) {
         return res.status(400).json({ error: 'انتخاب کاربر الزامی است' });
       }
-      const target = db.prepare('SELECT id, role FROM users WHERE id = ? AND is_active = 1').get(user_id);
+      const target = await prisma.user.findFirst({ where: { id: Number(user_id), isActive: true } });
       if (!target) {
         return res.status(404).json({ error: 'کاربر یافت نشد' });
       }
       if (target.role === 'admin') {
         return res.status(400).json({ error: 'امکان تغییر واحد مدیر سیستم وجود ندارد' });
       }
-      db.prepare('UPDATE users SET department_id = ?, role = ? WHERE id = ?').run(req.params.id, 'user', user_id);
+      await prisma.user.update({
+        where: { id: Number(user_id) },
+        data: { departmentId: Number(req.params.id), role: 'user' },
+      });
       res.json({ message: 'کاربر به واحد اضافه شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/departments/:id/remove-member', roleGuard('admin'), (req, res) => {
+  router.put('/departments/:id/remove-member', roleGuard('admin'), async (req, res) => {
     try {
       const { user_id } = req.body;
       if (!user_id) {
         return res.status(400).json({ error: 'انتخاب کاربر الزامی است' });
       }
-      db.prepare('UPDATE users SET department_id = NULL WHERE id = ?').run(user_id);
+      await prisma.user.update({
+        where: { id: Number(user_id) },
+        data: { departmentId: null },
+      });
       res.json({ message: 'کاربر از واحد خارج شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/stats', roleGuard('admin', 'manager'), (req, res) => {
+  router.get('/stats', roleGuard('admin', 'manager'), async (req, res) => {
     try {
-      const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1').get().count;
-      const totalDepts = db.prepare('SELECT COUNT(*) as count FROM departments WHERE is_active = 1').get().count;
-      const pendingLeaves = db.prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status IN ('pending_supervisor','pending_admin','pending_manager')").get().count;
-      const pendingOvertime = db.prepare("SELECT COUNT(*) as count FROM overtime_requests WHERE status IN ('pending_supervisor','pending_manager')").get().count;
-      const pendingLetters = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status IN ('pending_central','pending_manager')").get().count;
-      const pendingCardex = db.prepare("SELECT COUNT(*) as count FROM cardex WHERE status = 'pending_user'").get().count;
+      const totalUsers = await prisma.user.count({ where: { isActive: true } });
+      const totalDepts = await prisma.department.count({ where: { isActive: true } });
+      const pendingLeaves = await prisma.leaveRequest.count({
+        where: { status: { in: ['pending_supervisor', 'pending_admin', 'pending_manager'] } },
+      });
+      const pendingOvertime = await prisma.overtimeRequest.count({
+        where: { status: { in: ['pending_supervisor', 'pending_manager'] } },
+      });
+      const pendingLetters = await prisma.letter.count({
+        where: { status: { in: ['pending_central', 'pending_manager'] } },
+      });
+      const pendingCardex = await prisma.cardex.count({ where: { status: 'pending_user' } });
 
-      const roleStats = db.prepare('SELECT role, COUNT(*) as count FROM users WHERE is_active = 1 GROUP BY role').all();
-      const deptStats = db.prepare(`
-        SELECT d.id, d.name, COUNT(u.id) as user_count 
-        FROM departments d 
-        LEFT JOIN users u ON d.id = u.department_id AND u.is_active = 1
-        WHERE d.is_active = 1
-        GROUP BY d.id
-      `).all();
+      const roleGroups = await prisma.user.groupBy({
+        by: ['role'],
+        where: { isActive: true },
+        _count: { _all: true },
+      });
+      const roleStats = roleGroups.map(g => ({ role: g.role, count: g._count._all }));
+
+      const activeDepts = await prisma.department.findMany({
+        where: { isActive: true },
+        select: { id: true, name: true },
+      });
+      const userGroups = await prisma.user.groupBy({
+        by: ['departmentId'],
+        where: { isActive: true, departmentId: { not: null } },
+        _count: { _all: true },
+      });
+      const countMap = {};
+      userGroups.forEach(g => { countMap[g.departmentId] = g._count._all; });
+      const deptStats = activeDepts.map(d => ({ id: d.id, name: d.name, user_count: countMap[d.id] || 0 }));
 
       res.json({ totalUsers, totalDepts, pendingLeaves, pendingOvertime, pendingLetters, pendingCardex, roleStats, deptStats });
     } catch (err) {
@@ -300,33 +377,21 @@ module.exports = function(db) {
     }
   });
 
-  router.get('/dept-users/:deptId', (req, res) => {
+  router.get('/dept-users/:deptId', async (req, res) => {
     try {
-      const users = db.prepare(`
-        SELECT id, full_name, role, is_active
-        FROM users
-        WHERE department_id = ? AND is_active = 1
-        ORDER BY full_name
-      `).all(req.params.deptId);
-      res.json(users);
+      const users = await prisma.user.findMany({
+        where: { departmentId: Number(req.params.deptId), isActive: true },
+        select: { id: true, fullName: true, role: true, isActive: true },
+        orderBy: { fullName: 'asc' },
+      });
+      res.json(mapRow(users));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  function hasAdminPerm(user, key) {
-    if (user.role === 'admin') return true;
-    const p = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(user.id, key);
-    if (p) return p.is_enabled === 1;
-    if (user.department_id) {
-      const dp = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND module_key = ? AND user_id IS NULL').get(user.department_id, key);
-      if (dp) return dp.is_enabled === 1;
-    }
-    return false;
-  }
-
   router.post('/users/import-csv', async (req, res) => {
-    if (req.user.role !== 'admin' && !hasAdminPerm(req.user, 'user_import_csv')) {
+    if (req.user.role !== 'admin' && !(await hasAdminPerm(req.user, 'user_import_csv'))) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی ورود گروهی کاربران را ندارید' });
     }
     try {
@@ -335,19 +400,7 @@ module.exports = function(db) {
         return res.status(400).json({ error: 'لیست کاربران برای ثبت نامعتبر است' });
       }
 
-      const insertUser = db.prepare(`
-        INSERT INTO users (id, password, full_name, role, department_id, work_type, must_change_password)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      
-      const insertBalance = db.prepare(`
-        INSERT INTO leave_balance (user_id, total_days, used_hours)
-        VALUES (?, ?, 0)
-      `);
-
-      const checkUser = db.prepare('SELECT id FROM users WHERE id = ?');
-
-      db.transaction(() => {
+      await prisma.$transaction(async (tx) => {
         for (const u of users) {
           const userId = parseInt(u.id || u.personal_code, 10);
           if (!userId || !u.full_name || !u.role) continue;
@@ -377,15 +430,15 @@ module.exports = function(db) {
           let departmentId = null;
           if (u.department_name && u.department_name.trim()) {
             const deptName = u.department_name.trim();
-            const dept = db.prepare('SELECT id FROM departments WHERE LOWER(name) = LOWER(?) AND is_active = 1').get(deptName);
+            const dept = await tx.department.findFirst({ where: { name: { equals: deptName, mode: 'insensitive' }, isActive: true } });
             if (dept) {
               departmentId = dept.id;
             } else {
-              const res = db.prepare('INSERT INTO departments (name) VALUES (?)').run(deptName);
-              departmentId = res.lastInsertRowid;
+              const created = await tx.department.create({ data: { name: deptName } });
+              departmentId = created.id;
             }
           } else if (u.department_id) {
-            departmentId = u.department_id;
+            departmentId = Number(u.department_id);
           }
 
           let totalDays = 0;
@@ -394,29 +447,32 @@ module.exports = function(db) {
           } else if (u.total_days !== undefined) {
             totalDays = Number(u.total_days);
           }
-          
+
           const pass = u.password || String(userId);
-          const mustChange = u.password ? 0 : 1;
-          const hash = bcrypt.hashSync(pass, 10);
-          
-          const existing = checkUser.get(userId);
+          const mustChange = u.password ? false : true;
+          const hash = await bcrypt.hash(pass, 10);
+
+          const existing = await tx.user.findUnique({ where: { id: userId } });
           if (existing) {
-            db.prepare('UPDATE users SET password = ?, full_name = ?, role = ?, department_id = ?, work_type = ?, is_active = 1, must_change_password = ? WHERE id = ?')
-              .run(hash, u.full_name, role, departmentId, u.work_type || 'normal', mustChange, userId);
-            
-            const balanceExists = db.prepare('SELECT id FROM leave_balance WHERE user_id = ?').get(userId);
+            await tx.user.update({
+              where: { id: userId },
+              data: { password: hash, fullName: u.full_name, role, departmentId, workType: u.work_type || 'normal', isActive: true, mustChangePassword: mustChange },
+            });
+
+            const balanceExists = await tx.leaveBalance.findUnique({ where: { userId } });
             if (balanceExists) {
-              db.prepare('UPDATE leave_balance SET total_days = ? WHERE user_id = ?')
-                .run(totalDays, userId);
+              await tx.leaveBalance.update({ where: { userId }, data: { totalDays } });
             } else {
-              insertBalance.run(userId, totalDays);
+              await tx.leaveBalance.create({ data: { userId, totalDays, usedHours: 0 } });
             }
           } else {
-            insertUser.run(userId, hash, u.full_name, role, departmentId, u.work_type || 'normal', mustChange);
-            insertBalance.run(userId, totalDays);
+            await tx.user.create({
+              data: { id: userId, password: hash, fullName: u.full_name, role, departmentId, workType: u.work_type || 'normal', mustChangePassword: mustChange },
+            });
+            await tx.leaveBalance.create({ data: { userId, totalDays, usedHours: 0 } });
           }
         }
-      })();
+      });
 
       // Save raw CSV file to disk for audit logs
       const safeName = file_name ? file_name.replace(/[^a-zA-Z0-9.\-_]/g, '_') : 'import.csv';
@@ -425,8 +481,9 @@ module.exports = function(db) {
       fs.writeFileSync(filePath, csv_text || '', 'utf8');
 
       // Record in logs table
-      db.prepare('INSERT INTO csv_imports_log (file_name, file_path, imported_by, row_count) VALUES (?, ?, ?, ?)')
-        .run(safeName, filePath, req.user.id, users.length);
+      await prisma.csvImportLog.create({
+        data: { fileName: safeName, filePath, importedBy: req.user.id, rowCount: users.length },
+      });
 
       res.json({ message: 'کاربران با موفقیت وارد و ثبت شدند' });
     } catch (err) {
@@ -434,53 +491,54 @@ module.exports = function(db) {
     }
   });
 
-  router.get('/users/import-csv-logs', (req, res) => {
-    if (req.user.role !== 'admin' && !hasAdminPerm(req.user, 'user_import_csv')) {
+  router.get('/users/import-csv-logs', async (req, res) => {
+    if (req.user.role !== 'admin' && !(await hasAdminPerm(req.user, 'user_import_csv'))) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز' });
     }
     try {
-      const logs = db.prepare(`
-        SELECT l.id, l.file_name, l.imported_at, l.row_count, u.full_name as importer_name
-        FROM csv_imports_log l
-        JOIN users u ON l.imported_by = u.id
-        ORDER BY l.imported_at DESC
-      `).all();
-      res.json(logs);
+      const logs = await prisma.csvImportLog.findMany({
+        orderBy: { importedAt: 'desc' },
+        include: { importer: { select: { fullName: true } } },
+      });
+      const mapped = logs.map(l => flattenJoins(l, { importer_name: 'importer.fullName' }));
+      res.json(mapRow(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/users/import-csv-download/:id', (req, res) => {
-    if (req.user.role !== 'admin' && !hasAdminPerm(req.user, 'user_import_csv')) {
+  router.get('/users/import-csv-download/:id', async (req, res) => {
+    if (req.user.role !== 'admin' && !(await hasAdminPerm(req.user, 'user_import_csv'))) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز' });
     }
     try {
-      const log = db.prepare('SELECT file_path, file_name FROM csv_imports_log WHERE id = ?').get(req.params.id);
+      const log = await prisma.csvImportLog.findUnique({
+        where: { id: Number(req.params.id) },
+        select: { filePath: true, fileName: true },
+      });
       if (!log) {
         return res.status(404).json({ error: 'فایل مورد نظر یافت نشد' });
       }
-      const fullPath = path.resolve(log.file_path);
+      const fullPath = path.resolve(log.filePath);
       if (!fs.existsSync(fullPath)) {
         return res.status(404).json({ error: 'فایل فیزیکی روی سرور یافت نشد' });
       }
-      res.download(fullPath, log.file_name);
+      res.download(fullPath, log.fileName);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/activity-log', (req, res) => {
+  router.get('/activity-log', async (req, res) => {
     try {
       const limit = parseInt(req.query.limit) || 20;
-      const logs = db.prepare(`
-        SELECT al.*, u.full_name
-        FROM activity_log al
-        LEFT JOIN users u ON al.user_id = u.id
-        ORDER BY al.created_at DESC NULLS LAST
-        LIMIT ?
-      `).all(limit);
-      res.json(logs);
+      const logs = await prisma.activityLog.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: { user: { select: { fullName: true } } },
+      });
+      const mapped = logs.map(l => flattenJoins(l, { full_name: 'user.fullName' }));
+      res.json(mapRow(mapped));
     } catch (err) {
       res.json([]);
     }

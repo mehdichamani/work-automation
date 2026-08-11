@@ -21,6 +21,7 @@ function loadManifest() {
 
 function saveManifest(manifest) {
   try {
+    ensureDir(BACKUP_BASE);
     fs.writeFileSync(MANIFEST_FILE, JSON.stringify(manifest, null, 2));
   } catch (e) {
     console.error('[Backup] Failed to save manifest:', e.message);

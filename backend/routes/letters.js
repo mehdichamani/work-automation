@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const moment = require('moment-jalaali');
 const { authMiddleware } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
 const uploadDir = path.join(__dirname, '..', 'uploads', 'letters');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -48,64 +50,85 @@ const upload = multer({
   }
 });
 
-module.exports = function(db) {
+function getNowString() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  function notify(userId, title, body, link) {
-    db.prepare('INSERT INTO notifications (user_id, title, body, link) VALUES (?, ?, ?, ?)').run(userId, title, body, link);
+  async function notify(userId, title, body, link) {
+    await prisma.notification.create({ data: { userId: Number(userId), title, body, link } });
   }
 
-  function addHistory(letterId, userId, userName, action, comment) {
-    db.prepare('INSERT INTO letter_history (letter_id, user_id, user_name, action, comment) VALUES (?, ?, ?, ?, ?)')
-      .run(letterId, userId, userName, action, comment || '');
+  async function addHistory(letterId, userId, userName, action, comment) {
+    await prisma.letterHistory.create({
+      data: { letterId: Number(letterId), userId: Number(userId), userName, action, comment: comment || '' },
+    });
   }
 
-  function isSantral(user) {
+  async function isSantral(user) {
     if (user.role === 'admin') return true;
-    const userPerm = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(user.id, 'letters_central');
+    const userPerm = await prisma.permission.findFirst({ where: { userId: Number(user.id), moduleKey: 'letters_central' } });
     if (userPerm !== null && userPerm !== undefined) {
-      return userPerm.is_enabled === 1;
+      return userPerm.isEnabled === true;
     }
     if (user.department_id) {
-      const deptPerm = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL AND module_key = ?').get(user.department_id, 'letters_central');
+      const deptPerm = await prisma.permission.findFirst({ where: { departmentId: Number(user.department_id), userId: null, moduleKey: 'letters_central' } });
       if (deptPerm !== null && deptPerm !== undefined) {
-        return deptPerm.is_enabled === 1;
+        return deptPerm.isEnabled === true;
       }
     }
     return false;
   }
 
-  function getSantralUsers() {
-    return db.prepare(`
-      SELECT DISTINCT u.id FROM users u
-      LEFT JOIN permissions p_user ON u.id = p_user.user_id AND p_user.module_key = 'letters_central'
-      LEFT JOIN permissions p_dept ON u.department_id = p_dept.department_id AND p_dept.user_id IS NULL AND p_dept.module_key = 'letters_central'
-      WHERE u.is_active = 1 AND (
-        u.role = 'admin' OR
-        p_user.is_enabled = 1 OR
-        (p_user.id IS NULL AND p_dept.is_enabled = 1)
-      )
-    `).all();
+  async function getSantralUsers() {
+    const users = await prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, role: true, departmentId: true },
+    });
+    const perms = await prisma.permission.findMany({
+      where: { moduleKey: 'letters_central' },
+      select: { userId: true, departmentId: true, isEnabled: true },
+    });
+    const result = [];
+    for (const u of users) {
+      let ok = u.role === 'admin';
+      if (!ok) {
+        const userPerms = perms.filter(p => p.userId === u.id);
+        if (userPerms.length > 0) {
+          ok = userPerms.some(p => p.isEnabled);
+        } else {
+          const deptPerm = perms.find(p => p.userId === null && p.departmentId === u.departmentId);
+          if (deptPerm) ok = deptPerm.isEnabled;
+        }
+      }
+      if (ok) result.push({ id: u.id });
+    }
+    return result;
   }
 
-  function attachFiles(letters) {
+  async function attachFiles(letters) {
     if (!letters || letters.length === 0) return [];
-    const letterIds = letters.map(l => l.letter_id || l.id);
-    const placeholders = letterIds.map(() => '?').join(',');
-    const allAttachments = db.prepare(`SELECT * FROM letter_attachments WHERE letter_id IN (${placeholders})`).all(...letterIds);
-    
+    const letterIds = letters.map(l => l.letter_id || l.id).filter(Boolean);
+    const allAttachments = letterIds.length > 0
+      ? await prisma.letterAttachment.findMany({ where: { letterId: { in: letterIds } } })
+      : [];
+
     const attachmentsMap = {};
     for (const att of allAttachments) {
-      if (!attachmentsMap[att.letter_id]) {
-        attachmentsMap[att.letter_id] = [];
+      if (!attachmentsMap[att.letterId]) {
+        attachmentsMap[att.letterId] = [];
       }
-      attachmentsMap[att.letter_id].push({
-        name: att.file_name,
-        path: att.file_path
+      attachmentsMap[att.letterId].push({
+        name: att.fileName,
+        path: att.filePath
       });
     }
-    
+
     return letters.map(l => {
       const id = l.letter_id || l.id;
       const attachments = [...(attachmentsMap[id] || [])];
@@ -122,60 +145,87 @@ module.exports = function(db) {
     });
   }
 
-  function getNextLetterNumber() {
+  async function getNextLetterNumber() {
     const currentYear = moment().jYear();
-    const result = db.prepare(`
-      INSERT INTO letter_counter (year, last_number) VALUES (?, 1)
-      ON CONFLICT (year) DO UPDATE SET last_number = letter_counter.last_number + 1
-      RETURNING last_number
-    `).get(currentYear);
-    
-    const paddedNum = String(result.last_number).padStart(3, '0');
+    return prisma.$transaction(async (tx) => {
+      const counter = await tx.letterCounter.findUnique({ where: { year: currentYear } });
+      let lastNumber;
+      if (counter) {
+        lastNumber = counter.lastNumber + 1;
+        await tx.letterCounter.update({ where: { id: counter.id }, data: { lastNumber } });
+      } else {
+        lastNumber = 1;
+        await tx.letterCounter.create({ data: { year: currentYear, lastNumber } });
+      }
+      const paddedNum = String(lastNumber).padStart(3, '0');
+      return `${currentYear}/${paddedNum}`;
+    });
+  }
+
+  async function peekNextLetterNumber() {
+    const currentYear = moment().jYear();
+    const counter = await prisma.letterCounter.findUnique({ where: { year: currentYear } });
+
+    const nextNum = counter ? counter.lastNumber + 1 : 1;
+    const paddedNum = String(nextNum).padStart(3, '0');
     return `${currentYear}/${paddedNum}`;
   }
 
-  function peekNextLetterNumber() {
-    const currentYear = moment().jYear();
-    const counter = db.prepare('SELECT * FROM letter_counter WHERE year = ?').get(currentYear);
-    
-    const nextNum = counter ? counter.last_number + 1 : 1;
-    const paddedNum = String(nextNum).padStart(3, '0');
-    return `${currentYear}/${paddedNum}`;
+  function flattenLetterList(rows, withManager) {
+    const aliases = {
+      sender_name: 'sender.fullName',
+      sender_unit_name: 'senderUnit.name',
+    };
+    if (withManager) aliases.manager_name = 'selectedManager.fullName';
+    return rows.map(r => flattenJoins(r, aliases));
   }
 
   // ============================================================
   // ایجاد نامه جدید
   // ============================================================
-  router.post('/', upload.array('attachments', 10), (req, res) => {
+  router.post('/', upload.array('attachments', 10), async (req, res) => {
     try {
       const { subject, body, priority } = req.body;
       if (!subject) return res.status(400).json({ error: 'موضوع نامه الزامی است' });
 
-      const letter_number = getNextLetterNumber();
+      const letter_number = await getNextLetterNumber();
       const senderUnitId = req.user.department_id || 1;
 
-      const result = db.prepare(`
-        INSERT INTO letters (letter_number, subject, body, sender_id, sender_unit_id, priority, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending_central')
-      `).run(letter_number, subject, body || '', req.user.id, senderUnitId, priority || 'normal');
+      const letter = await prisma.$transaction(async (tx) => {
+        const created = await tx.letter.create({
+          data: {
+            letterNumber: letter_number,
+            subject,
+            body: body || '',
+            senderId: Number(req.user.id),
+            senderUnitId: Number(senderUnitId),
+            priority: priority || 'normal',
+            status: 'pending_central',
+          },
+        });
 
-      const letterId = result.lastInsertRowid;
-
-      if (req.files && req.files.length > 0) {
-        const insAttachment = db.prepare('INSERT INTO letter_attachments (letter_id, file_name, file_path) VALUES (?, ?, ?)');
-        for (const file of req.files) {
-          const filePath = '/uploads/letters/' + file.filename;
-          insAttachment.run(letterId, file.originalname, filePath);
+        if (req.files && req.files.length > 0) {
+          for (const file of req.files) {
+            const filePath = '/uploads/letters/' + file.filename;
+            await tx.letterAttachment.create({
+              data: { letterId: created.id, fileName: file.originalname, filePath },
+            });
+          }
         }
-      }
 
-      addHistory(letterId, req.user.id, req.user.full_name, 'created', 'ثبت نامه');
+        await tx.letterHistory.create({
+          data: { letterId: created.id, userId: Number(req.user.id), userName: req.user.full_name, action: 'created', comment: 'ثبت نامه' },
+        });
 
-      getSantralUsers().forEach(u => {
-        notify(u.id, 'نامه جدید', `نامه "${subject}" ثبت شده و منتظر بررسی است`, '/letters');
+        return created;
       });
 
-      res.json({ id: letterId, letter_number, message: 'نامه ثبت شد' });
+      const santralUsers = await getSantralUsers();
+      for (const u of santralUsers) {
+        await notify(u.id, 'نامه جدید', `نامه "${subject}" ثبت شده و منتظر بررسی است`, '/letters');
+      }
+
+      res.json({ id: letter.id, letter_number, message: 'نامه ثبت شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -185,182 +235,211 @@ module.exports = function(db) {
   // GET routes (static paths first, then parameterized)
   // ============================================================
 
-  router.get('/managers', (req, res) => {
+  router.get('/managers', async (req, res) => {
     try {
-      const managers = db.prepare("SELECT id, full_name FROM users WHERE role = 'manager' AND is_active = 1").all();
-      res.json(managers);
+      const managers = await prisma.user.findMany({
+        where: { role: 'manager', isActive: true },
+        select: { id: true, fullName: true },
+      });
+      res.json(mapRow(managers));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/next-number', (req, res) => {
+  router.get('/next-number', async (req, res) => {
     try {
-      const nextNumber = peekNextLetterNumber();
+      const nextNumber = await peekNextLetterNumber();
       res.json({ next_number: nextNumber });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/my-letters', (req, res) => {
+  router.get('/my-letters', async (req, res) => {
     try {
-      const letters = db.prepare(`
-        SELECT l.*, u.full_name as sender_name, d.name as sender_unit_name,
-               m.full_name as manager_name
-        FROM letters l
-        JOIN users u ON l.sender_id = u.id
-        LEFT JOIN departments d ON l.sender_unit_id = d.id
-        LEFT JOIN users m ON l.selected_manager_id = m.id
-        WHERE l.sender_id = ?
-        ORDER BY l.created_at DESC
-      `).all(req.user.id);
-      res.json(attachFiles(letters));
+      const letters = await prisma.letter.findMany({
+        where: { senderId: Number(req.user.id) },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          sender: { select: { fullName: true } },
+          senderUnit: { select: { name: true } },
+          selectedManager: { select: { fullName: true } },
+        },
+      });
+      const mapped = mapRow(flattenLetterList(letters, true));
+      res.json(await attachFiles(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/my-unit', (req, res) => {
+  router.get('/my-unit', async (req, res) => {
     try {
-      const letterUnits = db.prepare(`
-        SELECT lu.*, l.subject, l.letter_number, l.priority, l.body, l.attachment_name, l.attachment_path, l.status as letter_status,
-               u.full_name as sender_name, d.name as sender_unit_name
-        FROM letter_units lu
-        JOIN letters l ON lu.letter_id = l.id
-        JOIN users u ON l.sender_id = u.id
-        LEFT JOIN departments d ON l.sender_unit_id = d.id
-        WHERE lu.unit_id = ?
-        ORDER BY lu.id DESC
-      `).all(req.user.department_id);
-      res.json(attachFiles(letterUnits));
+      const letterUnits = await prisma.letterUnit.findMany({
+        where: { unitId: Number(req.user.department_id) },
+        orderBy: { id: 'desc' },
+        include: {
+          letter: {
+            select: {
+              subject: true,
+              letterNumber: true,
+              priority: true,
+              body: true,
+              attachmentName: true,
+              attachmentPath: true,
+              status: true,
+              sender: { select: { fullName: true } },
+              senderUnit: { select: { name: true } },
+            },
+          },
+        },
+      });
+      const mapped = mapRow(letterUnits.map(r => flattenJoins(r, {
+        subject: 'letter.subject',
+        letter_number: 'letter.letterNumber',
+        priority: 'letter.priority',
+        body: 'letter.body',
+        attachment_name: 'letter.attachmentName',
+        attachment_path: 'letter.attachmentPath',
+        letter_status: 'letter.status',
+        sender_name: 'letter.sender.fullName',
+        sender_unit_name: 'letter.senderUnit.name',
+      })));
+      res.json(await attachFiles(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/pending-central', (req, res) => {
+  router.get('/pending-central', async (req, res) => {
     try {
-      if (!isSantral(req.user)) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
-      const letters = db.prepare(`
-        SELECT l.*, u.full_name as sender_name, d.name as sender_unit_name
-        FROM letters l
-        JOIN users u ON l.sender_id = u.id
-        LEFT JOIN departments d ON l.sender_unit_id = d.id
-        WHERE l.status = 'pending_central'
-        ORDER BY l.created_at DESC
-      `).all();
-      res.json(attachFiles(letters));
+      if (!(await isSantral(req.user))) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      const letters = await prisma.letter.findMany({
+        where: { status: 'pending_central' },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          sender: { select: { fullName: true } },
+          senderUnit: { select: { name: true } },
+        },
+      });
+      const mapped = mapRow(flattenLetterList(letters, false));
+      res.json(await attachFiles(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/returned-central', (req, res) => {
+  router.get('/returned-central', async (req, res) => {
     try {
-      if (!isSantral(req.user)) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
-      const letters = db.prepare(`
-        SELECT l.*, u.full_name as sender_name, d.name as sender_unit_name,
-               m.full_name as manager_name
-        FROM letters l
-        JOIN users u ON l.sender_id = u.id
-        LEFT JOIN departments d ON l.sender_unit_id = d.id
-        LEFT JOIN users m ON l.selected_manager_id = m.id
-        WHERE l.status IN ('approved', 'rejected')
-        ORDER BY l.created_at DESC
-      `).all();
-      res.json(attachFiles(letters));
+      if (!(await isSantral(req.user))) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      const letters = await prisma.letter.findMany({
+        where: { status: { in: ['approved', 'rejected'] } },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          sender: { select: { fullName: true } },
+          senderUnit: { select: { name: true } },
+          selectedManager: { select: { fullName: true } },
+        },
+      });
+      const mapped = mapRow(flattenLetterList(letters, true));
+      res.json(await attachFiles(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/archived', (req, res) => {
+  router.get('/archived', async (req, res) => {
     try {
-      if (!isSantral(req.user)) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
-      const letters = db.prepare(`
-        SELECT l.*, u.full_name as sender_name, d.name as sender_unit_name,
-               m.full_name as manager_name
-        FROM letters l
-        JOIN users u ON l.sender_id = u.id
-        LEFT JOIN departments d ON l.sender_unit_id = d.id
-        LEFT JOIN users m ON l.selected_manager_id = m.id
-        WHERE l.status IN ('archived', 'forwarded')
-        ORDER BY l.created_at DESC
-      `).all();
-      res.json(attachFiles(letters));
+      if (!(await isSantral(req.user))) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      const letters = await prisma.letter.findMany({
+        where: { status: { in: ['archived', 'forwarded'] } },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          sender: { select: { fullName: true } },
+          senderUnit: { select: { name: true } },
+          selectedManager: { select: { fullName: true } },
+        },
+      });
+      const mapped = mapRow(flattenLetterList(letters, true));
+      res.json(await attachFiles(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/pending-manager', (req, res) => {
+  router.get('/pending-manager', async (req, res) => {
     try {
-      const letters = db.prepare(`
-        SELECT l.*, u.full_name as sender_name, d.name as sender_unit_name,
-               m.full_name as manager_name
-        FROM letters l
-        JOIN users u ON l.sender_id = u.id
-        LEFT JOIN departments d ON l.sender_unit_id = d.id
-        LEFT JOIN users m ON l.selected_manager_id = m.id
-        WHERE l.status = 'pending_manager' AND l.selected_manager_id = ?
-        ORDER BY l.created_at DESC
-      `).all(req.user.id);
-      res.json(attachFiles(letters));
+      const letters = await prisma.letter.findMany({
+        where: { status: 'pending_manager', selectedManagerId: Number(req.user.id) },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          sender: { select: { fullName: true } },
+          senderUnit: { select: { name: true } },
+          selectedManager: { select: { fullName: true } },
+        },
+      });
+      const mapped = mapRow(flattenLetterList(letters, true));
+      res.json(await attachFiles(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/processed-manager', (req, res) => {
+  router.get('/processed-manager', async (req, res) => {
     try {
-      const letters = db.prepare(`
-        SELECT l.*, u.full_name as sender_name, d.name as sender_unit_name,
-               m.full_name as manager_name
-        FROM letters l
-        JOIN users u ON l.sender_id = u.id
-        LEFT JOIN departments d ON l.sender_unit_id = d.id
-        LEFT JOIN users m ON l.selected_manager_id = m.id
-        WHERE l.selected_manager_id = ? AND l.status IN ('approved', 'rejected', 'archived', 'forwarded')
-        ORDER BY l.created_at DESC
-      `).all(req.user.id);
-      res.json(attachFiles(letters));
+      const letters = await prisma.letter.findMany({
+        where: {
+          selectedManagerId: Number(req.user.id),
+          status: { in: ['approved', 'rejected', 'archived', 'forwarded'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          sender: { select: { fullName: true } },
+          senderUnit: { select: { name: true } },
+          selectedManager: { select: { fullName: true } },
+        },
+      });
+      const mapped = mapRow(flattenLetterList(letters, true));
+      res.json(await attachFiles(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/all', (req, res) => {
+  router.get('/all', async (req, res) => {
     try {
-      if (!isSantral(req.user)) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
-      
+      if (!(await isSantral(req.user))) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+
       const page = Math.max(1, parseInt(req.query.page) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
       const offset = (page - 1) * limit;
       const search = req.query.search || '';
-      
-      let whereClause = '';
-      const params = [];
-      if (search) {
-        whereClause = ` WHERE (l.subject ILIKE $1 OR l.letter_number ILIKE $1)`;
-        params.push(`%${search}%`);
-      }
-      
-      const countResult = db.prepare(`SELECT COUNT(*) as total FROM letters l ${whereClause}`).get(...params);
-      const total = countResult ? countResult.total : 0;
-      
-      const letters = db.prepare(`
-        SELECT l.*, u.full_name as sender_name, d.name as sender_unit_name,
-               m.full_name as manager_name
-        FROM letters l
-        JOIN users u ON l.sender_id = u.id
-        LEFT JOIN departments d ON l.sender_unit_id = d.id
-        LEFT JOIN users m ON l.selected_manager_id = m.id
-        ${whereClause}
-        ORDER BY l.created_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `).all(...params);
-      res.json({ data: attachFiles(letters), total, page, limit });
+
+      const where = search
+        ? {
+            OR: [
+              { subject: { contains: search, mode: 'insensitive' } },
+              { letterNumber: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {};
+
+      const total = await prisma.letter.count({ where });
+
+      const letters = await prisma.letter.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        include: {
+          sender: { select: { fullName: true } },
+          senderUnit: { select: { name: true } },
+          selectedManager: { select: { fullName: true } },
+        },
+      });
+      const mapped = mapRow(flattenLetterList(letters, true));
+      res.json({ data: await attachFiles(mapped), total, page, limit });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -370,22 +449,30 @@ module.exports = function(db) {
   // PUT routes
   // ============================================================
 
-  router.put('/:id/send-to-manager', (req, res) => {
+  router.put('/:id/send-to-manager', async (req, res) => {
     try {
-      if (!isSantral(req.user)) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      if (!(await isSantral(req.user))) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       const { manager_id, comment } = req.body;
       if (!manager_id) return res.status(400).json({ error: 'انتخاب مدیر الزامی است' });
 
-      const letter = db.prepare("SELECT * FROM letters WHERE id = ? AND status = 'pending_central'").get(req.params.id);
+      const letter = await prisma.letter.findFirst({ where: { id: Number(req.params.id), status: 'pending_central' } });
       if (!letter) return res.status(404).json({ error: 'نامه یافت نشد' });
 
-      const manager = db.prepare('SELECT full_name FROM users WHERE id = ?').get(manager_id);
+      const manager = await prisma.user.findUnique({ where: { id: Number(manager_id) }, select: { fullName: true } });
 
-      db.prepare("UPDATE letters SET status = 'pending_manager', selected_manager_id = ?, central_id = ?, central_date = datetime('now'), central_comment = ? WHERE id = ?")
-        .run(manager_id, req.user.id, comment || '', req.params.id);
+      await prisma.letter.update({
+        where: { id: Number(req.params.id) },
+        data: {
+          status: 'pending_manager',
+          selectedManagerId: Number(manager_id),
+          centralId: Number(req.user.id),
+          centralDate: getNowString(),
+          centralComment: comment || '',
+        },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'sent_to_manager', `ارسال به مدیر: ${manager?.full_name}${comment ? ` - توضیح: ${comment}` : ''}`);
-      notify(manager_id, 'نامه جدید', `نامه "${letter.subject}" برای شما ارسال شده`, '/letters');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'sent_to_manager', `ارسال به مدیر: ${manager?.fullName}${comment ? ` - توضیح: ${comment}` : ''}`);
+      await notify(manager_id, 'نامه جدید', `نامه "${letter.subject}" برای شما ارسال شده`, '/letters');
 
       res.json({ message: 'نامه به مدیر ارسال شد' });
     } catch (err) {
@@ -393,20 +480,30 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/approve', (req, res) => {
+  router.put('/:id/approve', async (req, res) => {
     try {
       const { comment } = req.body;
-      const letter = db.prepare("SELECT * FROM letters WHERE id = ? AND status = 'pending_manager' AND selected_manager_id = ?").get(req.params.id, req.user.id);
+      const letter = await prisma.letter.findFirst({
+        where: { id: Number(req.params.id), status: 'pending_manager', selectedManagerId: Number(req.user.id) },
+      });
       if (!letter) return res.status(404).json({ error: 'نامه یافت نشد' });
 
-      db.prepare("UPDATE letters SET status = 'approved', manager_id = ?, manager_comment = ?, manager_date = datetime('now') WHERE id = ?")
-        .run(req.user.id, comment || '', req.params.id);
+      await prisma.letter.update({
+        where: { id: Number(req.params.id) },
+        data: {
+          status: 'approved',
+          managerId: Number(req.user.id),
+          managerComment: comment || '',
+          managerDate: getNowString(),
+        },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'approved', comment || 'تایید شده');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'approved', comment || 'تایید شده');
 
-      const sender = db.prepare('SELECT id, full_name FROM users WHERE id = ?').get(letter.sender_id);
-      if (sender) notify(sender.id, 'تایید نامه', `نامه "${letter.subject}" تایید شد`, '/letters');
-      getSantralUsers().forEach(u => notify(u.id, 'نامه تایید شده', `نامه "${letter.subject}" تایید شده`, '/letters'));
+      const sender = await prisma.user.findUnique({ where: { id: letter.senderId }, select: { id: true, fullName: true } });
+      if (sender) await notify(sender.id, 'تایید نامه', `نامه "${letter.subject}" تایید شد`, '/letters');
+      const santralUsers = await getSantralUsers();
+      for (const u of santralUsers) await notify(u.id, 'نامه تایید شده', `نامه "${letter.subject}" تایید شده`, '/letters');
 
       res.json({ message: 'تایید شد' });
     } catch (err) {
@@ -414,20 +511,30 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/reject', (req, res) => {
+  router.put('/:id/reject', async (req, res) => {
     try {
       const { comment } = req.body;
-      const letter = db.prepare("SELECT * FROM letters WHERE id = ? AND status = 'pending_manager' AND selected_manager_id = ?").get(req.params.id, req.user.id);
+      const letter = await prisma.letter.findFirst({
+        where: { id: Number(req.params.id), status: 'pending_manager', selectedManagerId: Number(req.user.id) },
+      });
       if (!letter) return res.status(404).json({ error: 'نامه یافت نشد' });
 
-      db.prepare("UPDATE letters SET status = 'rejected', manager_id = ?, manager_comment = ?, manager_date = datetime('now') WHERE id = ?")
-        .run(req.user.id, comment || 'رد شده', req.params.id);
+      await prisma.letter.update({
+        where: { id: Number(req.params.id) },
+        data: {
+          status: 'rejected',
+          managerId: Number(req.user.id),
+          managerComment: comment || 'رد شده',
+          managerDate: getNowString(),
+        },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'rejected', comment || 'رد شده');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'rejected', comment || 'رد شده');
 
-      const sender = db.prepare('SELECT id, full_name FROM users WHERE id = ?').get(letter.sender_id);
-      if (sender) notify(sender.id, 'رد نامه', `نامه "${letter.subject}" رد شد`, '/letters');
-      getSantralUsers().forEach(u => notify(u.id, 'نامه رد شده', `نامه "${letter.subject}" رد شده`, '/letters'));
+      const sender = await prisma.user.findUnique({ where: { id: letter.senderId }, select: { id: true, fullName: true } });
+      if (sender) await notify(sender.id, 'رد نامه', `نامه "${letter.subject}" رد شد`, '/letters');
+      const santralUsers = await getSantralUsers();
+      for (const u of santralUsers) await notify(u.id, 'نامه رد شده', `نامه "${letter.subject}" رد شده`, '/letters');
 
       res.json({ message: 'رد شد' });
     } catch (err) {
@@ -435,17 +542,17 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/archive', (req, res) => {
+  router.put('/:id/archive', async (req, res) => {
     try {
-      if (!isSantral(req.user)) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
-      const letter = db.prepare("SELECT * FROM letters WHERE id = ? AND status = 'approved'").get(req.params.id);
+      if (!(await isSantral(req.user))) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      const letter = await prisma.letter.findFirst({ where: { id: Number(req.params.id), status: 'approved' } });
       if (!letter) return res.status(404).json({ error: 'نامه یافت نشد' });
 
-      db.prepare("UPDATE letters SET status = 'archived' WHERE id = ?").run(req.params.id);
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'archived', 'بایگانی شد');
+      await prisma.letter.update({ where: { id: Number(req.params.id) }, data: { status: 'archived' } });
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'archived', 'بایگانی شد');
 
-      const sender = db.prepare('SELECT id, full_name FROM users WHERE id = ?').get(letter.sender_id);
-      if (sender) notify(sender.id, 'بایگانی نامه', `نامه "${letter.subject}" بایگانی شد`, '/letters');
+      const sender = await prisma.user.findUnique({ where: { id: letter.senderId }, select: { id: true, fullName: true } });
+      if (sender) await notify(sender.id, 'بایگانی نامه', `نامه "${letter.subject}" بایگانی شد`, '/letters');
 
       res.json({ message: 'بایگانی شد' });
     } catch (err) {
@@ -453,43 +560,46 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/forward', (req, res) => {
+  router.put('/:id/forward', async (req, res) => {
     try {
-      if (!isSantral(req.user)) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      if (!(await isSantral(req.user))) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       const { unit_ids } = req.body;
       if (!unit_ids || unit_ids.length === 0) return res.status(400).json({ error: 'انتخاب حداقل یک واحد الزامی است' });
 
-      const letter = db.prepare("SELECT * FROM letters WHERE id = ?").get(req.params.id);
+      const letter = await prisma.letter.findUnique({ where: { id: Number(req.params.id) } });
       if (!letter) return res.status(404).json({ error: 'نامه یافت نشد' });
 
-      db.prepare("UPDATE letters SET status = 'forwarded' WHERE id = ?").run(req.params.id);
+      await prisma.letter.update({ where: { id: Number(req.params.id) }, data: { status: 'forwarded' } });
 
-      const insertUnit = db.prepare('INSERT INTO letter_units (letter_id, unit_id, status) VALUES (?, ?, ?)');
       const deptNames = [];
-      const allUserIds = [];
-      
-      const placeholders = unit_ids.map(() => '?').join(',');
-      const depts = db.prepare(`SELECT id, name FROM departments WHERE id IN (${placeholders})`).all(...unit_ids);
+      const depts = await prisma.department.findMany({
+        where: { id: { in: unit_ids.map(Number) } },
+        select: { id: true, name: true },
+      });
       const deptMap = {};
       for (const d of depts) {
         deptMap[d.id] = d.name;
         deptNames.push(d.name);
       }
-      
+
       for (const uid of unit_ids) {
-        insertUnit.run(req.params.id, uid, 'pending');
+        await prisma.letterUnit.create({
+          data: { letterId: Number(req.params.id), unitId: Number(uid), status: 'pending' },
+        });
       }
-      
-      const userPlaceholders = unit_ids.map(() => '?').join(',');
-      const usersToNotify = db.prepare(`SELECT id, department_id FROM users WHERE department_id IN (${userPlaceholders}) AND is_active = 1`).all(...unit_ids);
+
+      const usersToNotify = await prisma.user.findMany({
+        where: { departmentId: { in: unit_ids.map(Number) }, isActive: true },
+        select: { id: true },
+      });
       for (const u of usersToNotify) {
-        notify(u.id, 'نامه ارجاعی', `نامه "${letter.subject}" به واحد شما ارجاع شده`, '/letters');
+        await notify(u.id, 'نامه ارجاعی', `نامه "${letter.subject}" به واحد شما ارجاع شده`, '/letters');
       }
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'forwarded', `ارجاع: ${deptNames.join('، ')}`);
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'forwarded', `ارجاع: ${deptNames.join('، ')}`);
 
-      const sender = db.prepare('SELECT id, full_name FROM users WHERE id = ?').get(letter.sender_id);
-      if (sender) notify(sender.id, 'ارجاع نامه', `نامه "${letter.subject}" ارجاع شد`, '/letters');
+      const sender = await prisma.user.findUnique({ where: { id: letter.senderId }, select: { id: true, fullName: true } });
+      if (sender) await notify(sender.id, 'ارجاع نامه', `نامه "${letter.subject}" ارجاع شد`, '/letters');
 
       res.json({ message: 'ارجاع شد' });
     } catch (err) {
@@ -497,13 +607,15 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/seen-unit', (req, res) => {
+  router.put('/:id/seen-unit', async (req, res) => {
     try {
-      const lu = db.prepare("SELECT * FROM letter_units WHERE letter_id = ? AND unit_id = ? AND status = 'pending'").get(req.params.id, req.user.department_id);
+      const lu = await prisma.letterUnit.findFirst({
+        where: { letterId: Number(req.params.id), unitId: Number(req.user.department_id), status: 'pending' },
+      });
       if (!lu) return res.status(404).json({ error: 'نامه یافت نشد' });
 
-      db.prepare("UPDATE letter_units SET status = 'seen', seen_date = datetime('now') WHERE id = ?").run(lu.id);
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'seen_unit', 'رویت شده');
+      await prisma.letterUnit.update({ where: { id: lu.id }, data: { status: 'seen', seenDate: getNowString() } });
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'seen_unit', 'رویت شده');
       res.json({ message: 'رویت شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -514,10 +626,13 @@ module.exports = function(db) {
   // GET parameterized (MUST be after static GETs)
   // ============================================================
 
-  router.get('/:id/history', (req, res) => {
+  router.get('/:id/history', async (req, res) => {
     try {
-      const history = db.prepare('SELECT * FROM letter_history WHERE letter_id = ? ORDER BY created_at ASC').all(req.params.id);
-      res.json(history);
+      const history = await prisma.letterHistory.findMany({
+        where: { letterId: Number(req.params.id) },
+        orderBy: { createdAt: 'asc' },
+      });
+      res.json(mapRow(history));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

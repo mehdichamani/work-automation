@@ -2,6 +2,8 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { JWT_SECRET } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000;
 const CODE_EXPIRY = 3 * 60 * 1000;
 
@@ -34,19 +36,19 @@ async function sendSMS(phone, code) {
   // });
 }
 
-module.exports = function(db) {
+module.exports = function() {
   const router = express.Router();
 
-  router.post('/send-code', (req, res) => {
+  router.post('/send-code', async (req, res) => {
     try {
       const { phone } = req.body;
       if (!phone || !/^09\d{9}$/.test(phone)) {
         return res.status(400).json({ error: 'شماره موبایل معتبر نیست (مثال: 09141234567)' });
       }
 
-      const recentCode = db.prepare(
-        `SELECT created_at FROM sms_codes WHERE phone = ? AND created_at > to_char(now()::timestamp - interval '60 seconds', 'YYYY-MM-DD HH24:MI:SS')`
-      ).get(phone);
+      const recentCode = await prisma.smsCode.findFirst({
+        where: { phone: phone, createdAt: { gt: new Date(Date.now() - 60000) } }
+      });
       if (recentCode) {
         return res.status(429).json({ error: 'لطفاً ۶۰ ثانیه صبر کنید' });
       }
@@ -54,49 +56,42 @@ module.exports = function(db) {
       const code = generateCode();
       const expiresAt = new Date(Date.now() + CODE_EXPIRY).toISOString();
 
-      db.prepare('DELETE FROM sms_codes WHERE phone = ?').run(phone);
-      db.prepare('INSERT INTO sms_codes (phone, code, expires_at) VALUES (?, ?, ?)').run(phone, code, expiresAt);
+      await prisma.smsCode.deleteMany({ where: { phone: phone } });
+      await prisma.smsCode.create({ data: { phone: phone, code: code, expiresAt: expiresAt } });
 
       sendSMS(phone, code);
 
-      res.json({ success: true, message: 'کد تأیید ارسال شد', _dev_code: code });
+      res.json({ success: true, message: 'کد تأیید ارسال شد' });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'خطای ارسال کد تأیید' });
     }
   });
 
-  router.post('/verify-code', (req, res) => {
+  router.post('/verify-code', async (req, res) => {
     try {
       const { phone, code } = req.body;
       if (!phone || !code) {
         return res.status(400).json({ error: 'شماره موبایل و کد تأیید الزامی است' });
       }
 
-      const record = db.prepare(
-        `SELECT * FROM sms_codes WHERE phone = ? AND code = ? AND used = 0 AND expires_at > to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text) ORDER BY id DESC LIMIT 1`
-      ).get(phone, code);
+      const record = await prisma.smsCode.findFirst({
+        where: { phone: phone, code: code, used: false, expiresAt: { gt: new Date().toISOString() } },
+        orderBy: { id: 'desc' }
+      });
 
       if (!record) {
         return res.status(401).json({ error: 'کد تأیید نامعتبر یا منقضی شده است' });
       }
 
-      db.prepare('UPDATE sms_codes SET used = 1 WHERE id = ?').run(record.id);
+      await prisma.smsCode.update({ where: { id: record.id }, data: { used: true } });
 
-      let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
+      const user = await prisma.user.findFirst({ where: { phone: phone } });
 
       if (!user) {
-        const maxId = db.prepare('SELECT MAX(id) as m FROM users').get().m || 1000;
-        const newId = Number(maxId) + 1;
-        const bcrypt = require('bcryptjs');
-        const defaultPass = bcrypt.hashSync('123456', 10);
-        db.prepare(`INSERT INTO users (id, password, full_name, phone, role, department_id, username)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-          newId, defaultPass, 'کاربر جدید', phone, 'user', 1, String(newId)
-        );
-        user = db.prepare('SELECT * FROM users WHERE id = ?').get(newId);
+        return res.status(404).json({ error: 'کاربری با این شماره موبایل یافت نشد. لطفاً با مدیر سیستم تماس بگیرید' });
       }
 
-      if (!user.is_active) {
+      if (!user.isActive) {
         return res.status(403).json({ error: 'حساب کاربری غیرفعال است' });
       }
 
@@ -106,11 +101,11 @@ module.exports = function(db) {
         token,
         user: {
           id: user.id, employee_id: user.id, username: user.username,
-          full_name: user.full_name, role: user.role, department_id: user.department_id,
+          full_name: user.fullName, role: user.role, department_id: user.departmentId,
         }
       });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'خطای سرور' });
     }
   });
 

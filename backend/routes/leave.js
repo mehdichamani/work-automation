@@ -1,15 +1,18 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
 const moment = require('moment-jalaali');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
 let holidayCache = null;
 let holidayCacheTime = 0;
 const HOLIDAY_CACHE_TTL = 60000;
 
-function getHolidays(db) {
+async function getHolidays() {
   const now = Date.now();
   if (!holidayCache || now - holidayCacheTime > HOLIDAY_CACHE_TTL) {
-    holidayCache = db.prepare('SELECT holiday_date FROM official_holidays').all();
+    const rows = await prisma.officialHoliday.findMany({ select: { holidayDate: true } });
+    holidayCache = rows.map((r) => ({ holiday_date: r.holidayDate }));
     holidayCacheTime = now;
   }
   return holidayCache;
@@ -19,24 +22,33 @@ function invalidateHolidayCache() {
   holidayCache = null;
 }
 
-module.exports = function(db) {
+const pad = (n) => String(n).padStart(2, '0');
+function getNowString() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  function notify(userId, title, body, link) {
-    db.prepare('INSERT INTO notifications (user_id, title, body, link) VALUES (?, ?, ?, ?)').run(userId, title, body, link);
+  const userSelect = { fullName: true, department: { select: { name: true } } };
+  const userSelectWithBalance = { ...userSelect, leaveBalance: { select: { totalDays: true, usedHours: true } } };
+
+  async function notify(userId, title, body, link) {
+    await prisma.notification.create({ data: { userId: Number(userId), title, body, link } });
   }
 
-  function hasLeavePerm(user, moduleKey) {
+  async function hasLeavePerm(user, moduleKey) {
     if (user.role === 'admin') return true;
-    const userPerm = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(user.id, moduleKey);
-    if (userPerm !== null && userPerm !== undefined) {
-      return userPerm.is_enabled === 1;
+    const userPerm = await prisma.permission.findFirst({ where: { userId: user.id, moduleKey } });
+    if (userPerm) {
+      return userPerm.isEnabled === true;
     }
     if (user.department_id) {
-      const deptPerm = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL AND module_key = ?').get(user.department_id, moduleKey);
-      if (deptPerm !== null && deptPerm !== undefined) {
-        return deptPerm.is_enabled === 1;
+      const deptPerm = await prisma.permission.findFirst({ where: { departmentId: user.department_id, userId: null, moduleKey } });
+      if (deptPerm) {
+        return deptPerm.isEnabled === true;
       }
     }
     return false;
@@ -63,196 +75,186 @@ module.exports = function(db) {
     return hoursCount >= 8;
   }
 
-  router.get('/subordinates', (req, res) => {
+  function respondLeaves(rows) {
+    return mapRow(rows).map(mapLeave);
+  }
+
+  const ACTOR_FIELDS = {
+    supervisor_name: 'supervisorId',
+    admin_name: 'adminId',
+    manager_name: 'managerId',
+    security_name: 'securityId',
+    editor_name: 'editedBy',
+  };
+
+  async function decorateLeaveRows(rows, opts = {}) {
+    const { withBalance = false, actors = [] } = opts;
+    const ids = new Set();
+    if (actors.length) {
+      for (const r of rows) {
+        for (const field of actors) {
+          if (r[field]) ids.add(r[field]);
+        }
+      }
+    }
+    const nameMap = new Map();
+    if (ids.size) {
+      const users = await prisma.user.findMany({ where: { id: { in: [...ids] } }, select: { id: true, fullName: true } });
+      users.forEach((u) => nameMap.set(u.id, u.fullName));
+    }
+    return rows.map((r) => {
+      const aliases = { user_name: 'user.fullName', user_dept: 'user.department.name' };
+      if (withBalance) {
+        aliases.total_days = 'user.leaveBalance.totalDays';
+        aliases.used_hours = 'user.leaveBalance.usedHours';
+      }
+      const flat = flattenJoins(r, aliases);
+      if (withBalance) {
+        flat.total_days = flat.total_days ?? 0;
+        flat.used_hours = flat.used_hours ?? 0;
+      }
+      for (const [alias, field] of Object.entries(ACTOR_FIELDS)) {
+        if (actors.includes(field)) {
+          flat[alias] = r[field] ? nameMap.get(r[field]) || null : null;
+        }
+      }
+      return flat;
+    });
+  }
+
+  router.get('/subordinates', async (req, res) => {
     try {
       if (!['admin', 'manager', 'supervisor'].includes(req.user.role)) {
         return res.json([]);
       }
       let users;
       if (req.user.role === 'supervisor') {
-        users = db.prepare(`
-          SELECT id, full_name, role 
-          FROM users 
-          WHERE department_id = ? AND id != ? AND is_active = 1 AND work_type != 'shift'
-          ORDER BY full_name
-        `).all(req.user.department_id, req.user.id);
+        users = await prisma.user.findMany({
+          where: { departmentId: req.user.department_id, id: { not: req.user.id }, isActive: true, workType: { not: 'shift' } },
+          select: { id: true, fullName: true, role: true },
+          orderBy: { fullName: 'asc' },
+        });
       } else {
-        // admin or manager
-        users = db.prepare(`
-          SELECT id, full_name, role 
-          FROM users 
-          WHERE id != ? AND is_active = 1 AND work_type != 'shift'
-          ORDER BY full_name
-        `).all(req.user.id);
+        users = await prisma.user.findMany({
+          where: { id: { not: req.user.id }, isActive: true, workType: { not: 'shift' } },
+          select: { id: true, fullName: true, role: true },
+          orderBy: { fullName: 'asc' },
+        });
       }
-      res.json(users);
+      res.json(mapRow(users));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/my-requests', (req, res) => {
+  router.get('/my-requests', async (req, res) => {
     try {
-      const leaves = db.prepare(`
-        SELECT l.*, 
-               u.full_name as user_name, d.name as user_dept,
-               s.full_name as supervisor_name,
-               a.full_name as admin_name,
-               m.full_name as manager_name,
-               sec.full_name as security_name,
-               ed.full_name as editor_name
-        FROM leave_requests l
-        JOIN users u ON l.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users s ON l.supervisor_id = s.id
-        LEFT JOIN users a ON l.admin_id = a.id
-        LEFT JOIN users m ON l.manager_id = m.id
-        LEFT JOIN users sec ON l.security_id = sec.id
-        LEFT JOIN users ed ON l.edited_by = ed.id
-        WHERE l.user_id = ?
-        ORDER BY l.created_at DESC
-      `).all(req.user.id);
-      res.json(leaves.map(mapLeave));
+      const leaves = await prisma.leaveRequest.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: userSelect } },
+      });
+      const rows = await decorateLeaveRows(leaves, { actors: ['supervisorId', 'adminId', 'managerId', 'securityId', 'editedBy'] });
+      res.json(respondLeaves(rows));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/pending-supervisor', (req, res) => {
+  router.get('/pending-supervisor', async (req, res) => {
     try {
       let leaves;
       if (req.user.role === 'admin') {
-        leaves = db.prepare(`
-          SELECT l.*, u.full_name as user_name, d.name as user_dept,
-                 COALESCE(lb.total_days, 0) as total_days, COALESCE(lb.used_hours, 0) as used_hours
-          FROM leave_requests l
-          JOIN users u ON l.user_id = u.id
-          LEFT JOIN departments d ON u.department_id = d.id
-          LEFT JOIN leave_balance lb ON l.user_id = lb.user_id
-          WHERE l.status = 'pending_supervisor'
-          ORDER BY l.created_at DESC
-        `).all();
+        leaves = await prisma.leaveRequest.findMany({
+          where: { status: 'pending_supervisor' },
+          orderBy: { createdAt: 'desc' },
+          include: { user: { select: userSelectWithBalance } },
+        });
       } else {
-        leaves = db.prepare(`
-          SELECT l.*, u.full_name as user_name, d.name as user_dept,
-                 COALESCE(lb.total_days, 0) as total_days, COALESCE(lb.used_hours, 0) as used_hours
-          FROM leave_requests l
-          JOIN users u ON l.user_id = u.id
-          LEFT JOIN departments d ON u.department_id = d.id
-          LEFT JOIN leave_balance lb ON l.user_id = lb.user_id
-          WHERE l.status = 'pending_supervisor' AND u.department_id = ?
-          ORDER BY l.created_at DESC
-        `).all(req.user.department_id);
+        leaves = await prisma.leaveRequest.findMany({
+          where: { status: 'pending_supervisor', user: { is: { departmentId: req.user.department_id } } },
+          orderBy: { createdAt: 'desc' },
+          include: { user: { select: userSelectWithBalance } },
+        });
       }
-      res.json(leaves.map(mapLeave));
+      const rows = await decorateLeaveRows(leaves, { withBalance: true });
+      res.json(respondLeaves(rows));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/pending-manager', (req, res) => {
+  router.get('/pending-manager', async (req, res) => {
     try {
-      const leaves = db.prepare(`
-        SELECT l.*, u.full_name as user_name, d.name as user_dept,
-               s.full_name as supervisor_name,
-               a.full_name as admin_name,
-               COALESCE(lb.total_days, 0) as total_days, COALESCE(lb.used_hours, 0) as used_hours
-        FROM leave_requests l
-        JOIN users u ON l.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users s ON l.supervisor_id = s.id
-        LEFT JOIN users a ON l.admin_id = a.id
-        LEFT JOIN leave_balance lb ON l.user_id = lb.user_id
-        WHERE l.status = 'pending_manager'
-        ORDER BY l.created_at DESC
-      `).all();
-      res.json(leaves.map(mapLeave));
+      const leaves = await prisma.leaveRequest.findMany({
+        where: { status: 'pending_manager' },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: userSelectWithBalance } },
+      });
+      const rows = await decorateLeaveRows(leaves, { withBalance: true, actors: ['supervisorId', 'adminId'] });
+      res.json(respondLeaves(rows));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/security', (req, res) => {
-    if (!hasLeavePerm(req.user, 'leave_security_view')) {
-      return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی رویت حراست را ندارید' });
-    }
+  router.get('/security', async (req, res) => {
     try {
-      const leaves = db.prepare(`
-        SELECT l.*, u.full_name as user_name, d.name as user_dept,
-               s.full_name as supervisor_name,
-               a.full_name as admin_name,
-               m.full_name as manager_name
-        FROM leave_requests l
-        JOIN users u ON l.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users s ON l.supervisor_id = s.id
-        LEFT JOIN users a ON l.admin_id = a.id
-        LEFT JOIN users m ON l.manager_id = m.id
-        WHERE l.status = 'approved'
-        ORDER BY l.created_at DESC
-      `).all();
-      res.json(leaves.map(mapLeave));
+      if (!(await hasLeavePerm(req.user, 'leave_security_view'))) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی رویت حراست را ندارید' });
+      }
+      const leaves = await prisma.leaveRequest.findMany({
+        where: { status: 'approved' },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: userSelect } },
+      });
+      const rows = await decorateLeaveRows(leaves, { actors: ['supervisorId', 'adminId', 'managerId'] });
+      res.json(respondLeaves(rows));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/all', (req, res) => {
+  router.get('/all', async (req, res) => {
     try {
       const page = Math.max(1, parseInt(req.query.page) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
-      const offset = (page - 1) * limit;
+      const skip = (page - 1) * limit;
       const search = req.query.search || '';
-      
-      let baseQuery = `
-        FROM leave_requests l
-        JOIN users u ON l.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users s ON l.supervisor_id = s.id
-        LEFT JOIN users a ON l.admin_id = a.id
-        LEFT JOIN users m ON l.manager_id = m.id
-        LEFT JOIN users sec ON l.security_id = sec.id
-        LEFT JOIN users ed ON l.edited_by = ed.id
-      `;
-      let whereClause = '';
-      const params = [];
-      
+
+      const where = {};
+
       if (search) {
-        whereClause = ` WHERE (u.full_name ILIKE $${params.length + 1} OR l.leave_type ILIKE $${params.length + 1})`;
-        params.push(`%${search}%`);
+        where.OR = [
+          { user: { is: { fullName: { contains: search, mode: 'insensitive' } } } },
+          { leaveType: { contains: search, mode: 'insensitive' } },
+        ];
       }
-      
+
       if (req.user.role === 'supervisor') {
-        const deptParam = `$${params.length + 1}`;
-        whereClause += whereClause ? ` AND u.department_id = ${deptParam} AND u.role != 'admin'` : ` WHERE u.department_id = ${deptParam} AND u.role != 'admin'`;
-        params.push(req.user.department_id);
-      } else if (!(req.user.role === 'admin' || req.user.role === 'manager' || hasLeavePerm(req.user, 'leave_edit_after_seen'))) {
+        where.user = { is: { departmentId: req.user.department_id, role: { not: 'admin' } } };
+      } else if (!(req.user.role === 'admin' || req.user.role === 'manager' || await hasLeavePerm(req.user, 'leave_edit_after_seen'))) {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
-      
-      const countResult = db.prepare(`SELECT COUNT(*) as total ${baseQuery} ${whereClause}`).get(...params);
-      const total = countResult ? countResult.total : 0;
-      
-      const leaves = db.prepare(`
-        SELECT l.*, u.full_name as user_name, d.name as user_dept,
-               s.full_name as supervisor_name,
-               a.full_name as admin_name,
-               m.full_name as manager_name,
-               sec.full_name as security_name,
-               ed.full_name as editor_name
-        ${baseQuery} ${whereClause}
-        ORDER BY l.created_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `).all(...params);
-      
-      res.json({ data: leaves.map(mapLeave), total, page, limit });
+
+      const total = await prisma.leaveRequest.count({ where });
+
+      const leaves = await prisma.leaveRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip,
+        include: { user: { select: userSelect } },
+      });
+
+      const rows = await decorateLeaveRows(leaves, { actors: ['supervisorId', 'adminId', 'managerId', 'securityId', 'editedBy'] });
+      res.json({ data: respondLeaves(rows), total, page, limit });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-
-  router.post('/', (req, res) => {
+  router.post('/', async (req, res) => {
     try {
       const { user_id, start_date, start_time, end_date, end_time, reason } = req.body;
       if (!start_date || !start_time || !end_date || !end_time) {
@@ -266,40 +268,37 @@ module.exports = function(db) {
       let supervisorDate = null;
       let managerId = null;
       let managerDate = null;
-      
-      const userTypeCheck = db.prepare("SELECT work_type FROM users WHERE id = ?").get(req.user.id);
-      if (userTypeCheck && userTypeCheck.work_type === 'shift' && (!user_id || parseInt(user_id) === req.user.id)) {
+
+      const userTypeCheck = await prisma.user.findUnique({ where: { id: req.user.id }, select: { workType: true } });
+      if (userTypeCheck && userTypeCheck.workType === 'shift' && (!user_id || parseInt(user_id) === req.user.id)) {
         return res.status(400).json({ error: 'کاربران شیفتی مجاز به ثبت درخواست مرخصی نیستند' });
       }
-
-      const pad = (n) => String(n).padStart(2, '0');
-      const getNowString = () => {
-        const d = new Date();
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-      };
 
       if (user_id && parseInt(user_id) !== req.user.id) {
         if (!['admin', 'manager', 'supervisor'].includes(req.user.role)) {
           return res.status(403).json({ error: 'شما مجاز به ثبت مرخصی برای دیگران نیستید' });
         }
-        
-        const u = db.prepare('SELECT id, full_name, department_id, is_active, role, work_type FROM users WHERE id = ?').get(user_id);
-        if (!u || !u.is_active) {
+
+        const u = await prisma.user.findUnique({
+          where: { id: parseInt(user_id) },
+          select: { id: true, fullName: true, departmentId: true, isActive: true, role: true, workType: true },
+        });
+        if (!u || !u.isActive) {
           return res.status(404).json({ error: 'کاربر مورد نظر یافت نشد یا غیرفعال است' });
         }
-        
-        if (u.work_type === 'shift') {
+
+        if (u.workType === 'shift') {
           return res.status(400).json({ error: 'کاربر مورد نظر شیفتی بوده و مجاز به ثبت درخواست مرخصی نمی‌باشد' });
         }
-        
+
         if (req.user.role === 'supervisor') {
-          if (u.department_id !== req.user.department_id) {
+          if (u.departmentId !== req.user.department_id) {
             return res.status(403).json({ error: 'شما فقط می‌توانید برای پرسنل واحد خودتان مرخصی ثبت کنید' });
           }
           targetUserId = u.id;
-          targetUser = u;
+          targetUser = { ...u, full_name: u.fullName, department_id: u.departmentId };
           // Supervisor registers: calculate hours first to determine daily/hourly
-          const tempHours = calculateLeaveHours(start_date, start_time, end_date, end_time);
+          const tempHours = await calculateLeaveHours(start_date, start_time, end_date, end_time);
           if (isDailyLeave(tempHours)) {
             initialStatus = 'pending_admin';
           } else {
@@ -310,7 +309,7 @@ module.exports = function(db) {
         } else {
           // admin or manager
           targetUserId = u.id;
-          targetUser = u;
+          targetUser = { ...u, full_name: u.fullName, department_id: u.departmentId };
           initialStatus = 'approved';
           managerId = req.user.id;
           managerDate = getNowString();
@@ -332,92 +331,91 @@ module.exports = function(db) {
       }
 
       // Check for overlapping/duplicate leave requests
-      const existingRequests = db.prepare(`
-        SELECT id, start_date, start_hour, end_date, end_hour, status
-        FROM leave_requests
-        WHERE user_id = ? AND status != 'rejected'
-      `).all(targetUserId);
+      const existingRequests = await prisma.leaveRequest.findMany({
+        where: { userId: targetUserId, status: { not: 'rejected' } },
+        select: { id: true, startDate: true, startHour: true, endDate: true, endHour: true, status: true },
+      });
 
       const newStart = moment(`${start_date} ${start_time}`, 'jYYYY/jMM/jDD HH:mm');
       const newEnd = moment(`${end_date} ${end_time}`, 'jYYYY/jMM/jDD HH:mm');
 
       for (const reqOfUser of existingRequests) {
-        const reqStart = moment(`${reqOfUser.start_date} ${reqOfUser.start_hour}`, 'jYYYY/jMM/jDD HH:mm');
-        const reqEnd = moment(`${reqOfUser.end_date} ${reqOfUser.end_hour}`, 'jYYYY/jMM/jDD HH:mm');
-        
+        const reqStart = moment(`${reqOfUser.startDate} ${reqOfUser.startHour}`, 'jYYYY/jMM/jDD HH:mm');
+        const reqEnd = moment(`${reqOfUser.endDate} ${reqOfUser.endHour}`, 'jYYYY/jMM/jDD HH:mm');
+
         if (newStart.isBefore(reqEnd) && reqStart.isBefore(newEnd)) {
           const userMsg = targetUserId === req.user.id ? 'قبلی شما' : 'قبلی این کاربر';
-          return res.status(400).json({ error: `این درخواست با یکی از مرخصی‌های ${userMsg} همپوشانی دارد (${reqOfUser.start_date} تا ${reqOfUser.end_date})` });
+          return res.status(400).json({ error: `این درخواست با یکی از مرخصی‌های ${userMsg} همپوشانی دارد (${reqOfUser.startDate} تا ${reqOfUser.endDate})` });
         }
       }
 
-      const leaveHours = calculateLeaveHours(start_date, start_time, end_date, end_time);
+      const leaveHours = await calculateLeaveHours(start_date, start_time, end_date, end_time);
       if (leaveHours <= 0) {
         return res.status(400).json({ error: 'زمان انتخاب شده در ساعات کاری معتبر یا روزهای غیر تعطیل قرار ندارد' });
       }
 
-      const balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(targetUserId);
+      const balance = await prisma.leaveBalance.findUnique({ where: { userId: targetUserId } });
       if (!balance) {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(targetUserId);
+        await prisma.leaveBalance.create({ data: { userId: targetUserId, totalDays: 0, usedHours: 0 } });
       }
 
-      const result = db.prepare(`
-        INSERT INTO leave_requests (
-          user_id, leave_type, start_date, end_date, hours_count, reason, status, start_hour, end_hour,
-          supervisor_id, supervisor_date, manager_id, manager_date
-        )
-        VALUES (?, 'مرخصی', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        targetUserId,
-        start_date,
-        end_date,
-        leaveHours,
-        reason || '',
-        initialStatus,
-        start_time,
-        end_time,
-        supervisorId,
-        supervisorDate,
-        managerId,
-        managerDate
-      );
+      const result = await prisma.leaveRequest.create({
+        data: {
+          userId: targetUserId,
+          leaveType: 'مرخصی',
+          startDate: start_date,
+          endDate: end_date,
+          hoursCount: leaveHours,
+          reason: reason || '',
+          status: initialStatus,
+          startHour: start_time,
+          endHour: end_time,
+          supervisorId,
+          supervisorDate,
+          managerId,
+          managerDate,
+        },
+      });
 
       if (initialStatus === 'approved') {
-        db.prepare('UPDATE leave_balance SET used_hours = used_hours + ? WHERE user_id = ?').run(leaveHours, targetUserId);
+        await prisma.leaveBalance.update({ where: { userId: targetUserId }, data: { usedHours: { increment: leaveHours } } });
       }
 
       // Notifications
       if (targetUserId !== req.user.id) {
         // Registered by supervisor/manager/admin on behalf of user
         if (req.user.role === 'supervisor') {
-          notify(targetUserId, 'ثبت مرخصی توسط سرپرست', `مرخصی برای شما توسط سرپرست (${req.user.full_name}) ثبت گردید و برای تایید مدیر ارسال شد`, '/leave');
-          
+          await notify(targetUserId, 'ثبت مرخصی توسط سرپرست', `مرخصی برای شما توسط سرپرست (${req.user.full_name}) ثبت گردید و برای تایید مدیر ارسال شد`, '/leave');
+
           // Notify managers
-          const managers = db.prepare("SELECT id FROM users WHERE role = 'manager' AND is_active = 1").all();
-          managers.forEach(m => {
-            notify(m.id, 'درخواست مرخصی جدید', `درخواست مرخصی ثبت شده توسط سرپرست برای ${targetUser.full_name} نیاز به تایید مدیر دارد`, '/leave');
-          });
+          const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true }, select: { id: true } });
+          for (const m of managers) {
+            await notify(m.id, 'درخواست مرخصی جدید', `درخواست مرخصی ثبت شده توسط سرپرست برای ${targetUser.full_name} نیاز به تایید مدیر دارد`, '/leave');
+          }
         } else {
           // Registered by manager/admin
-          notify(targetUserId, 'ثبت مرخصی توسط مدیریت', `مرخصی برای شما توسط مدیریت (${req.user.full_name}) ثبت و تایید گردید`, '/leave');
+          await notify(targetUserId, 'ثبت مرخصی توسط مدیریت', `مرخصی برای شما توسط مدیریت (${req.user.full_name}) ثبت و تایید گردید`, '/leave');
         }
       } else {
         // Normal flow (self submission)
-        const supervisor = db.prepare("SELECT id FROM users WHERE role = 'supervisor' AND department_id = ? AND is_active = 1").get(req.user.department_id);
+        const supervisor = await prisma.user.findFirst({
+          where: { role: 'supervisor', departmentId: req.user.department_id, isActive: true },
+          select: { id: true },
+        });
         if (supervisor) {
-          notify(supervisor.id, 'درخواست مرخصی جدید', `${req.user.full_name} درخواست مرخصی ثبت کرده است`, '/leave');
+          await notify(supervisor.id, 'درخواست مرخصی جدید', `${req.user.full_name} درخواست مرخصی ثبت کرده است`, '/leave');
         }
       }
 
-      res.json({ id: result.lastInsertRowid, message: 'درخواست مرخصی ثبت شد' });
+      res.json({ id: result.id, message: 'درخواست مرخصی ثبت شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/:id/edit', (req, res) => {
+  router.put('/:id/edit', async (req, res) => {
     try {
-      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND user_id = ? AND status = 'pending_supervisor'").get(req.params.id, req.user.id);
+      const leave = await prisma.leaveRequest.findFirst({ where: { id: Number(req.params.id), userId: req.user.id, status: 'pending_supervisor' } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد یا قابل ویرایش نیست' });
 
       const { start_date, start_time, end_date, end_time, reason } = req.body;
@@ -431,31 +429,32 @@ module.exports = function(db) {
       }
 
       // Check for overlapping/duplicate leave requests (excluding current request)
-      const existingRequests = db.prepare(`
-        SELECT id, start_date, start_hour, end_date, end_hour
-        FROM leave_requests
-        WHERE user_id = ? AND status != 'rejected' AND id != ?
-      `).all(req.user.id, req.params.id);
+      const existingRequests = await prisma.leaveRequest.findMany({
+        where: { userId: req.user.id, status: { not: 'rejected' }, id: { not: Number(req.params.id) } },
+        select: { id: true, startDate: true, startHour: true, endDate: true, endHour: true },
+      });
 
       const newStart = moment(`${start_date} ${start_time}`, 'jYYYY/jMM/jDD HH:mm');
       const newEnd = moment(`${end_date} ${end_time}`, 'jYYYY/jMM/jDD HH:mm');
 
       for (const reqOfUser of existingRequests) {
-        const reqStart = moment(`${reqOfUser.start_date} ${reqOfUser.start_hour}`, 'jYYYY/jMM/jDD HH:mm');
-        const reqEnd = moment(`${reqOfUser.end_date} ${reqOfUser.end_hour}`, 'jYYYY/jMM/jDD HH:mm');
-        
+        const reqStart = moment(`${reqOfUser.startDate} ${reqOfUser.startHour}`, 'jYYYY/jMM/jDD HH:mm');
+        const reqEnd = moment(`${reqOfUser.endDate} ${reqOfUser.endHour}`, 'jYYYY/jMM/jDD HH:mm');
+
         if (newStart.isBefore(reqEnd) && reqStart.isBefore(newEnd)) {
-          return res.status(400).json({ error: `این تغییر با یکی از مرخصی‌های قبلی شما همپوشانی دارد (${reqOfUser.start_date} تا ${reqOfUser.end_date})` });
+          return res.status(400).json({ error: `این تغییر با یکی از مرخصی‌های قبلی شما همپوشانی دارد (${reqOfUser.startDate} تا ${reqOfUser.endDate})` });
         }
       }
 
-      const leaveHours = calculateLeaveHours(start_date, start_time, end_date, end_time);
+      const leaveHours = await calculateLeaveHours(start_date, start_time, end_date, end_time);
       if (leaveHours <= 0) {
         return res.status(400).json({ error: 'زمان انتخاب شده در ساعات کاری معتبر یا روزهای غیر تعطیل قرار ندارد' });
       }
 
-      db.prepare('UPDATE leave_requests SET start_date = ?, end_date = ?, hours_count = ?, reason = ?, start_hour = ?, end_hour = ? WHERE id = ?')
-        .run(start_date, end_date, leaveHours, reason || '', start_time, end_time, req.params.id);
+      await prisma.leaveRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { startDate: start_date, endDate: end_date, hoursCount: leaveHours, reason: reason || '', startHour: start_time, endHour: end_time },
+      });
 
       res.json({ message: 'درخواست با موفقیت ویرایش شد' });
     } catch (err) {
@@ -463,37 +462,37 @@ module.exports = function(db) {
     }
   });
 
-  router.delete('/:id/delete', (req, res) => {
+  router.delete('/:id/delete', async (req, res) => {
     try {
-      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND user_id = ? AND status = 'pending_supervisor'").get(req.params.id, req.user.id);
+      const leave = await prisma.leaveRequest.findFirst({ where: { id: Number(req.params.id), userId: req.user.id, status: 'pending_supervisor' } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد یا قابل حذف نیست' });
 
-      db.prepare('DELETE FROM leave_requests WHERE id = ?').run(req.params.id);
+      await prisma.leaveRequest.deleteMany({ where: { id: Number(req.params.id) } });
       res.json({ message: 'درخواست با موفقیت حذف شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.delete('/:id/admin-delete', (req, res) => {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'فقط مدیر سیستم می‌تواند مرخصی تایید شده را حذف کند' });
-    }
+  router.delete('/:id/admin-delete', async (req, res) => {
     try {
-      const leave = db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(req.params.id);
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'فقط مدیر سیستم می‌تواند مرخصی تایید شده را حذف کند' });
+      }
+      const leave = await prisma.leaveRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      if (['approved', 'seen_security'].includes(leave.status) && leave.hours_count > 0) {
-        const balanceBefore = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(leave.user_id);
+      if (['approved', 'seen_security'].includes(leave.status) && leave.hoursCount > 0) {
+        const balanceBefore = await prisma.leaveBalance.findUnique({ where: { userId: leave.userId } });
         if (balanceBefore) {
-          const newUsed = Math.max(0, balanceBefore.used_hours - leave.hours_count);
-          db.prepare('UPDATE leave_balance SET used_hours = ? WHERE user_id = ?').run(newUsed, leave.user_id);
+          const newUsed = Math.max(0, balanceBefore.usedHours - leave.hoursCount);
+          await prisma.leaveBalance.update({ where: { userId: leave.userId }, data: { usedHours: newUsed } });
         }
       }
 
-      db.prepare('DELETE FROM leave_requests WHERE id = ?').run(req.params.id);
+      await prisma.leaveRequest.deleteMany({ where: { id: Number(req.params.id) } });
 
-      notify(leave.user_id, 'حذف درخواست مرخصی', `درخواست مرخصی شما (${leave.start_date} تا ${leave.end_date}) توسط مدیر سیستم حذف شد`, '/leave');
+      await notify(leave.userId, 'حذف درخواست مرخصی', `درخواست مرخصی شما (${leave.startDate} تا ${leave.endDate}) توسط مدیر سیستم حذف شد`, '/leave');
 
       res.json({ message: 'درخواست مرخصی حذف شد و مانده مرخصی بازگردانده شد' });
     } catch (err) {
@@ -501,38 +500,38 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/approve-supervisor', (req, res) => {
+  router.put('/:id/approve-supervisor', async (req, res) => {
     try {
       const { comment } = req.body;
-      const leave = db.prepare('SELECT * FROM leave_requests WHERE id = ? AND status = ?').get(req.params.id, 'pending_supervisor');
+      const leave = await prisma.leaveRequest.findFirst({ where: { id: Number(req.params.id), status: 'pending_supervisor' } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
       if (req.user.role !== 'admin') {
-        const leaveUser = db.prepare('SELECT department_id FROM users WHERE id = ?').get(leave.user_id);
-        if (leaveUser && leaveUser.department_id !== req.user.department_id) {
+        const leaveUser = await prisma.user.findUnique({ where: { id: leave.userId }, select: { departmentId: true } });
+        if (leaveUser && leaveUser.departmentId !== req.user.department_id) {
           return res.status(403).json({ error: 'دسترسی غیرمجاز' });
         }
       }
 
-      const nextStatus = isDailyLeave(leave.hours_count) ? 'pending_admin' : 'pending_manager';
+      const nextStatus = isDailyLeave(leave.hoursCount) ? 'pending_admin' : 'pending_manager';
 
-      db.prepare(`
-        UPDATE leave_requests SET status = ?, supervisor_id = ?, supervisor_comment = ?, supervisor_date = datetime('now')
-        WHERE id = ?
-      `).run(nextStatus, req.user.id, comment || '', req.params.id);
+      await prisma.leaveRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: nextStatus, supervisorId: req.user.id, supervisorComment: comment || '', supervisorDate: getNowString() },
+      });
 
       if (nextStatus === 'pending_admin') {
-        notify(leave.user_id, 'تایید سرپرست', `درخواست مرخصی شما توسط سرپرست تایید شد و برای اداری ارسال شد`, '/leave');
-        const adminUsers = db.prepare("SELECT id FROM users WHERE (role = 'admin' OR role = 'manager') AND is_active = 1").all();
-        adminUsers.forEach(a => {
-          notify(a.id, 'درخواست مرخصی جدید', `درخواست مرخصی روزانه ${leave.user_id} نیاز به بررسی اداری دارد`, '/leave');
-        });
+        await notify(leave.userId, 'تایید سرپرست', `درخواست مرخصی شما توسط سرپرست تایید شد و برای اداری ارسال شد`, '/leave');
+        const adminUsers = await prisma.user.findMany({ where: { OR: [{ role: 'admin' }, { role: 'manager' }], isActive: true }, select: { id: true } });
+        for (const a of adminUsers) {
+          await notify(a.id, 'درخواست مرخصی جدید', `درخواست مرخصی روزانه ${leave.userId} نیاز به بررسی اداری دارد`, '/leave');
+        }
       } else {
-        notify(leave.user_id, 'تایید سرپرست', `درخواست مرخصی شما توسط سرپرست تایید شد و برای مدیر ارسال شد`, '/leave');
-        const managers = db.prepare("SELECT id FROM users WHERE role = 'manager' AND is_active = 1").all();
-        managers.forEach(m => {
-          notify(m.id, 'درخواست مرخصی جدید', `درخواست مرخصی ساعتی ${leave.user_id} نیاز به تایید مدیر دارد`, '/leave');
-        });
+        await notify(leave.userId, 'تایید سرپرست', `درخواست مرخصی شما توسط سرپرست تایید شد و برای مدیر ارسال شد`, '/leave');
+        const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true }, select: { id: true } });
+        for (const m of managers) {
+          await notify(m.id, 'درخواست مرخصی جدید', `درخواست مرخصی ساعتی ${leave.userId} نیاز به تایید مدیر دارد`, '/leave');
+        }
       }
 
       res.json({ message: 'درخواست توسط سرپرست تایید شد' });
@@ -541,18 +540,18 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/reject-supervisor', (req, res) => {
+  router.put('/:id/reject-supervisor', async (req, res) => {
     try {
       const { comment } = req.body;
-      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND status = 'pending_supervisor'").get(req.params.id);
+      const leave = await prisma.leaveRequest.findFirst({ where: { id: Number(req.params.id), status: 'pending_supervisor' } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare(`
-        UPDATE leave_requests SET status = 'rejected', supervisor_id = ?, supervisor_comment = ?, supervisor_date = datetime('now')
-        WHERE id = ?
-      `).run(req.user.id, comment || 'رد شده توسط سرپرست', req.params.id);
+      await prisma.leaveRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'rejected', supervisorId: req.user.id, supervisorComment: comment || 'رد شده توسط سرپرست', supervisorDate: getNowString() },
+      });
 
-      notify(leave.user_id, 'رد درخواست مرخصی', `درخواست مرخصی شما توسط سرپرست رد شد`, '/leave');
+      await notify(leave.userId, 'رد درخواست مرخصی', `درخواست مرخصی شما توسط سرپرست رد شد`, '/leave');
       res.json({ message: 'درخواست رد شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -560,50 +559,44 @@ module.exports = function(db) {
   });
 
   // ---------- اداری: لیست در انتظار بررسی ----------
-  router.get('/pending-admin', (req, res) => {
-    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasLeavePerm(req.user, 'leave_admin_approve')) {
-      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
-    }
+  router.get('/pending-admin', async (req, res) => {
     try {
-      const leaves = db.prepare(`
-        SELECT l.*, u.full_name as user_name, d.name as user_dept,
-               s.full_name as supervisor_name,
-               COALESCE(lb.total_days, 0) as total_days, COALESCE(lb.used_hours, 0) as used_hours
-        FROM leave_requests l
-        JOIN users u ON l.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users s ON l.supervisor_id = s.id
-        LEFT JOIN leave_balance lb ON l.user_id = lb.user_id
-        WHERE l.status = 'pending_admin'
-        ORDER BY l.created_at DESC
-      `).all();
-      res.json(leaves.map(mapLeave));
+      if (req.user.role !== 'admin' && req.user.role !== 'manager' && !(await hasLeavePerm(req.user, 'leave_admin_approve'))) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      }
+      const leaves = await prisma.leaveRequest.findMany({
+        where: { status: 'pending_admin' },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: userSelectWithBalance } },
+      });
+      const rows = await decorateLeaveRows(leaves, { withBalance: true, actors: ['supervisorId'] });
+      res.json(respondLeaves(rows));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // ---------- اداری: تایید مرخصی روزانه ----------
-  router.put('/:id/approve-admin', (req, res) => {
-    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasLeavePerm(req.user, 'leave_admin_approve')) {
-      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
-    }
+  router.put('/:id/approve-admin', async (req, res) => {
     try {
+      if (req.user.role !== 'admin' && req.user.role !== 'manager' && !(await hasLeavePerm(req.user, 'leave_admin_approve'))) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      }
       const { comment, remaining_leave_days } = req.body;
-      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND status = 'pending_admin'").get(req.params.id);
+      const leave = await prisma.leaveRequest.findFirst({ where: { id: Number(req.params.id), status: 'pending_admin' } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare(`
-        UPDATE leave_requests SET status = 'pending_manager', admin_id = ?, admin_comment = ?, admin_date = datetime('now'), remaining_leave_days = ?
-        WHERE id = ?
-      `).run(req.user.id, comment || '', remaining_leave_days || null, req.params.id);
-
-      notify(leave.user_id, 'تایید اداری', `مرخصی روزانه شما توسط اداری تایید شد و برای مدیر ارسال شد`, '/leave');
-
-      const managers = db.prepare("SELECT id FROM users WHERE role = 'manager' AND is_active = 1").all();
-      managers.forEach(m => {
-        notify(m.id, 'درخواست مرخصی جدید', `مرخصی روزانه ${leave.user_id} توسط اداری تایید شده و نیاز به تایید مدیر دارد`, '/leave');
+      await prisma.leaveRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'pending_manager', adminId: req.user.id, adminComment: comment || '', adminDate: getNowString(), remainingLeaveDays: remaining_leave_days ? Number(remaining_leave_days) : null },
       });
+
+      await notify(leave.userId, 'تایید اداری', `مرخصی روزانه شما توسط اداری تایید شد و برای مدیر ارسال شد`, '/leave');
+
+      const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true }, select: { id: true } });
+      for (const m of managers) {
+        await notify(m.id, 'درخواست مرخصی جدید', `مرخصی روزانه ${leave.userId} توسط اداری تایید شده و نیاز به تایید مدیر دارد`, '/leave');
+      }
 
       res.json({ message: 'مرخصی توسط اداری تایید شد' });
     } catch (err) {
@@ -612,51 +605,54 @@ module.exports = function(db) {
   });
 
   // ---------- اداری: رد مرخصی روزانه ----------
-  router.put('/:id/reject-admin', (req, res) => {
-    if (req.user.role !== 'admin' && req.user.role !== 'manager' && !hasLeavePerm(req.user, 'leave_admin_approve')) {
-      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
-    }
+  router.put('/:id/reject-admin', async (req, res) => {
     try {
+      if (req.user.role !== 'admin' && req.user.role !== 'manager' && !(await hasLeavePerm(req.user, 'leave_admin_approve'))) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      }
       const { comment } = req.body;
       if (!comment) return res.status(400).json({ error: 'دلیل رد الزامی است' });
-      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND status = 'pending_admin'").get(req.params.id);
+      const leave = await prisma.leaveRequest.findFirst({ where: { id: Number(req.params.id), status: 'pending_admin' } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare(`
-        UPDATE leave_requests SET status = 'rejected', admin_id = ?, admin_comment = ?, admin_date = datetime('now')
-        WHERE id = ?
-      `).run(req.user.id, comment, req.params.id);
+      await prisma.leaveRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'rejected', adminId: req.user.id, adminComment: comment, adminDate: getNowString() },
+      });
 
-      notify(leave.user_id, 'رد درخواست مرخصی', `مرخصی روزانه شما توسط اداری رد شد`, '/leave');
+      await notify(leave.userId, 'رد درخواست مرخصی', `مرخصی روزانه شما توسط اداری رد شد`, '/leave');
       res.json({ message: 'درخواست رد شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/:id/approve-manager', (req, res) => {
+  router.put('/:id/approve-manager', async (req, res) => {
     try {
       const { comment } = req.body;
-      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND status = 'pending_manager'").get(req.params.id);
+      const leave = await prisma.leaveRequest.findFirst({ where: { id: Number(req.params.id), status: 'pending_manager' } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare(`
-        UPDATE leave_requests SET status = 'approved', manager_id = ?, manager_comment = ?, manager_date = datetime('now')
-        WHERE id = ?
-      `).run(req.user.id, comment || '', req.params.id);
-
-      const balanceExists = db.prepare('SELECT 1 FROM leave_balance WHERE user_id = ?').get(leave.user_id);
-      if (!balanceExists) {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(leave.user_id);
-      }
-      db.prepare('UPDATE leave_balance SET used_hours = used_hours + ? WHERE user_id = ?').run(leave.hours_count, leave.user_id);
-
-      notify(leave.user_id, 'تایید نهایی مرخصی', `مرخصی شما توسط مدیر تایید شد`, '/leave');
-
-      const securityUsers = db.prepare("SELECT u.id FROM users u JOIN departments d ON u.department_id = d.id WHERE d.name LIKE '%حراست%' AND u.is_active = 1").all();
-      securityUsers.forEach(s => {
-        notify(s.id, 'مرخصی تایید شده', `مرخصی کاربر ${leave.user_id} تایید شده - لطفاً مشاهده کنید`, '/leave');
+      await prisma.leaveRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'approved', managerId: req.user.id, managerComment: comment || '', managerDate: getNowString() },
       });
+
+      await prisma.leaveBalance.upsert({
+        where: { userId: leave.userId },
+        create: { userId: leave.userId, totalDays: 0, usedHours: leave.hoursCount },
+        update: { usedHours: { increment: leave.hoursCount } },
+      });
+
+      await notify(leave.userId, 'تایید نهایی مرخصی', `مرخصی شما توسط مدیر تایید شد`, '/leave');
+
+      const securityUsers = await prisma.user.findMany({
+        where: { department: { is: { name: { contains: 'حراست' } } }, isActive: true },
+        select: { id: true },
+      });
+      for (const s of securityUsers) {
+        await notify(s.id, 'مرخصی تایید شده', `مرخصی کاربر ${leave.userId} تایید شده - لطفاً مشاهده کنید`, '/leave');
+      }
 
       res.json({ message: 'مرخصی توسط مدیر تایید شد' });
     } catch (err) {
@@ -664,36 +660,36 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/reject-manager', (req, res) => {
+  router.put('/:id/reject-manager', async (req, res) => {
     try {
       const { comment } = req.body;
-      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND status = 'pending_manager'").get(req.params.id);
+      const leave = await prisma.leaveRequest.findFirst({ where: { id: Number(req.params.id), status: 'pending_manager' } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare(`
-        UPDATE leave_requests SET status = 'rejected', manager_id = ?, manager_comment = ?, manager_date = datetime('now')
-        WHERE id = ?
-      `).run(req.user.id, comment || 'رد شده توسط مدیر', req.params.id);
+      await prisma.leaveRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'rejected', managerId: req.user.id, managerComment: comment || 'رد شده توسط مدیر', managerDate: getNowString() },
+      });
 
-      notify(leave.user_id, 'رد درخواست مرخصی', `درخواست مرخصی شما توسط مدیر رد شد`, '/leave');
+      await notify(leave.userId, 'رد درخواست مرخصی', `درخواست مرخصی شما توسط مدیر رد شد`, '/leave');
       res.json({ message: 'درخواست رد شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/:id/seen-security', (req, res) => {
-    if (!hasLeavePerm(req.user, 'leave_security_view')) {
-      return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی رویت حراست را ندارید' });
-    }
+  router.put('/:id/seen-security', async (req, res) => {
     try {
-      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ? AND status = 'approved'").get(req.params.id);
+      if (!(await hasLeavePerm(req.user, 'leave_security_view'))) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی رویت حراست را ندارید' });
+      }
+      const leave = await prisma.leaveRequest.findFirst({ where: { id: Number(req.params.id), status: 'approved' } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare(`
-        UPDATE leave_requests SET status = 'seen_security', security_id = ?, security_date = datetime('now')
-        WHERE id = ?
-      `).run(req.user.id, req.params.id);
+      await prisma.leaveRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'seen_security', securityId: req.user.id, securityDate: getNowString() },
+      });
 
       res.json({ message: 'مرخصی رویت شد' });
     } catch (err) {
@@ -702,16 +698,16 @@ module.exports = function(db) {
   });
 
   // Holidays endpoints
-  router.get('/holidays', (req, res) => {
+  router.get('/holidays', async (req, res) => {
     try {
-      const holidays = db.prepare('SELECT * FROM official_holidays ORDER BY holiday_date').all();
-      res.json(holidays);
+      const holidays = await prisma.officialHoliday.findMany({ orderBy: { holidayDate: 'asc' } });
+      res.json(mapRow(holidays));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/holidays', (req, res) => {
+  router.post('/holidays', async (req, res) => {
     try {
       if (req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
@@ -720,7 +716,7 @@ module.exports = function(db) {
       if (!holiday_date) {
         return res.status(400).json({ error: 'تاریخ تعطیل الزامی است' });
       }
-      db.prepare('INSERT INTO official_holidays (holiday_date, title) VALUES (?, ?) ON CONFLICT (holiday_date) DO NOTHING').run(holiday_date, title || '');
+      await prisma.officialHoliday.createMany({ data: [{ holidayDate: holiday_date, title: title || '' }], skipDuplicates: true });
       invalidateHolidayCache();
       res.json({ message: 'تعطیلی با موفقیت ثبت شد' });
     } catch (err) {
@@ -728,7 +724,7 @@ module.exports = function(db) {
     }
   });
 
-  router.post('/holidays/import', (req, res) => {
+  router.post('/holidays/import', async (req, res) => {
     try {
       if (req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
@@ -737,18 +733,11 @@ module.exports = function(db) {
       if (!Array.isArray(holidays)) {
         return res.status(400).json({ error: 'فرمت داده‌ها نامعتبر است' });
       }
-      
-      const insert = db.prepare('INSERT INTO official_holidays (holiday_date, title) VALUES (?, ?) ON CONFLICT (holiday_date) DO NOTHING');
-      
-      const transaction = db.transaction((list) => {
-        for (const h of list) {
-          if (h.holiday_date) {
-            insert.run(h.holiday_date, h.title || '');
-          }
-        }
-      });
-      
-      transaction(holidays);
+
+      const data = holidays.filter((h) => h.holiday_date).map((h) => ({ holidayDate: h.holiday_date, title: h.title || '' }));
+      if (data.length) {
+        await prisma.officialHoliday.createMany({ data, skipDuplicates: true });
+      }
       invalidateHolidayCache();
       res.json({ message: 'تعطیلات رسمی با موفقیت وارد شدند' });
     } catch (err) {
@@ -756,12 +745,12 @@ module.exports = function(db) {
     }
   });
 
-  router.delete('/holidays/:id', (req, res) => {
+  router.delete('/holidays/:id', async (req, res) => {
     try {
       if (req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
-      db.prepare('DELETE FROM official_holidays WHERE id = ?').run(req.params.id);
+      await prisma.officialHoliday.deleteMany({ where: { id: Number(req.params.id) } });
       invalidateHolidayCache();
       res.json({ message: 'تعطیلی حذف شد' });
     } catch (err) {
@@ -770,39 +759,39 @@ module.exports = function(db) {
   });
 
   // Helper function to calculate leave hours
-  function calculateLeaveHours(startDateStr, startTimeStr, endDateStr, endTimeStr) {
-    const holidays = getHolidays(db);
+  async function calculateLeaveHours(startDateStr, startTimeStr, endDateStr, endTimeStr) {
+    const holidays = await getHolidays();
     const holidaysSet = new Set(holidays.map(h => h.holiday_date));
-    
+
     let current = moment(startDateStr, 'jYYYY/jMM/jDD');
     const end = moment(endDateStr, 'jYYYY/jMM/jDD');
-    
+
     let totalHours = 0;
-    
+
     const timeToMinutes = (t) => {
       const [h, m] = t.split(':').map(Number);
       return h * 60 + m;
     };
-    
+
     const minutesToHours = (m) => m / 60;
-    
+
     while (current.isSameOrBefore(end, 'day')) {
       const dateStr = current.format('jYYYY/jMM/jDD');
       const dayOfWeek = current.day(); // 0 is Sunday, ..., 5 is Friday, 6 is Saturday
-      
+
       const isFriday = (dayOfWeek === 5);
       const isOfficialHoliday = holidaysSet.has(dateStr);
-      
+
       if (!isFriday && !isOfficialHoliday) {
         let dayStart = "08:00";
         let dayEnd = (dayOfWeek === 4) ? "12:00" : "17:00";
-        
+
         let leaveStart = (dateStr === startDateStr) ? startTimeStr : dayStart;
         let leaveEnd = (dateStr === endDateStr) ? endTimeStr : dayEnd;
-        
+
         const leaveStartMin = timeToMinutes(leaveStart);
         const leaveEndMin = timeToMinutes(leaveEnd);
-        
+
         if (dayOfWeek === 4) {
           // Thursday: 08:00 to 12:00
           const startMin = Math.max(leaveStartMin, timeToMinutes("08:00"));
@@ -828,18 +817,18 @@ module.exports = function(db) {
       }
       current.add(1, 'day');
     }
-    
+
     return totalHours;
   }
 
   // Calculate endpoint
-  router.get('/calculate', (req, res) => {
+  router.get('/calculate', async (req, res) => {
     try {
       const { start_date, start_time, end_date, end_time } = req.query;
       if (!start_date || !start_time || !end_date || !end_time) {
         return res.status(400).json({ error: 'تمام فیلدهای تاریخ و ساعت شروع و پایان الزامی هستند' });
       }
-      const totalHours = calculateLeaveHours(start_date, start_time, end_date, end_time);
+      const totalHours = await calculateLeaveHours(start_date, start_time, end_date, end_time);
       const days = Math.floor(totalHours / 8);
       const remainingHours = totalHours % 8;
       res.json({ total_hours: totalHours, days, remaining_hours: remainingHours });
@@ -848,22 +837,26 @@ module.exports = function(db) {
     }
   });
 
-  router.get('/balance', (req, res) => {
+  router.get('/balance', async (req, res) => {
     try {
-      let balance = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(req.user.id);
+      let balance = await prisma.leaveBalance.findUnique({ where: { userId: req.user.id } });
       if (!balance) {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, 0, 0)').run(req.user.id);
-        balance = { total_days: 0 };
+        await prisma.leaveBalance.create({ data: { userId: req.user.id, totalDays: 0, usedHours: 0 } });
+        balance = { totalDays: 0, usedHours: 0 };
       }
-      
-      const usedHours = db.prepare("SELECT COALESCE(SUM(hours_count), 0) as used FROM leave_requests WHERE user_id = ? AND status IN ('approved', 'seen_security')").get(req.user.id).used;
-      const totalHours = balance.total_days * 8;
+
+      const agg = await prisma.leaveRequest.aggregate({
+        where: { userId: req.user.id, status: { in: ['approved', 'seen_security'] } },
+        _sum: { hoursCount: true },
+      });
+      const usedHours = agg._sum.hoursCount ?? 0;
+      const totalHours = balance.totalDays * 8;
       const remainingHours = totalHours - usedHours;
       const isNegative = remainingHours < 0;
       const absRemaining = Math.abs(remainingHours);
-      
+
       res.json({
-        total_days: balance.total_days,
+        total_days: balance.totalDays,
         used_hours: usedHours,
         remaining_days: isNegative ? -Math.floor(absRemaining / 8) : Math.floor(absRemaining / 8),
         remaining_hours_only: absRemaining % 8,
@@ -876,45 +869,55 @@ module.exports = function(db) {
     }
   });
 
-  router.get('/balance-all', (req, res) => {
+  router.get('/balance-all', async (req, res) => {
     try {
       let balances;
-      if (req.user.role === 'admin' || req.user.role === 'manager' || hasLeavePerm(req.user, 'leave_quota_manage')) {
-        balances = db.prepare(`
-          SELECT lb.user_id, lb.total_days, u.full_name, u.department_id, d.name as department_name,
-                 COALESCE((SELECT SUM(hours_count) FROM leave_requests WHERE user_id = u.id AND status IN ('approved', 'seen_security')), 0) as used_hours
-          FROM leave_balance lb
-          JOIN users u ON lb.user_id = u.id
-          LEFT JOIN departments d ON u.department_id = d.id
-          WHERE u.is_active = 1
-          ORDER BY d.name, u.full_name
-        `).all();
+      const includeUser = { include: { user: { select: { fullName: true, departmentId: true, role: true, isActive: true, department: { select: { name: true } } } } } };
+      if (req.user.role === 'admin' || req.user.role === 'manager' || await hasLeavePerm(req.user, 'leave_quota_manage')) {
+        balances = await prisma.leaveBalance.findMany({
+          ...includeUser,
+          where: { user: { is: { isActive: true } } },
+          orderBy: [{ user: { department: { name: 'asc' } } }, { user: { fullName: 'asc' } }],
+        });
       } else if (req.user.role === 'supervisor') {
-        balances = db.prepare(`
-          SELECT lb.user_id, lb.total_days, u.full_name, u.department_id, d.name as department_name,
-                 COALESCE((SELECT SUM(hours_count) FROM leave_requests WHERE user_id = u.id AND status IN ('approved', 'seen_security')), 0) as used_hours
-          FROM leave_balance lb
-          JOIN users u ON lb.user_id = u.id
-          LEFT JOIN departments d ON u.department_id = d.id
-          WHERE u.is_active = 1 AND u.department_id = ? AND u.role != 'admin'
-          ORDER BY u.full_name
-        `).all(req.user.department_id);
+        balances = await prisma.leaveBalance.findMany({
+          ...includeUser,
+          where: { user: { is: { departmentId: req.user.department_id, role: { not: 'admin' }, isActive: true } } },
+          orderBy: { user: { fullName: 'asc' } },
+        });
       } else {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
-      
-      res.json(balances.map(b => {
-        const totalHours = b.total_days * 8;
-        const remainingHours = totalHours - b.used_hours;
+
+      const userIds = balances.map((b) => b.userId);
+      const usedMap = new Map();
+      if (userIds.length) {
+        const groups = await prisma.leaveRequest.groupBy({
+          by: ['userId'],
+          where: { userId: { in: userIds }, status: { in: ['approved', 'seen_security'] } },
+          _sum: { hoursCount: true },
+        });
+        groups.forEach((g) => usedMap.set(g.userId, g._sum.hoursCount ?? 0));
+      }
+
+      res.json(balances.map((b) => {
+        const usedHours = usedMap.get(b.userId) ?? 0;
+        const totalHours = b.totalDays * 8;
+        const remainingHours = totalHours - usedHours;
         const isNegative = remainingHours < 0;
         const absRemaining = Math.abs(remainingHours);
         return {
-          ...b,
+          user_id: b.userId,
+          total_days: b.totalDays,
+          full_name: b.user ? b.user.fullName : null,
+          department_id: b.user ? b.user.departmentId : null,
+          department_name: b.user && b.user.department ? b.user.department.name : null,
+          used_hours: usedHours,
           remaining_days: isNegative ? -Math.floor(absRemaining / 8) : Math.floor(absRemaining / 8),
           remaining_hours_only: absRemaining % 8,
           is_negative: isNegative ? 1 : 0,
-          used_days_display: Math.floor(b.used_hours / 8),
-          used_hours_display: b.used_hours % 8
+          used_days_display: Math.floor(usedHours / 8),
+          used_hours_display: usedHours % 8
         };
       }));
     } catch (err) {
@@ -922,111 +925,105 @@ module.exports = function(db) {
     }
   });
 
-  router.get('/:id', (req, res) => {
+  router.get('/:id', async (req, res) => {
     try {
-      const row = db.prepare(`
-        SELECT l.*, u.full_name AS user_name, d.name AS user_dept
-        FROM leave_requests l
-        LEFT JOIN users u ON l.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        WHERE l.id = ?
-      `).get(req.params.id);
+      const row = await prisma.leaveRequest.findUnique({
+        where: { id: Number(req.params.id) },
+        include: { user: { select: userSelect } },
+      });
       if (!row) return res.status(404).json({ error: 'یافت نشد' });
-      res.json(row);
+      res.json(mapRow(flattenJoins(row, { user_name: 'user.fullName', user_dept: 'user.department.name' })));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/balance/:userId', (req, res) => {
-    if (req.user.role !== 'admin' && !hasLeavePerm(req.user, 'leave_quota_manage')) {
-      return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی مدیریت سهمیه مرخصی پرسنل را ندارید' });
-    }
+  router.put('/balance/:userId', async (req, res) => {
     try {
-      const { total_days } = req.body;
-      const targetUserId = req.params.userId;
-      
-      const existing = db.prepare('SELECT * FROM leave_balance WHERE user_id = ?').get(targetUserId);
-      const oldTotal = existing ? existing.total_days : 0;
-      
-      if (existing) {
-        db.prepare('UPDATE leave_balance SET total_days = ? WHERE user_id = ?')
-          .run(total_days, targetUserId);
-      } else {
-        db.prepare('INSERT INTO leave_balance (user_id, total_days, used_hours) VALUES (?, ?, 0)')
-          .run(targetUserId, total_days);
+      if (req.user.role !== 'admin' && !(await hasLeavePerm(req.user, 'leave_quota_manage'))) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی مدیریت سهمیه مرخصی پرسنل را ندارید' });
       }
-      
+      const { total_days } = req.body;
+      const targetUserId = Number(req.params.userId);
+      const newTotal = Number(total_days);
+
+      const existing = await prisma.leaveBalance.findUnique({ where: { userId: targetUserId } });
+      const oldTotal = existing ? existing.totalDays : 0;
+
+      if (existing) {
+        await prisma.leaveBalance.update({ where: { userId: targetUserId }, data: { totalDays: newTotal } });
+      } else {
+        await prisma.leaveBalance.create({ data: { userId: targetUserId, totalDays: newTotal, usedHours: 0 } });
+      }
+
       // Log the change
-      db.prepare(`
-        INSERT INTO leave_change_logs (action_by, action_type, target_id, old_value, new_value, details)
-        VALUES (?, 'quota_edit', ?, ?, ?, ?)
-      `).run(
-        req.user.id,
-        targetUserId,
-        String(oldTotal),
-        String(total_days),
-        `ویرایش سهمیه اولیه پرسنل به ${total_days} روز`
-      );
-      
+      await prisma.leaveChangeLog.create({
+        data: {
+          actionBy: req.user.id,
+          actionType: 'quota_edit',
+          targetId: targetUserId,
+          oldValue: String(oldTotal),
+          newValue: String(newTotal),
+          details: `ویرایش سهمیه اولیه پرسنل به ${newTotal} روز`,
+        },
+      });
+
       res.json({ message: 'سهمیه اولیه بروزرسانی شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/:id/edit-after-seen', (req, res) => {
-    if (req.user.role !== 'admin' && !hasLeavePerm(req.user, 'leave_edit_after_seen')) {
-      return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی ویرایش مرخصی پس از رویت را ندارید' });
-    }
+  router.put('/:id/edit-after-seen', async (req, res) => {
     try {
+      if (req.user.role !== 'admin' && !(await hasLeavePerm(req.user, 'leave_edit_after_seen'))) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی ویرایش مرخصی پس از رویت را ندارید' });
+      }
       const { end_date, end_time, hours_count, reason } = req.body;
-      const leaveId = req.params.id;
-      
-      const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ?").get(leaveId);
+      const leaveId = Number(req.params.id);
+
+      const leave = await prisma.leaveRequest.findUnique({ where: { id: leaveId } });
       if (!leave) return res.status(404).json({ error: 'درخواست یافت نشد' });
-      
+
       if (leave.status !== 'seen_security') {
         return res.status(400).json({ error: 'ویرایش مرخصی فقط پس از رویت حراست امکان‌پذیر است' });
       }
-      
-      if (leave.edited_by) {
+
+      if (leave.editedBy) {
         return res.status(400).json({ error: 'این مرخصی قبلاً اصلاح شده است و اصلاح مجدد آن امکان‌پذیر نیست' });
       }
-      
+
       const oldVal = JSON.stringify({
-        end_date: leave.end_date,
-        end_time: leave.end_hour,
-        hours_count: leave.hours_count,
+        end_date: leave.endDate,
+        end_time: leave.endHour,
+        hours_count: leave.hoursCount,
         reason: leave.reason
       });
-      
+
       const newVal = JSON.stringify({
         end_date,
         end_time,
         hours_count,
         reason: reason || leave.reason
       });
-      
-      db.prepare(`
-        UPDATE leave_requests 
-        SET end_date = ?, end_hour = ?, hours_count = ?, reason = ?,
-            edited_by = ?, edited_at = datetime('now'), edit_reason = ?
-        WHERE id = ?
-      `).run(end_date, end_time, hours_count, reason || leave.reason || '', req.user.id, reason || '', leaveId);
-      
+
+      await prisma.leaveRequest.update({
+        where: { id: leaveId },
+        data: { endDate: end_date, endHour: end_time, hoursCount: Number(hours_count), reason: reason || leave.reason || '', editedBy: req.user.id, editedAt: getNowString(), editReason: reason || '' },
+      });
+
       // Log the change
-      db.prepare(`
-        INSERT INTO leave_change_logs (action_by, action_type, target_id, old_value, new_value, details)
-        VALUES (?, 'leave_edit', ?, ?, ?, ?)
-      `).run(
-        req.user.id,
-        leaveId,
-        oldVal,
-        newVal,
-        `ویرایش مرخصی کاربر (کاهش مدت یا اصلاح پس از رویت). کارکرد جدید: ${hours_count} ساعت.`
-      );
-      
+      await prisma.leaveChangeLog.create({
+        data: {
+          actionBy: req.user.id,
+          actionType: 'leave_edit',
+          targetId: leaveId,
+          oldValue: oldVal,
+          newValue: newVal,
+          details: `ویرایش مرخصی کاربر (کاهش مدت یا اصلاح پس از رویت). کارکرد جدید: ${hours_count} ساعت.`,
+        },
+      });
+
       res.json({ message: 'درخواست مرخصی با موفقیت ویرایش و لاگ شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });

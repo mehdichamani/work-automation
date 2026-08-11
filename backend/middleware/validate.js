@@ -155,14 +155,14 @@ const auth = [
   body('username').notEmpty().withMessage('کد پرسنلی الزامی است')
     .isNumeric().withMessage('کد پرسنلی باید عددی باشد'),
   body('password').notEmpty().withMessage('رمز عبور الزامی است')
-    .isLength({ min: 6 }).withMessage('رمز عبور حداقل ۶ کاراکتر'),
+    .isLength({ min: 8 }).withMessage('رمز عبور حداقل ۸ کاراکتر'),
   handleErrors,
 ];
 
 const changePassword = [
   body('oldPassword').notEmpty().withMessage('رمز فعلی الزامی است'),
   body('newPassword').notEmpty().withMessage('رمز جدید الزامی است')
-    .isLength({ min: 6 }).withMessage('رمز جدید حداقل ۶ کاراکتر'),
+    .isLength({ min: 8 }).withMessage('رمز جدید حداقل ۸ کاراکتر'),
   handleErrors,
 ];
 

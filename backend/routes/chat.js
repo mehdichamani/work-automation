@@ -1,124 +1,174 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
-module.exports = function(db) {
+function getNowString() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  router.get('/rooms', (req, res) => {
+  router.get('/rooms', async (req, res) => {
     try {
-      const rooms = db.prepare(`
-        SELECT cr.*, cm.last_read_at,
-          (SELECT message FROM chat_messages WHERE room_id = cr.id ORDER BY created_at DESC LIMIT 1) as last_message,
-          (SELECT created_at FROM chat_messages WHERE room_id = cr.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
-          (SELECT COUNT(*) FROM chat_messages WHERE room_id = cr.id AND created_at > COALESCE(cm.last_read_at, '2000-01-01')) as unread_count,
-          CASE WHEN cr.type = 'direct' THEN
-            (SELECT u.full_name FROM chat_members cm2 JOIN users u ON cm2.user_id = u.id WHERE cm2.room_id = cr.id AND cm2.user_id != ? LIMIT 1)
-          ELSE cr.name END as display_name
-        FROM chat_rooms cr
-        JOIN chat_members cm ON cr.id = cm.room_id AND cm.user_id = ?
-        ORDER BY last_message_at DESC NULLS LAST
-      `).all(req.user.id, req.user.id);
-      res.json(rooms);
+      const memberships = await prisma.chatMember.findMany({
+        where: { userId: Number(req.user.id) },
+        include: {
+          room: {
+            include: {
+              messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+              members: { include: { user: { select: { fullName: true } } } },
+            },
+          },
+        },
+      });
+
+      const rooms = [];
+      for (const cm of memberships) {
+        const room = cm.room;
+        const lastMsg = room.messages[0] || null;
+        const unreadCount = await prisma.chatMessage.count({
+          where: {
+            roomId: room.id,
+            createdAt: { gt: cm.lastReadAt ? new Date(String(cm.lastReadAt).replace(' ', 'T')) : new Date('2000-01-01') },
+          },
+        });
+        const other = room.members.find(m => m.userId !== Number(req.user.id));
+        const { messages, members, ...roomFields } = room;
+        rooms.push({
+          ...roomFields,
+          last_read_at: cm.lastReadAt,
+          last_message: lastMsg ? lastMsg.message : null,
+          last_message_at: lastMsg ? lastMsg.createdAt : null,
+          unread_count: unreadCount,
+          display_name: room.type === 'direct' ? (other ? other.user.fullName : room.name) : room.name,
+        });
+      }
+
+      rooms.sort((a, b) => {
+        const ta = a.last_message_at ? a.last_message_at.getTime() : 0;
+        const tb = b.last_message_at ? b.last_message_at.getTime() : 0;
+        return tb - ta;
+      });
+
+      res.json(mapRow(rooms));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/rooms', (req, res) => {
+  router.post('/rooms', async (req, res) => {
     try {
       const { user_id, name, type } = req.body;
 
       if (type === 'direct' && user_id) {
-        const existing = db.prepare(`
-          SELECT cr.id FROM chat_rooms cr
-          JOIN chat_members cm1 ON cr.id = cm1.room_id AND cm1.user_id = ?
-          JOIN chat_members cm2 ON cr.id = cm2.room_id AND cm2.user_id = ?
-          WHERE cr.type = 'direct'
-        `).get(req.user.id, user_id);
+        const candidateRooms = await prisma.chatRoom.findMany({
+          where: { type: 'direct', members: { some: { userId: Number(req.user.id) } } },
+          select: { id: true, members: { select: { userId: true } } },
+        });
+        const existing = candidateRooms.find(r => r.members.some(m => m.userId === Number(user_id)));
         if (existing) return res.json({ id: existing.id, existing: true });
       }
 
-      const result = db.prepare('INSERT INTO chat_rooms (name, type, created_by) VALUES (?, ?, ?)').run(
-        name || null, type || 'direct', req.user.id
-      );
-      const roomId = result.lastInsertRowid;
+      const room = await prisma.$transaction(async (tx) => {
+        const created = await tx.chatRoom.create({
+          data: { name: name || null, type: type || 'direct', createdBy: Number(req.user.id) },
+        });
 
-      db.prepare('INSERT INTO chat_members (room_id, user_id) VALUES (?, ?)').run(roomId, req.user.id);
-      if (user_id && user_id !== req.user.id) {
-        db.prepare('INSERT INTO chat_members (room_id, user_id) VALUES (?, ?)').run(roomId, user_id);
-      }
+        await tx.chatMember.create({ data: { roomId: created.id, userId: Number(req.user.id) } });
+        if (user_id && Number(user_id) !== Number(req.user.id)) {
+          await tx.chatMember.create({ data: { roomId: created.id, userId: Number(user_id) } });
+        }
 
-      res.json({ id: roomId, success: true });
+        return created;
+      });
+
+      res.json({ id: room.id, success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/rooms/:id/messages', (req, res) => {
+  router.get('/rooms/:id/messages', async (req, res) => {
     try {
       const limit = parseInt(req.query.limit) || 50;
       const before = req.query.before;
 
-      const member = db.prepare('SELECT * FROM chat_members WHERE room_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+      const member = await prisma.chatMember.findFirst({
+        where: { roomId: Number(req.params.id), userId: Number(req.user.id) },
+      });
       if (!member && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
 
-      let msgWhere = 'WHERE m.room_id = ?';
-      const msgParams = [req.params.id];
+      const where = { roomId: Number(req.params.id) };
       if (before) {
-        msgWhere += ' AND m.id < ?';
-        msgParams.push(before);
+        where.id = { lt: Number(before) };
       }
 
-      const messages = db.prepare(`
-        SELECT m.*, u.full_name as user_name, u.role as user_role
-        FROM chat_messages m
-        LEFT JOIN users u ON m.user_id = u.id
-        ${msgWhere}
-        ORDER BY m.created_at DESC
-        LIMIT ?
-      `).all(...msgParams, limit).reverse();
+      const messages = await prisma.chatMessage.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: { user: { select: { fullName: true, role: true } } },
+      });
+      const mapped = messages
+        .map(m => flattenJoins(m, { user_name: 'user.fullName', user_role: 'user.role' }))
+        .reverse();
 
       if (member) {
-        db.prepare(`UPDATE chat_members SET last_read_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text) WHERE room_id = ? AND user_id = ?`)
-          .run(req.params.id, req.user.id);
+        await prisma.chatMember.update({
+          where: { id: member.id },
+          data: { lastReadAt: getNowString() },
+        });
       }
 
-      res.json(messages);
+      res.json(mapRow(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/rooms/:id/messages', (req, res) => {
+  router.post('/rooms/:id/messages', async (req, res) => {
     try {
       const { message, message_type, attachment_url } = req.body;
       if (!message && !attachment_url) return res.status(400).json({ error: 'پیام الزامی است' });
 
-      const member = db.prepare('SELECT * FROM chat_members WHERE room_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+      const member = await prisma.chatMember.findFirst({
+        where: { roomId: Number(req.params.id), userId: Number(req.user.id) },
+      });
       if (!member && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
 
-      const result = db.prepare(`
-        INSERT INTO chat_messages (room_id, user_id, message, message_type, attachment_url)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(req.params.id, req.user.id, message || '', message_type || 'text', attachment_url || null);
+      const result = await prisma.chatMessage.create({
+        data: {
+          roomId: Number(req.params.id),
+          userId: Number(req.user.id),
+          message: message || '',
+          messageType: message_type || 'text',
+          attachmentUrl: attachment_url || null,
+        },
+      });
 
-      res.json({ id: result.lastInsertRowid, success: true });
+      res.json({ id: result.id, success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/users', (req, res) => {
+  router.get('/users', async (req, res) => {
     try {
-      const users = db.prepare(`
-        SELECT id, full_name, role FROM users WHERE id != ? AND is_active = 1 ORDER BY full_name
-      `).all(req.user.id);
-      res.json(users);
+      const users = await prisma.user.findMany({
+        where: { id: { not: Number(req.user.id) }, isActive: true },
+        orderBy: { fullName: 'asc' },
+        select: { id: true, fullName: true, role: true },
+      });
+      res.json(mapRow(users));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

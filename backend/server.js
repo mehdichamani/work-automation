@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
@@ -6,25 +6,44 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 const { exec, execFile } = require('child_process');
-const { initDatabase } = require('./database/init');
+const prisma = require('./database/prisma');
 const { authMiddleware, auditLog } = require('./middleware/auth');
 
 let server;
 
 async function startServer() {
-  const db = await initDatabase();
-
   // Initialize backup cron
   const backupCron = require('./backup/cron');
-  backupCron.init(db);
-  backupCron.schedule();
+  await backupCron.schedule();
 
   const app = express();
   const PORT = process.env.PORT || 2833;
 
-  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        connectSrc: ["'self'", "ws:", "wss:"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  }));
+  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:2833').split(',').map(s => s.trim());
   app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:2833',
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
   }));
@@ -32,7 +51,7 @@ async function startServer() {
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 10,
-    message: { error: 'تعداد تلاش‌های ورود بیش از حد مجاز است. لطفاً ۱۵ دقیقه صبر کنید' },
+    message: { error: 'طھط¹ط¯ط§ط¯ طھظ„ط§ط´â€Œظ‡ط§غŒ ظˆط±ظˆط¯ ط¨غŒط´ ط§ط² ط­ط¯ ظ…ط¬ط§ط² ط§ط³طھ. ظ„ط·ظپط§ظ‹ غ±غµ ط¯ظ‚غŒظ‚ظ‡ طµط¨ط± ع©ظ†غŒط¯' },
     standardHeaders: true,
     legacyHeaders: false,
   });
@@ -41,7 +60,7 @@ async function startServer() {
   const passwordLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 5,
-    message: { error: 'تعداد تلاش‌های تغییر رمز بیش از حد مجاز است. لطفاً ۱۵ دقیقه صبر کنید' },
+    message: { error: 'طھط¹ط¯ط§ط¯ طھظ„ط§ط´â€Œظ‡ط§غŒ طھط؛غŒغŒط± ط±ظ…ط² ط¨غŒط´ ط§ط² ط­ط¯ ظ…ط¬ط§ط² ط§ط³طھ. ظ„ط·ظپط§ظ‹ غ±غµ ط¯ظ‚غŒظ‚ظ‡ طµط¨ط± ع©ظ†غŒط¯' },
     standardHeaders: true,
     legacyHeaders: false,
   });
@@ -68,48 +87,48 @@ async function startServer() {
 
   app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-  app.use('/api', auditLog(db));
+  app.use('/api', auditLog());
 
-  app.use('/api/auth', require('./routes/auth')(db));
-  app.use('/api/admin', require('./routes/admin')(db));
-  app.use('/api/leave', require('./routes/leave')(db));
-  app.use('/api/overtime', require('./routes/overtime')(db));
-  app.use('/api/letters', require('./routes/letters')(db));
-  app.use('/api/inventory', require('./routes/inventory')(db));
-  app.use('/api/restaurant', require('./routes/restaurant')(db));
-  app.use('/api/notifications', require('./routes/notifications')(db));
-  app.use('/api/backup', require('./routes/backup')(db));
-  app.use('/api/permissions', require('./routes/permissions')(db));
-  app.use('/api/announcements', require('./routes/announcements')(db));
-  app.use('/api/job-applications', require('./routes/jobApplications')(db));
-  app.use('/api/camera', require('./routes/camera')(db));
-  app.use('/api/shifts', require('./routes/shifts')(db));
-  app.use('/api/purchase', require('./routes/purchase')(db));
-  app.use('/api/mission', require('./routes/mission')(db));
-  app.use('/api/work-order', require('./routes/workOrder')(db));
-  app.use('/api/payment', require('./routes/payment')(db));
-  app.use('/api/repair', require('./routes/repair')(db));
-  app.use('/api/repair-external', require('./routes/repairExternal')(db));
-  app.use('/api/it', require('./routes/itRequest')(db));
-  app.use('/api/conference', require('./routes/conference')(db));
-  app.use('/api/security', require('./routes/security')(db));
-  app.use('/api/daily-output', require('./routes/dailyOutput')(db));
-  app.use('/api/project-supply', require('./routes/projectSupply')(db));
-  app.use('/api/inspection', require('./routes/inspection')(db));
-  app.use('/api/reports', require('./routes/reports')(db));
-  app.use('/api/audit-log', require('./routes/auditLog')(db));
-  app.use('/api/profile', require('./routes/profile')(db));
-  app.use('/api/push', require('./routes/push')(db));
-  app.use('/api/upload', require('./routes/upload')(db));
-  app.use('/api/sms', require('./routes/smsAuth')(db));
-  app.use('/api/workflow', require('./routes/workflow')(db));
-  app.use('/api/signature', require('./routes/signature')(db));
-  app.use('/api/chat', require('./routes/chat')(db));
-  app.use('/api/daily-work-report', require('./routes/dailyWorkReport')(db));
-  app.use('/api/educational', require('./routes/educational')(db));
+  app.use('/api/auth', require('./routes/auth')());
+  app.use('/api/admin', require('./routes/admin')());
+  app.use('/api/leave', require('./routes/leave')());
+  app.use('/api/overtime', require('./routes/overtime')());
+  app.use('/api/letters', require('./routes/letters')());
+  app.use('/api/inventory', require('./routes/inventory')());
+  app.use('/api/restaurant', require('./routes/restaurant')());
+  app.use('/api/notifications', require('./routes/notifications')());
+  app.use('/api/backup', require('./routes/backup')());
+  app.use('/api/permissions', require('./routes/permissions')());
+  app.use('/api/announcements', require('./routes/announcements')());
+  app.use('/api/job-applications', require('./routes/jobApplications')());
+  app.use('/api/camera', require('./routes/camera')());
+  app.use('/api/shifts', require('./routes/shifts')());
+  app.use('/api/purchase', require('./routes/purchase')());
+  app.use('/api/mission', require('./routes/mission')());
+  app.use('/api/work-order', require('./routes/workOrder')());
+  app.use('/api/payment', require('./routes/payment')());
+  app.use('/api/repair', require('./routes/repair')());
+  app.use('/api/repair-external', require('./routes/repairExternal')());
+  app.use('/api/it', require('./routes/itRequest')());
+  app.use('/api/conference', require('./routes/conference')());
+  app.use('/api/security', require('./routes/security')());
+  app.use('/api/daily-output', require('./routes/dailyOutput')());
+  app.use('/api/project-supply', require('./routes/projectSupply')());
+  app.use('/api/inspection', require('./routes/inspection')());
+  app.use('/api/reports', require('./routes/reports')());
+  app.use('/api/audit-log', require('./routes/auditLog')());
+  app.use('/api/profile', require('./routes/profile')());
+  app.use('/api/push', require('./routes/push')());
+  app.use('/api/upload', require('./routes/upload')());
+  app.use('/api/sms', require('./routes/smsAuth')());
+  app.use('/api/workflow', require('./routes/workflow')());
+  app.use('/api/signature', require('./routes/signature')());
+  app.use('/api/chat', require('./routes/chat')());
+  app.use('/api/daily-work-report', require('./routes/dailyWorkReport')());
+  app.use('/api/educational', require('./routes/educational')());
 
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', company: 'اروم شیشه ساچی', timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', company: 'ط§ط±ظˆظ… ط´غŒط´ظ‡ ط³ط§ع†غŒ', timestamp: new Date().toISOString() });
   });
 
   // Serve static files from the React frontend build
@@ -120,16 +139,20 @@ async function startServer() {
   app.get('/', (req, res) => {
     res.sendFile(path.join(frontendDistPath, 'index.html'), (err) => {
       if (err) {
-        res.status(404).send('فرانت‌اند هنوز بیلد نشده است. لطفاً دستور npm run build را در پوشه frontend اجرا کنید.');
+        res.status(404).send('ظپط±ط§ظ†طھâ€Œط§ظ†ط¯ ظ‡ظ†ظˆط² ط¨غŒظ„ط¯ ظ†ط´ط¯ظ‡ ط§ط³طھ. ظ„ط·ظپط§ظ‹ ط¯ط³طھظˆط± npm run build ط±ط§ ط¯ط± ظ¾ظˆط´ظ‡ frontend ط§ط¬ط±ط§ ع©ظ†غŒط¯.');
       }
     });
   });
 
   app.post('/api/admin/server-restart', authMiddleware, (req, res) => {
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'فقط مدیر سیستم می‌تواند سرور را ری‌استارت کند' });
+      return res.status(403).json({ error: 'ظپظ‚ط· ظ…ط¯غŒط± ط³غŒط³طھظ… ظ…غŒâ€Œطھظˆط§ظ†ط¯ ط³ط±ظˆط± ط±ط§ ط±غŒâ€Œط§ط³طھط§ط±طھ ع©ظ†ط¯' });
     }
-    res.json({ message: 'سرور در حال ری‌استارت...' });
+    const confirmToken = req.headers['x-restart-confirm'];
+    if (!confirmToken || confirmToken !== process.env.RESTART_SECRET) {
+      return res.status(403).json({ error: 'تأیید ری‌استارت الزامی است' });
+    }
+    res.json({ message: 'ط³ط±ظˆط± ط¯ط± ط­ط§ظ„ ط±غŒâ€Œط§ط³طھط§ط±طھ...' });
     setTimeout(() => {
       if (process.env.pm_id !== undefined) {
         exec('pm2 restart edari-backend', (err) => {
@@ -157,7 +180,7 @@ async function startServer() {
     }
     res.sendFile(path.join(frontendDistPath, 'index.html'), (err) => {
       if (err) {
-        res.status(404).send('فرانت‌اند هنوز بیلد نشده است. لطفاً دستور npm run build را در پوشه frontend اجرا کنید.');
+        res.status(404).send('ظپط±ط§ظ†طھâ€Œط§ظ†ط¯ ظ‡ظ†ظˆط² ط¨غŒظ„ط¯ ظ†ط´ط¯ظ‡ ط§ط³طھ. ظ„ط·ظپط§ظ‹ ط¯ط³طھظˆط± npm run build ط±ط§ ط¯ط± ظ¾ظˆط´ظ‡ frontend ط§ط¬ط±ط§ ع©ظ†غŒط¯.');
       }
     });
   });
@@ -167,7 +190,7 @@ async function startServer() {
   const { Server } = require('socket.io');
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN || 'http://localhost:2833',
+      origin: allowedOrigins,
       methods: ['GET', 'POST']
     }
   });
@@ -178,9 +201,10 @@ async function startServer() {
     socket.on('disconnect', () => {});
   });
 
-  server = httpServer.listen(PORT, '0.0.0.0', () => {
+  const bindHost = process.env.BIND_HOST || '127.0.0.1';
+  server = httpServer.listen(PORT, bindHost, () => {
     console.log(`\n========================================`);
-    console.log(`  سیستم اتوماسیون اداری اروم شیشه ساچی`);
+    console.log(`  ط³غŒط³طھظ… ط§طھظˆظ…ط§ط³غŒظˆظ† ط§ط¯ط§ط±غŒ ط§ط±ظˆظ… ط´غŒط´ظ‡ ط³ط§ع†غŒ`);
     console.log(`  Server running on port ${PORT}`);
     console.log(`  http://localhost:${PORT}`);
     console.log(`========================================\n`);

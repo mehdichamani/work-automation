@@ -2,9 +2,12 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
+const prisma = require('../database/prisma');
+const { mapRow } = require('../utils/dbAdapter');
 const { authMiddleware, roleGuard } = require('../middleware/auth');
 const { runBackup, getBackupConfig } = require('../backup/index');
 const backupCron = require('../backup/cron');
+const { getDbConfig } = require('../database/config');
 
 const BACKUP_DIR = path.join(__dirname, '..', 'backups');
 
@@ -12,17 +15,15 @@ function ensureBackupDir() {
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 }
 
-const { getDbConfig } = require('../database/config');
-
-module.exports = function (db) {
+module.exports = function () {
   const router = express.Router();
   router.use(authMiddleware);
   router.use(roleGuard('admin'));
 
   // ─── NEW automated backup endpoints (MUST be before /:filename) ───
-  router.get('/settings', (req, res) => {
+  router.get('/settings', async (req, res) => {
     try {
-      const row = db.prepare('SELECT * FROM backup_settings WHERE id = 1').get();
+      const row = await prisma.backupSetting.findUnique({ where: { id: 1 } });
       if (!row) {
         const def = getBackupConfig();
         return res.json({
@@ -33,13 +34,13 @@ module.exports = function (db) {
           daily_enabled: 1, weekly_enabled: 1,
         });
       }
-      res.json(row);
+      res.json(mapRow(row));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/settings', (req, res) => {
+  router.put('/settings', async (req, res) => {
     try {
       const {
         daily_path, weekly_path, daily_hour, daily_minute,
@@ -48,35 +49,26 @@ module.exports = function (db) {
         daily_enabled, weekly_enabled
       } = req.body;
       const def = getBackupConfig();
-      const existing = db.prepare('SELECT id FROM backup_settings WHERE id = 1').get();
-
-      if (existing) {
-        db.prepare(`
-          UPDATE backup_settings SET daily_path=?, weekly_path=?, daily_hour=?, daily_minute=?,
-            weekly_day=?, weekly_hour=?, weekly_minute=?, daily_retention_days=?, weekly_retention_weeks=?,
-            daily_enabled=?, weekly_enabled=?, updated_at=to_char(now(),'YYYY-MM-DD HH24:MI:SS'::text)
-          WHERE id=1
-        `).run(
-          daily_path || def.dailyPath, weekly_path || def.weeklyPath,
-          daily_hour ?? 23, daily_minute ?? 0,
-          weekly_day ?? 5, weekly_hour ?? 14, weekly_minute ?? 0,
-          daily_retention_days ?? 30, weekly_retention_weeks ?? 12,
-          daily_enabled ? 1 : 0, weekly_enabled ? 1 : 0
-        );
-      } else {
-        db.prepare(`
-          INSERT INTO backup_settings (daily_path, weekly_path, daily_hour, daily_minute, weekly_day, weekly_hour, weekly_minute, daily_retention_days, weekly_retention_weeks, daily_enabled, weekly_enabled)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        `).run(
-          daily_path || def.dailyPath, weekly_path || def.weeklyPath,
-          daily_hour ?? 23, daily_minute ?? 0,
-          weekly_day ?? 5, weekly_hour ?? 14, weekly_minute ?? 0,
-          daily_retention_days ?? 30, weekly_retention_weeks ?? 12,
-          daily_enabled ? 1 : 0, weekly_enabled ? 1 : 0
-        );
-      }
-      backupCron.init(db);
-      backupCron.schedule();
+      const data = {
+        dailyPath: daily_path || def.dailyPath,
+        weeklyPath: weekly_path || def.weeklyPath,
+        dailyHour: Number(daily_hour ?? 23),
+        dailyMinute: Number(daily_minute ?? 0),
+        weeklyDay: Number(weekly_day ?? 5),
+        weeklyHour: Number(weekly_hour ?? 14),
+        weeklyMinute: Number(weekly_minute ?? 0),
+        dailyRetentionDays: Number(daily_retention_days ?? 30),
+        weeklyRetentionWeeks: Number(weekly_retention_weeks ?? 12),
+        dailyEnabled: daily_enabled ? true : false,
+        weeklyEnabled: weekly_enabled ? true : false,
+      };
+      await prisma.backupSetting.upsert({
+        where: { id: 1 },
+        update: data,
+        create: data,
+      });
+      backupCron.init();
+      await backupCron.schedule();
       res.json({ success: true, message: 'تنظیمات بکاپ ذخیره شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -90,28 +82,52 @@ module.exports = function (db) {
         return res.status(400).json({ error: 'نوع بکاپ نامعتبر (daily یا weekly)' });
       }
       // Pass DB config so runBackup uses admin settings
-      const cfg = backupCron.loadConfigFromDB();
+      const cfg = await backupCron.loadConfigFromDB();
       const result = await runBackup(type, cfg);
+      try {
+        await prisma.backupLog.create({
+          data: {
+            type: result.type,
+            date: result.date,
+            dbFile: result.dbFile,
+            dbSize: result.dbSize,
+            uploadsFile: result.uploadsFile,
+            uploadsSize: result.uploadsSize,
+            uploadsFiles: result.uploadsFiles,
+            backupDir: result.backupDir,
+            status: 'success',
+            error: '',
+            createdBy: req.user ? Number(req.user.id) : null,
+          },
+        });
+      } catch (logErr) {
+        console.error('[Backup] Failed to log manual backup:', logErr.message);
+      }
       res.json({ success: true, result });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/logs', (req, res) => {
+  router.get('/logs', async (req, res) => {
     try {
       const { page = 1, limit = 20 } = req.query;
-      const offset = (page - 1) * limit;
-      const total = db.prepare('SELECT COUNT(*) as count FROM backup_logs').get().count;
-      const logs = db.prepare('SELECT * FROM backup_logs ORDER BY created_at DESC LIMIT ? OFFSET ?')
-        .all(parseInt(limit), parseInt(offset));
-      res.json({ logs, total, page: parseInt(page), limit: parseInt(limit) });
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
+      const offset = (pageNum - 1) * limitNum;
+      const total = await prisma.backupLog.count();
+      const logs = await prisma.backupLog.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: limitNum,
+        skip: offset,
+      });
+      res.json({ logs: mapRow(logs), total, page: pageNum, limit: limitNum });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/status', (req, res) => {
+  router.get('/status', async (req, res) => {
     try {
       const status = backupCron.getStatus();
       res.json(status);
@@ -121,7 +137,7 @@ module.exports = function (db) {
   });
 
   // ─── OLD manual backup endpoints ───
-  router.post('/create', (req, res) => {
+  router.post('/create', async (req, res) => {
     try {
       ensureBackupDir();
       const now = new Date();
@@ -134,15 +150,15 @@ module.exports = function (db) {
 
       const pgDumpCmd = `pg_dump -h "${cfg.host}" -p "${cfg.port}" -U "${cfg.user}" -d "${cfg.database}" -f "${backupPath}" --no-owner --no-privileges`;
       const env = { ...process.env, PGPASSWORD: cfg.password };
-      exec(pgDumpCmd, { env }, (err) => {
+      exec(pgDumpCmd, { env }, async (err) => {
         if (err) {
           try {
-            const tables = db.prepare("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'").all();
+            const tables = await prisma.$queryRaw`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`;
             let sql = '-- Edari Backup\n-- ' + new Date().toISOString() + '\n\n';
             for (const t of tables) {
               const tableName = t.table_name;
               if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) continue;
-              const rows = db.prepare(`SELECT * FROM "${tableName}"`).all();
+              const rows = await prisma.$queryRawUnsafe(`SELECT * FROM "${tableName}"`);
               if (rows.length > 0) {
                 const cols = Object.keys(rows[0]);
                 sql += `TRUNCATE "${tableName}" CASCADE;\n`;

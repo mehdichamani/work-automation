@@ -61,9 +61,12 @@ do {
     switch ($c) {
         "1" {
             Show-Header
-            Write-Host "Initializing Local PostgreSQL Database..." -ForegroundColor Green
+            Write-Host "Initializing Local PostgreSQL Database with Prisma..." -ForegroundColor Green
             Set-Location "$scriptDir\backend"
-            node database/init_local_db.js
+            npx prisma migrate deploy
+            npx prisma generate
+            Write-Host "`nSeeding database with default data..." -ForegroundColor Yellow
+            npm run db:seed
             Read-Host "`nPress Enter to return to the menu..."
         }
         "2" {
@@ -107,14 +110,17 @@ do {
         }
         "4" {
             Show-Header
-            Write-Host "Resetting Local Database (Fresh Start)..." -ForegroundColor Green
+            Write-Host "Resetting Local Database (Fresh Start with Prisma)..." -ForegroundColor Green
             Set-Location "$scriptDir\backend"
-            node database/reset_local_db.js
+            npx prisma migrate reset --force
+            npx prisma generate
+            Write-Host "`nSeeding database with default data..." -ForegroundColor Yellow
+            npm run db:seed
             Read-Host "`nPress Enter to return to the menu..."
         }
         "5" {
             Show-Header
-            Write-Host "[1/3] Installing backend dependencies..." -ForegroundColor Green
+            Write-Host "[1/4] Installing backend dependencies..." -ForegroundColor Green
             Set-Location "$scriptDir\backend"
             npm install --include=dev
             if ($LASTEXITCODE -ne 0) {
@@ -122,8 +128,16 @@ do {
                 Read-Host "Press Enter to return to the menu..."
                 return
             }
-            
-            Write-Host "`n[2/3] Installing frontend dependencies..." -ForegroundColor Green
+
+            Write-Host "`n[2/4] Generating Prisma Client..." -ForegroundColor Green
+            npx prisma generate
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: Prisma generate failed!" -ForegroundColor Red
+                Read-Host "Press Enter to return to the menu..."
+                return
+            }
+
+            Write-Host "`n[3/4] Installing frontend dependencies..." -ForegroundColor Green
             Set-Location "$scriptDir\frontend"
             npm install --include=dev
             if ($LASTEXITCODE -ne 0) {
@@ -132,7 +146,7 @@ do {
                 return
             }
             
-            Write-Host "`n[3/3] Generating React production bundle (Build)..." -ForegroundColor Green
+            Write-Host "`n[4/4] Generating React production bundle (Build)..." -ForegroundColor Green
             npm run build
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "`nError: Frontend build failed!" -ForegroundColor Red
@@ -199,7 +213,7 @@ do {
             Write-Host "=== Full Deploy: Pull + Init DB + Restart ===" -ForegroundColor Cyan
             Write-Host ""
 
-            Write-Host "[1/5] Pulling latest changes from git..." -ForegroundColor Green
+            Write-Host "[1/7] Pulling latest changes from git..." -ForegroundColor Green
             Set-Location $scriptDir
             git pull origin main
             if ($LASTEXITCODE -ne 0) {
@@ -208,7 +222,7 @@ do {
                 return
             }
 
-            Write-Host "`n[2/5] Installing backend dependencies..." -ForegroundColor Green
+            Write-Host "`n[2/7] Installing backend dependencies..." -ForegroundColor Green
             Set-Location "$scriptDir\backend"
             npm install --include=dev
             if ($LASTEXITCODE -ne 0) {
@@ -217,7 +231,15 @@ do {
                 return
             }
 
-            Write-Host "`n[3/5] Installing frontend dependencies & building..." -ForegroundColor Green
+            Write-Host "`n[3/7] Generating Prisma Client..." -ForegroundColor Green
+            npm run prisma:generate
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: Prisma generate failed!" -ForegroundColor Red
+                Read-Host "Press Enter to return to the menu..."
+                return
+            }
+
+            Write-Host "`n[4/7] Installing frontend dependencies & building..." -ForegroundColor Green
             Set-Location "$scriptDir\frontend"
             npm install --include=dev
             npm run build
@@ -227,11 +249,22 @@ do {
                 return
             }
 
-            Write-Host "`n[4/5] Initializing database..." -ForegroundColor Green
+            Write-Host "`n[5/7] Running database migrations (migrate:deploy)..." -ForegroundColor Green
             Set-Location "$scriptDir\backend"
-            node database/init_local_db.js
+            npm run migrate:deploy
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nError: Prisma migrations failed!" -ForegroundColor Red
+                Read-Host "Press Enter to return to the menu..."
+                return
+            }
 
-            Write-Host "`n[5/5] Restarting server with PM2..." -ForegroundColor Green
+            Write-Host "`n[6/7] Seeding database..." -ForegroundColor Green
+            npm run db:seed
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "`nWarning: Seed had errors (may be idempotent)." -ForegroundColor Yellow
+            }
+
+            Write-Host "`n[7/7] Restarting server with PM2..." -ForegroundColor Green
             Set-Location $scriptDir
             pm2 restart ecosystem.config.js
 

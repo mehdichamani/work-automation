@@ -35,6 +35,11 @@ backend/uploads/
 backend/backups/
 **/backups/
 
+# Prisma
+backend/prisma/migrations/**/migration_lock.toml
+backend/generated/
+backend/prisma.config.ts
+
 # IDE / Editor configuration
 .vscode/
 .idea/
@@ -47,3 +52,6 @@ backend/backups/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Autostart scripts
+auto-start.vbs

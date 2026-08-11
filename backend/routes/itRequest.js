@@ -2,167 +2,186 @@ const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
 const { itRequest } = require('../middleware/validate');
 const { notify: notifyHelper, getNextNumber: getNextNumberHelper, addHistory: addHistoryHelper } = require('../utils/helpers');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
-module.exports = function (db) {
+const REQUEST_ALIASES = {
+  user_name: 'user.fullName',
+  department_name: 'user.department.name',
+  assigned_name: 'assignedUser.fullName',
+};
+
+const REQUEST_INCLUDE = {
+  user: { select: { fullName: true, department: { select: { name: true } } } },
+  assignedUser: { select: { fullName: true } },
+};
+
+module.exports = function () {
   const router = express.Router();
   router.use(authMiddleware);
 
-  function notify(userId, title, body, link) { notifyHelper(db, userId, title, body, link); }
-  function addHistory(id, userId, userName, action, comment) { addHistoryHelper(db, 'it_request_history', 'request_id', id, userId, userName, action, comment); }
+  async function notify(userId, title, body, link) { await notifyHelper(userId, title, body, link); }
+  async function addHistory(id, userId, userName, action, comment) { await addHistoryHelper('it_request_history', 'request_id', id, userId, userName, action, comment); }
 
-  function getITUsers() {
-    const dept = db.prepare("SELECT id FROM departments WHERE name LIKE '%فنی%' OR name LIKE '%IT%' LIMIT 1").get();
+  async function getITUsers() {
+    const dept = await prisma.department.findFirst({
+      where: { OR: [{ name: { contains: 'فنی' } }, { name: { contains: 'IT' } }] },
+      select: { id: true },
+    });
     if (!dept) return [];
-    return db.prepare("SELECT id FROM users WHERE department_id = ? AND is_active = 1").all(dept.id);
+    return prisma.user.findMany({
+      where: { departmentId: dept.id, isActive: true },
+      select: { id: true },
+    });
   }
 
-  function getNextNumber() { return getNextNumberHelper(db, 'it_request_counter', 'TK'); }
+  async function getNextNumber() { return getNextNumberHelper('it_request_counter', 'TK'); }
 
-  router.get('/stats', (req, res) => {
+  function toListResponse(rows) {
+    return rows.map(r => mapRow(flattenJoins(r, REQUEST_ALIASES)));
+  }
+
+  router.get('/stats', async (req, res) => {
     try {
-      const stats = db.prepare(`
-        SELECT
-          COUNT(*) as total,
-          COUNT(*) FILTER (WHERE status = 'pending') as pending,
-          COUNT(*) FILTER (WHERE status = 'in_progress') as in_progress,
-          COUNT(*) FILTER (WHERE status = 'completed') as completed,
-          COUNT(*) FILTER (WHERE status = 'rejected') as rejected,
-          COUNT(*) FILTER (WHERE urgency = 'urgent') as urgent,
-          COUNT(*) FILTER (WHERE urgency = 'high') as high
-        FROM it_requests
-      `).get();
-      res.json(stats);
+      const [total, pending, in_progress, completed, rejected, urgent, high] = await Promise.all([
+        prisma.itRequest.count(),
+        prisma.itRequest.count({ where: { status: 'pending' } }),
+        prisma.itRequest.count({ where: { status: 'in_progress' } }),
+        prisma.itRequest.count({ where: { status: 'completed' } }),
+        prisma.itRequest.count({ where: { status: 'rejected' } }),
+        prisma.itRequest.count({ where: { urgency: 'urgent' } }),
+        prisma.itRequest.count({ where: { urgency: 'high' } }),
+      ]);
+      res.json({ total, pending, in_progress, completed, rejected, urgent, high });
     } catch (err) {
       res.json({ total: 0, pending: 0, in_progress: 0, completed: 0, rejected: 0, urgent: 0, high: 0 });
     }
   });
 
-  router.get('/', (req, res) => {
+  router.get('/', async (req, res) => {
     try {
       const { status, priority, urgency, page = 1, limit = 50 } = req.query;
-      const offset = (page - 1) * limit;
-      let where = '';
-      const params = [];
+      const pageNum = parseInt(page) || 1;
+      const limitNum = parseInt(limit) || 50;
+      const offset = (pageNum - 1) * limitNum;
+      const where = {};
 
       if (req.user.role === 'user') {
-        where = 'WHERE i.user_id = ?';
-        params.push(req.user.id);
-      } else {
-        where = 'WHERE (i.assigned_to = ? OR i.user_id = ? OR i.status = ? OR ? IN (\'admin\',\'manager\',\'supervisor\'))';
-        params.push(req.user.id, req.user.id, 'pending', req.user.role);
+        where.userId = req.user.id;
       }
 
       if (status) {
-        where += ' AND i.status = ?';
-        params.push(status);
+        where.status = status;
       }
       if (urgency || priority) {
-        where += ' AND i.urgency = ?';
-        params.push(urgency || priority);
+        where.urgency = urgency || priority;
       }
 
-      const total = db.prepare(`SELECT COUNT(*) as count FROM it_requests i ${where}`).get(...params).count;
-      const requests = db.prepare(`
-        SELECT i.*, u.full_name as user_name, d.name as department_name,
-               a.full_name as assigned_name
-        FROM it_requests i
-        LEFT JOIN users u ON i.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users a ON i.assigned_to = a.id
-        ${where}
-        ORDER BY
-          CASE WHEN i.urgency = 'urgent' THEN 0 WHEN i.urgency = 'high' THEN 1 ELSE 2 END,
-          i.created_at DESC
-        LIMIT ? OFFSET ?
-      `).all(...params, parseInt(limit), parseInt(offset));
+      const total = await prisma.itRequest.count({ where });
+      const rows = await prisma.itRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: REQUEST_INCLUDE,
+      });
 
-      res.json({ requests, total, page: parseInt(page), limit: parseInt(limit) });
+      const urgencyRank = { urgent: 0, high: 1 };
+      rows.sort((a, b) => {
+        const ra = urgencyRank[a.urgency] !== undefined ? urgencyRank[a.urgency] : 2;
+        const rb = urgencyRank[b.urgency] !== undefined ? urgencyRank[b.urgency] : 2;
+        if (ra !== rb) return ra - rb;
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      });
+      const pageRows = rows.slice(offset, offset + limitNum);
+
+      res.json({ requests: toListResponse(pageRows), total, page: pageNum, limit: limitNum });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/my-requests', (req, res) => {
+  router.get('/my-requests', async (req, res) => {
     try {
-      const requests = db.prepare(`
-        SELECT i.*, u.full_name as user_name, d.name as department_name,
-               a.full_name as assigned_name
-        FROM it_requests i
-        LEFT JOIN users u ON i.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users a ON i.assigned_to = a.id
-        WHERE i.user_id = ?
-        ORDER BY i.created_at DESC
-      `).all(req.user.id);
-      res.json(requests);
+      const rows = await prisma.itRequest.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        include: REQUEST_INCLUDE,
+      });
+      res.json(toListResponse(rows));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/:id', (req, res) => {
+  router.get('/:id', async (req, res) => {
     try {
-      const request = db.prepare(`
-        SELECT i.*, u.full_name as user_name, d.name as department_name,
-               a.full_name as assigned_name
-        FROM it_requests i
-        LEFT JOIN users u ON i.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users a ON i.assigned_to = a.id
-        WHERE i.id = ?
-      `).get(req.params.id);
+      const request = await prisma.itRequest.findUnique({
+        where: { id: Number(req.params.id) },
+        include: REQUEST_INCLUDE,
+      });
 
       if (!request) return res.status(404).json({ error: 'تیکت یافت نشد' });
 
-      const history = db.prepare('SELECT * FROM it_request_history WHERE request_id = ? ORDER BY created_at ASC').all(req.params.id);
+      const history = await prisma.itRequestHistory.findMany({
+        where: { requestId: Number(req.params.id) },
+        orderBy: { createdAt: 'asc' },
+      });
 
-      res.json({ request, history });
+      res.json({ request: mapRow(flattenJoins(request, REQUEST_ALIASES)), history: mapRow(history) });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/', itRequest, (req, res) => {
+  router.post('/', itRequest, async (req, res) => {
     try {
       const { title, description, request_type = 'general', urgency = 'normal', device_info } = req.body;
       if (!title) {
         return res.status(400).json({ error: 'عنوان تیکت الزامی است' });
       }
 
-      const requestNumber = getNextNumber();
-      const itUsers = getITUsers();
+      const requestNumber = await getNextNumber();
+      const itUsers = await getITUsers();
       const assignedTo = itUsers.length > 0 ? itUsers[0].id : null;
 
-      const result = db.prepare(`
-        INSERT INTO it_requests (user_id, request_number, title, description, request_type, urgency, device_info, assigned_to, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(req.user.id, requestNumber, title, description || '', request_type, urgency, device_info || '', assignedTo, 'pending');
-
-      addHistory(result.lastInsertRowid, req.user.id, req.user.full_name, 'ثبت تیکت', null);
-
-      itUsers.forEach(u => {
-        notify(u.id, 'تیکت جدید', `تیکت شماره ${requestNumber} توسط ${req.user.full_name} ثبت شد`, '/it');
+      const result = await prisma.itRequest.create({
+        data: {
+          userId: req.user.id,
+          requestNumber,
+          title,
+          description: description || '',
+          requestType: request_type,
+          urgency,
+          deviceInfo: device_info || '',
+          assignedTo,
+          status: 'pending',
+        },
       });
 
-      res.json({ id: result.lastInsertRowid, request_number: requestNumber });
+      await addHistory(result.id, req.user.id, req.user.full_name, 'ثبت تیکت', null);
+
+      for (const u of itUsers) {
+        await notify(u.id, 'تیکت جدید', `تیکت شماره ${requestNumber} توسط ${req.user.full_name} ثبت شد`, '/it');
+      }
+
+      res.json({ id: result.id, request_number: requestNumber });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/:id/respond', (req, res) => {
+  router.post('/:id/respond', async (req, res) => {
     try {
       const { comment } = req.body;
       if (!comment) return res.status(400).json({ error: 'پیام الزامی است' });
 
-      const request = db.prepare('SELECT * FROM it_requests WHERE id = ?').get(req.params.id);
+      const request = await prisma.itRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!request) return res.status(404).json({ error: 'تیکت یافت نشد' });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'پاسخ', comment);
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'پاسخ', comment);
 
-      const notifyUserId = req.user.id === request.user_id ? request.assigned_to : request.user_id;
+      const notifyUserId = req.user.id === request.userId ? request.assignedTo : request.userId;
       if (notifyUserId) {
-        notify(notifyUserId, 'پاسخ جدید', `پاسخ جدیدی برای تیکت ${request.request_number} ثبت شد`, '/it');
+        await notify(notifyUserId, 'پاسخ جدید', `پاسخ جدیدی برای تیکت ${request.request_number} ثبت شد`, '/it');
       }
 
       res.json({ success: true });
@@ -171,21 +190,24 @@ module.exports = function (db) {
     }
   });
 
-  router.put('/:id/assign', (req, res) => {
+  router.put('/:id/assign', async (req, res) => {
     try {
       if (!['admin', 'manager', 'supervisor'].includes(req.user.role)) {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
       const { assigned_to } = req.body;
-      const request = db.prepare('SELECT * FROM it_requests WHERE id = ?').get(req.params.id);
+      const request = await prisma.itRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!request) return res.status(404).json({ error: 'تیکت یافت نشد' });
 
-      db.prepare('UPDATE it_requests SET assigned_to = ? WHERE id = ?').run(assigned_to || null, req.params.id);
+      await prisma.itRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { assignedTo: assigned_to || null },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'واگذاری', `واگذاری به کاربر ${assigned_to}`);
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'واگذاری', `واگذاری به کاربر ${assigned_to}`);
 
       if (assigned_to) {
-        notify(assigned_to, 'تیکت واگذار شده', `تیکت ${request.request_number} به شما واگذار شد`, '/it');
+        await notify(assigned_to, 'تیکت واگذار شده', `تیکت ${request.request_number} به شما واگذار شد`, '/it');
       }
 
       res.json({ success: true });
@@ -194,16 +216,18 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/:id/accept', (req, res) => {
+  router.post('/:id/accept', async (req, res) => {
     try {
-      const request = db.prepare('SELECT * FROM it_requests WHERE id = ?').get(req.params.id);
+      const request = await prisma.itRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!request) return res.status(404).json({ error: 'تیکت یافت نشد' });
 
-      db.prepare("UPDATE it_requests SET status = 'in_progress', assigned_to = ? WHERE id = ?")
-        .run(req.user.id, req.params.id);
+      await prisma.itRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'in_progress', assignedTo: req.user.id },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'شروع بررسی', null);
-      notify(request.user_id, 'شروع بررسی تیکت', `تیکت شماره ${request.request_number} در حال بررسی است`, '/it');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'شروع بررسی', null);
+      await notify(request.userId, 'شروع بررسی تیکت', `تیکت شماره ${request.request_number} در حال بررسی است`, '/it');
 
       res.json({ success: true });
     } catch (err) {
@@ -211,17 +235,19 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/:id/complete', (req, res) => {
+  router.post('/:id/complete', async (req, res) => {
     try {
       const { comment } = req.body;
-      const request = db.prepare('SELECT * FROM it_requests WHERE id = ?').get(req.params.id);
+      const request = await prisma.itRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!request) return res.status(404).json({ error: 'تیکت یافت نشد' });
 
-      db.prepare("UPDATE it_requests SET status = 'completed', completion_comment = ? WHERE id = ?")
-        .run(comment || '', req.params.id);
+      await prisma.itRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'completed', completionComment: comment || '' },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'حل شده', comment);
-      notify(request.user_id, 'تیکت حل شد', `تیکت شماره ${request.request_number} حل شد`, '/it');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'حل شده', comment);
+      await notify(request.userId, 'تیکت حل شد', `تیکت شماره ${request.request_number} حل شد`, '/it');
 
       res.json({ success: true });
     } catch (err) {
@@ -229,17 +255,19 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/:id/reject', (req, res) => {
+  router.post('/:id/reject', async (req, res) => {
     try {
       const { comment } = req.body;
-      const request = db.prepare('SELECT * FROM it_requests WHERE id = ?').get(req.params.id);
+      const request = await prisma.itRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!request) return res.status(404).json({ error: 'تیکت یافت نشد' });
 
-      db.prepare("UPDATE it_requests SET status = 'rejected', reject_comment = ? WHERE id = ?")
-        .run(comment || '', req.params.id);
+      await prisma.itRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'rejected', rejectComment: comment || '' },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'رد شده', comment);
-      notify(request.user_id, 'تیکت رد شد', `تیکت شماره ${request.request_number} رد شد`, '/it');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'رد شده', comment);
+      await notify(request.userId, 'تیکت رد شد', `تیکت شماره ${request.request_number} رد شد`, '/it');
 
       res.json({ success: true });
     } catch (err) {
@@ -247,19 +275,19 @@ module.exports = function (db) {
     }
   });
 
-  router.delete('/:id', (req, res) => {
+  router.delete('/:id', async (req, res) => {
     try {
-      const request = db.prepare('SELECT * FROM it_requests WHERE id = ?').get(req.params.id);
+      const request = await prisma.itRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!request) return res.status(404).json({ error: 'تیکت یافت نشد' });
-      if (request.user_id !== req.user.id && req.user.role !== 'admin') {
+      if (request.userId !== req.user.id && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
       if (request.status !== 'pending') {
         return res.status(400).json({ error: 'امکان حذف تیکت در این مرحله وجود ندارد' });
       }
 
-      db.prepare('DELETE FROM it_request_history WHERE request_id = ?').run(req.params.id);
-      db.prepare('DELETE FROM it_requests WHERE id = ?').run(req.params.id);
+      await prisma.itRequestHistory.deleteMany({ where: { requestId: Number(req.params.id) } });
+      await prisma.itRequest.delete({ where: { id: Number(req.params.id) } });
 
       res.json({ success: true });
     } catch (err) {

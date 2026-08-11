@@ -1,140 +1,216 @@
 const express = require('express');
-const { authMiddleware, roleGuard } = require('../middleware/auth');
+const { authMiddleware } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
-module.exports = function(db) {
+const REPORT_ALIASES = {
+  user_name: 'user.fullName',
+  department_name: 'department.name',
+  central_name: 'centralByUser.fullName',
+  manager_name: 'managerByUser.fullName',
+  project_control_name: 'projectControlByUser.fullName',
+};
+
+const REPORT_INCLUDE = {
+  user: { select: { fullName: true } },
+  department: { select: { name: true } },
+};
+
+const NAME_FK_FIELDS = ['centralBy', 'managerBy', 'projectControlBy'];
+const NAME_KEYS = ['centralByUser', 'managerByUser', 'projectControlByUser'];
+
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  function notify(userId, title, body, link) {
-    db.prepare('INSERT INTO notifications (user_id, title, body, link) VALUES (?, ?, ?, ?)').run(userId, title, body, link);
+  async function notify(userId, title, body, link) {
+    await prisma.notification.create({
+      data: { userId: Number(userId), title, body, link },
+    });
   }
 
-  function addHistory(reportId, userId, userName, action, comment) {
-    db.prepare('INSERT INTO daily_work_report_history (report_id, user_id, user_name, action, comment) VALUES (?, ?, ?, ?, ?)').run(reportId, userId, userName, action, comment || '');
+  async function addHistory(reportId, userId, userName, action, comment) {
+    await prisma.dailyWorkReportHistory.create({
+      data: {
+        reportId: Number(reportId),
+        userId: userId ? Number(userId) : null,
+        userName,
+        action,
+        comment: comment || '',
+      },
+    });
+  }
+
+  async function getRelatedUserNames(rows) {
+    const ids = new Set();
+    rows.forEach(r => {
+      NAME_FK_FIELDS.forEach(fk => {
+        if (r[fk]) ids.add(Number(r[fk]));
+      });
+    });
+    if (ids.size === 0) return {};
+    const users = await prisma.user.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, fullName: true },
+    });
+    const map = {};
+    users.forEach(u => { map[u.id] = u.fullName; });
+    return map;
+  }
+
+  function decorateNames(row, nameMap) {
+    NAME_KEYS.forEach((key, idx) => {
+      const fk = NAME_FK_FIELDS[idx];
+      const uid = row[fk] ? Number(row[fk]) : null;
+      row[key] = uid && nameMap[uid] ? { fullName: nameMap[uid] } : null;
+    });
+    return row;
+  }
+
+  function toListResponse(rows, nameMap) {
+    return rows.map(r => mapRow(flattenJoins(decorateNames(r, nameMap), REPORT_ALIASES)));
+  }
+
+  async function getCentralUsers() {
+    return prisma.user.findMany({
+      where: { OR: [{ role: 'admin' }, { role: 'manager' }] },
+      select: { id: true },
+      take: 5,
+    });
+  }
+
+  async function getProjectControlUsers() {
+    return prisma.user.findMany({
+      where: { OR: [{ role: 'supervisor' }, { role: 'manager' }] },
+      select: { id: true },
+      take: 5,
+    });
   }
 
   // ---------- لیست گزارش‌ها ----------
-  router.get('/', (req, res) => {
+  router.get('/', async (req, res) => {
     try {
       const { status, page = 1, limit = 50 } = req.query;
-      const offset = (page - 1) * limit;
-      let where = '';
-      const params = [];
+      const pageNum = parseInt(page) || 1;
+      const limitNum = parseInt(limit) || 50;
+      const offset = (pageNum - 1) * limitNum;
+      const where = {};
 
       if (req.user.role === 'user') {
-        where = 'WHERE d.user_id = ?';
-        params.push(req.user.id);
+        where.userId = req.user.id;
       } else if (req.user.role === 'supervisor') {
-        where = 'WHERE (d.user_id = ? OR d.department_id = ?)';
-        params.push(req.user.id, req.user.department_id);
+        const or = [{ userId: req.user.id }];
+        if (req.user.department_id) or.push({ departmentId: req.user.department_id });
+        where.OR = or;
       }
 
       if (status) {
-        where += (where ? ' AND ' : 'WHERE ') + 'd.status = ?';
-        params.push(status);
+        where.status = status;
       }
 
-      const total = db.prepare(`SELECT COUNT(*) as count FROM daily_work_reports d ${where}`).get(...params).count;
-      const reports = db.prepare(`
-        SELECT d.*, u.full_name as user_name, dep.name as department_name,
-               cb.full_name as central_name, mb.full_name as manager_name, pb.full_name as project_control_name
-        FROM daily_work_reports d
-        LEFT JOIN users u ON d.user_id = u.id
-        LEFT JOIN departments dep ON d.department_id = dep.id
-        LEFT JOIN users cb ON d.central_by = cb.id
-        LEFT JOIN users mb ON d.manager_by = mb.id
-        LEFT JOIN users pb ON d.project_control_by = pb.id
-        ${where}
-        ORDER BY d.created_at DESC
-        LIMIT ? OFFSET ?
-      `).all(...params, parseInt(limit), parseInt(offset));
+      const total = await prisma.dailyWorkReport.count({ where });
+      const rows = await prisma.dailyWorkReport.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limitNum,
+        skip: offset,
+        include: REPORT_INCLUDE,
+      });
+      const nameMap = await getRelatedUserNames(rows);
 
-      res.json({ reports, total, page: parseInt(page), limit: parseInt(limit) });
+      res.json({ reports: toListResponse(rows, nameMap), total, page: pageNum, limit: limitNum });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // ---------- گزارش‌های من ----------
-  router.get('/my', (req, res) => {
+  router.get('/my', async (req, res) => {
     try {
-      const reports = db.prepare(`
-        SELECT d.*, u.full_name as user_name, dep.name as department_name
-        FROM daily_work_reports d
-        LEFT JOIN users u ON d.user_id = u.id
-        LEFT JOIN departments dep ON d.department_id = dep.id
-        WHERE d.user_id = ?
-        ORDER BY d.created_at DESC
-      `).all(req.user.id);
-      res.json(reports);
+      const rows = await prisma.dailyWorkReport.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        include: REPORT_INCLUDE,
+      });
+      const nameMap = await getRelatedUserNames(rows);
+      res.json(toListResponse(rows, nameMap));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // ---------- ثبت گزارش جدید ----------
-  router.post('/', (req, res) => {
+  router.post('/', async (req, res) => {
     try {
       const { report_date, work_description, work_duration } = req.body;
       if (!report_date || !work_description) {
         return res.status(400).json({ error: 'تاریخ و شرح کار الزامی است' });
       }
 
-      const result = db.prepare(`
-        INSERT INTO daily_work_reports (user_id, report_date, work_description, work_duration, department_id, status)
-        VALUES (?, ?, ?, ?, ?, 'pending_central')
-      `).run(req.user.id, report_date, work_description, work_duration || '', req.user.department_id || null);
-
-      addHistory(result.lastInsertRowid, req.user.id, req.user.full_name, 'ثبت گزارش', null);
-
-      const centralUsers = db.prepare("SELECT id FROM users WHERE role = 'admin' OR role = 'manager' LIMIT 5").all();
-      centralUsers.forEach(u => {
-        notify(u.id, 'گزارش کار جدید', `گزارش کار روزانه توسط ${req.user.full_name} ثبت شد`, '/daily-work-report');
+      const result = await prisma.dailyWorkReport.create({
+        data: {
+          userId: req.user.id,
+          reportDate: report_date,
+          workDescription: work_description,
+          workDuration: work_duration || '',
+          departmentId: req.user.department_id || null,
+          status: 'pending_central',
+        },
       });
 
-      res.json({ id: result.lastInsertRowid, success: true });
+      await addHistory(result.id, req.user.id, req.user.full_name, 'ثبت گزارش', null);
+
+      const centralUsers = await getCentralUsers();
+      for (const u of centralUsers) {
+        await notify(u.id, 'گزارش کار جدید', `گزارش کار روزانه توسط ${req.user.full_name} ثبت شد`, '/daily-work-report');
+      }
+
+      res.json({ id: result.id, success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // ---------- مشاهده یک گزارش ----------
-  router.get('/:id', (req, res) => {
+  router.get('/:id', async (req, res) => {
     try {
-      const report = db.prepare(`
-        SELECT d.*, u.full_name as user_name, dep.name as department_name,
-               cb.full_name as central_name, mb.full_name as manager_name, pb.full_name as project_control_name
-        FROM daily_work_reports d
-        LEFT JOIN users u ON d.user_id = u.id
-        LEFT JOIN departments dep ON d.department_id = dep.id
-        LEFT JOIN users cb ON d.central_by = cb.id
-        LEFT JOIN users mb ON d.manager_by = mb.id
-        LEFT JOIN users pb ON d.project_control_by = pb.id
-        WHERE d.id = ?
-      `).get(req.params.id);
+      const report = await prisma.dailyWorkReport.findUnique({
+        where: { id: Number(req.params.id) },
+        include: REPORT_INCLUDE,
+      });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
 
-      const history = db.prepare('SELECT * FROM daily_work_report_history WHERE report_id = ? ORDER BY created_at ASC').all(req.params.id);
+      const history = await prisma.dailyWorkReportHistory.findMany({
+        where: { reportId: Number(req.params.id) },
+        orderBy: { createdAt: 'asc' },
+      });
+      const nameMap = await getRelatedUserNames([report]);
 
-      res.json({ report, history });
+      res.json({
+        report: mapRow(flattenJoins(decorateNames(report, nameMap), REPORT_ALIASES)),
+        history: mapRow(history),
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // ---------- سانترال: تایید اولیه → ارسال به مدیر ----------
-  router.post('/:id/central-approve', (req, res) => {
+  router.post('/:id/central-approve', async (req, res) => {
     try {
       const { comment } = req.body;
-      const report = db.prepare('SELECT * FROM daily_work_reports WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyWorkReport.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
       if (report.status !== 'pending_central') return res.status(400).json({ error: 'وضعیت فعلی مناسب نیست' });
 
-      db.prepare(`UPDATE daily_work_reports SET status = 'pending_manager', central_comment = ?, central_by = ?, central_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text), updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text) WHERE id = ?`)
-        .run(comment || '', req.user.id, req.params.id);
+      const now = new Date().toISOString();
+      await prisma.dailyWorkReport.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'pending_manager', centralComment: comment || '', centralBy: req.user.id, centralAt: now },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'سانترال: ارسال به مدیریت', comment);
-      notify(report.user_id, 'ارسال به مدیریت', `گزارش کار شما توسط سانترال به مدیریت ارسال شد`, '/daily-work-report');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'سانترال: ارسال به مدیریت', comment);
+      await notify(report.userId, 'ارسال به مدیریت', `گزارش کار شما توسط سانترال به مدیریت ارسال شد`, '/daily-work-report');
 
       res.json({ success: true });
     } catch (err) {
@@ -143,18 +219,21 @@ module.exports = function(db) {
   });
 
   // ---------- سانترال: رد گزارش ----------
-  router.post('/:id/central-reject', (req, res) => {
+  router.post('/:id/central-reject', async (req, res) => {
     try {
       const { comment } = req.body;
       if (!comment) return res.status(400).json({ error: 'دلیل رد الزامی است' });
-      const report = db.prepare('SELECT * FROM daily_work_reports WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyWorkReport.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
 
-      db.prepare(`UPDATE daily_work_reports SET status = 'rejected_by_central', central_comment = ?, central_by = ?, central_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text), updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text) WHERE id = ?`)
-        .run(comment, req.user.id, req.params.id);
+      const now = new Date().toISOString();
+      await prisma.dailyWorkReport.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'rejected_by_central', centralComment: comment, centralBy: req.user.id, centralAt: now },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'سانترال: رد', comment);
-      notify(report.user_id, 'گزارش رد شد', `گزارش کار شما توسط سانترال رد شد`, '/daily-work-report');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'سانترال: رد', comment);
+      await notify(report.userId, 'گزارش رد شد', `گزارش کار شما توسط سانترال رد شد`, '/daily-work-report');
 
       res.json({ success: true });
     } catch (err) {
@@ -163,23 +242,26 @@ module.exports = function(db) {
   });
 
   // ---------- مدیر: تایید → برگشت به سانترال ----------
-  router.post('/:id/manager-approve', (req, res) => {
+  router.post('/:id/manager-approve', async (req, res) => {
     try {
       const { comment } = req.body;
-      const report = db.prepare('SELECT * FROM daily_work_reports WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyWorkReport.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
       if (report.status !== 'pending_manager') return res.status(400).json({ error: 'گزارش هنوز به مدیریت نرسیده' });
 
-      db.prepare(`UPDATE daily_work_reports SET status = 'manager_approved', manager_comment = ?, manager_by = ?, manager_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text), updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text) WHERE id = ?`)
-        .run(comment || '', req.user.id, req.params.id);
-
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'مدیر: تایید', comment);
-
-      const centralUsers = db.prepare("SELECT id FROM users WHERE role = 'admin' OR role = 'manager' LIMIT 5").all();
-      centralUsers.forEach(u => {
-        notify(u.id, 'تایید مدیریت', `گزارش کار ${report.report_date} توسط مدیر تایید شد - ارجاع به کنترل پروژه`, '/daily-work-report');
+      const now = new Date().toISOString();
+      await prisma.dailyWorkReport.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'manager_approved', managerComment: comment || '', managerBy: req.user.id, managerAt: now },
       });
-      notify(report.user_id, 'گزارش تایید شد', `گزارش کار شما توسط مدیر تایید شد`, '/daily-work-report');
+
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'مدیر: تایید', comment);
+
+      const centralUsers = await getCentralUsers();
+      for (const u of centralUsers) {
+        await notify(u.id, 'تایید مدیریت', `گزارش کار ${report.reportDate} توسط مدیر تایید شد - ارجاع به کنترل پروژه`, '/daily-work-report');
+      }
+      await notify(report.userId, 'گزارش تایید شد', `گزارش کار شما توسط مدیر تایید شد`, '/daily-work-report');
 
       res.json({ success: true });
     } catch (err) {
@@ -188,18 +270,21 @@ module.exports = function(db) {
   });
 
   // ---------- مدیر: رد ----------
-  router.post('/:id/manager-reject', (req, res) => {
+  router.post('/:id/manager-reject', async (req, res) => {
     try {
       const { comment } = req.body;
       if (!comment) return res.status(400).json({ error: 'دلیل رد الزامی است' });
-      const report = db.prepare('SELECT * FROM daily_work_reports WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyWorkReport.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
 
-      db.prepare(`UPDATE daily_work_reports SET status = 'rejected_by_manager', manager_comment = ?, manager_by = ?, manager_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text), updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text) WHERE id = ?`)
-        .run(comment, req.user.id, req.params.id);
+      const now = new Date().toISOString();
+      await prisma.dailyWorkReport.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'rejected_by_manager', managerComment: comment, managerBy: req.user.id, managerAt: now },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'مدیر: رد', comment);
-      notify(report.user_id, 'گزارش رد شد', `گزارش کار شما توسط مدیر رد شد`, '/daily-work-report');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'مدیر: رد', comment);
+      await notify(report.userId, 'گزارش رد شد', `گزارش کار شما توسط مدیر رد شد`, '/daily-work-report');
 
       res.json({ success: true });
     } catch (err) {
@@ -208,22 +293,24 @@ module.exports = function(db) {
   });
 
   // ---------- سانترال: ارجاع به کنترل پروژه ----------
-  router.post('/:id/forward-to-project-control', (req, res) => {
+  router.post('/:id/forward-to-project-control', async (req, res) => {
     try {
       const { comment } = req.body;
-      const report = db.prepare('SELECT * FROM daily_work_reports WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyWorkReport.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
       if (report.status !== 'manager_approved') return res.status(400).json({ error: 'گزارش هنوز تایید مدیر را ندارد' });
 
-      db.prepare(`UPDATE daily_work_reports SET status = 'pending_project_control', updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text) WHERE id = ?`)
-        .run(req.params.id);
-
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'سانترال: ارجاع به کنترل پروژه', comment);
-
-      const pcUsers = db.prepare("SELECT id FROM users WHERE role = 'supervisor' OR role = 'manager' LIMIT 5").all();
-      pcUsers.forEach(u => {
-        notify(u.id, 'ارجاع به کنترل پروژه', `گزارش کار ${report.report_date} از سانترال ارجاع داده شد`, '/daily-work-report');
+      await prisma.dailyWorkReport.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'pending_project_control' },
       });
+
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'سانترال: ارجاع به کنترل پروژه', comment);
+
+      const pcUsers = await getProjectControlUsers();
+      for (const u of pcUsers) {
+        await notify(u.id, 'ارجاع به کنترل پروژه', `گزارش کار ${report.reportDate} از سانترال ارجاع داده شد`, '/daily-work-report');
+      }
 
       res.json({ success: true });
     } catch (err) {
@@ -232,18 +319,21 @@ module.exports = function(db) {
   });
 
   // ---------- کنترل پروژه: تایید نهایی ----------
-  router.post('/:id/project-control-approve', (req, res) => {
+  router.post('/:id/project-control-approve', async (req, res) => {
     try {
       const { comment } = req.body;
-      const report = db.prepare('SELECT * FROM daily_work_reports WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyWorkReport.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
       if (report.status !== 'pending_project_control') return res.status(400).json({ error: 'گزارش به کنترل پروژه نرسیده' });
 
-      db.prepare(`UPDATE daily_work_reports SET status = 'completed', project_control_comment = ?, project_control_by = ?, project_control_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text), updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text) WHERE id = ?`)
-        .run(comment || '', req.user.id, req.params.id);
+      const now = new Date().toISOString();
+      await prisma.dailyWorkReport.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'completed', projectControlComment: comment || '', projectControlBy: req.user.id, projectControlAt: now },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'کنترل پروژه: تایید نهایی', comment);
-      notify(report.user_id, 'تایید نهایی', `گزارش کار شما توسط کنترل پروژه تایید نهایی شد`, '/daily-work-report');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'کنترل پروژه: تایید نهایی', comment);
+      await notify(report.userId, 'تایید نهایی', `گزارش کار شما توسط کنترل پروژه تایید نهایی شد`, '/daily-work-report');
 
       res.json({ success: true });
     } catch (err) {
@@ -252,18 +342,18 @@ module.exports = function(db) {
   });
 
   // ---------- حذف ----------
-  router.delete('/:id', (req, res) => {
+  router.delete('/:id', async (req, res) => {
     try {
-      const report = db.prepare('SELECT * FROM daily_work_reports WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyWorkReport.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
-      if (report.user_id !== req.user.id && req.user.role !== 'admin') {
+      if (report.userId !== req.user.id && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
       if (report.status !== 'pending_central') {
         return res.status(400).json({ error: 'فقط گزارش‌های در انتظار سانترال قابل حذف هستند' });
       }
-      db.prepare('DELETE FROM daily_work_report_history WHERE report_id = ?').run(req.params.id);
-      db.prepare('DELETE FROM daily_work_reports WHERE id = ?').run(req.params.id);
+      await prisma.dailyWorkReportHistory.deleteMany({ where: { reportId: Number(req.params.id) } });
+      await prisma.dailyWorkReport.delete({ where: { id: Number(req.params.id) } });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

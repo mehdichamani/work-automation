@@ -1,38 +1,41 @@
 const express = require('express');
 const { authMiddleware, roleGuard } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
-module.exports = function(db) {
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
   router.use(roleGuard('admin'));
 
-  router.get('/', (req, res) => {
+  router.get('/', async (req, res) => {
     try {
       const { module: mod, user_id, page = 1, limit = 50 } = req.query;
       const offset = (page - 1) * limit;
-      let where = '';
-      const params = [];
+      const where = {};
 
       if (mod) {
-        where = 'WHERE a.module_name = ?';
-        params.push(mod);
+        where.moduleName = mod;
       }
       if (user_id) {
-        where += (where ? ' AND ' : 'WHERE ') + 'a.user_id = ?';
-        params.push(user_id);
+        where.userId = Number(user_id);
       }
 
-      const total = db.prepare(`SELECT COUNT(*) as count FROM activity_log a ${where}`).get(...params).count;
-      const logs = db.prepare(`
-        SELECT a.*, u.full_name as user_name
-        FROM activity_log a
-        LEFT JOIN users u ON a.user_id = u.id
-        ${where}
-        ORDER BY a.created_at DESC
-        LIMIT ? OFFSET ?
-      `).all(...params, parseInt(limit), parseInt(offset));
+      const total = await prisma.activityLog.count({ where });
 
-      res.json({ logs, total, page: parseInt(page), limit: parseInt(limit) });
+      const logs = await prisma.activityLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: parseInt(limit),
+        skip: parseInt(offset),
+        include: {
+          user: { select: { fullName: true } },
+        },
+      });
+
+      const mapped = logs.map(r => flattenJoins(r, { user_name: 'user.fullName' }));
+
+      res.json({ logs: mapRow(mapped), total, page: parseInt(page), limit: parseInt(limit) });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

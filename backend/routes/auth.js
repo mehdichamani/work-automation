@@ -3,6 +3,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../middleware/auth');
 const { auth, changePassword } = require('../middleware/validate');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
 const loginAttempts = new Map();
 const LOGIN_WINDOW = 15 * 60 * 1000; // 15 minutes
@@ -31,7 +33,7 @@ function clearAttempts(ip) {
   loginAttempts.delete(ip);
 }
 
-module.exports = function(db) {
+module.exports = function() {
   const router = express.Router();
 
   router.post('/login', auth, async (req, res) => {
@@ -51,7 +53,7 @@ module.exports = function(db) {
         return res.status(401).json({ error: 'کد پرسنلی شما در سیستم تعریف نشده دوباره بررسی کنید' });
       }
 
-      const user = db.prepare('SELECT * FROM users WHERE id = ? AND is_active = 1').get(userId);
+      const user = await prisma.user.findFirst({ where: { id: userId, isActive: true } });
       if (!user) {
         recordFailedAttempt(ip);
         return res.status(401).json({ error: 'کد پرسنلی شما در سیستم تعریف نشده دوباره بررسی کنید' });
@@ -65,9 +67,9 @@ module.exports = function(db) {
 
       clearAttempts(ip);
 
-      const dept = db.prepare('SELECT name FROM departments WHERE id = ?').get(user.department_id);
+      const dept = user.departmentId ? await prisma.department.findUnique({ where: { id: user.departmentId } }) : null;
       const token = jwt.sign(
-        { id: user.id, username: String(user.id), role: user.role, full_name: user.full_name, department_id: user.department_id, department_name: dept?.name || '' },
+        { id: user.id, username: String(user.id), role: user.role, full_name: user.fullName, department_id: user.departmentId, department_name: dept?.name || '' },
         JWT_SECRET,
         { expiresIn: '24h' }
       );
@@ -77,11 +79,11 @@ module.exports = function(db) {
         user: {
           id: user.id,
           username: String(user.id),
-          full_name: user.full_name,
+          full_name: user.fullName,
           role: user.role,
-          department_id: user.department_id,
+          department_id: user.departmentId,
           department_name: dept?.name || '',
-          must_change_password: user.must_change_password
+          must_change_password: user.mustChangePassword
         }
       });
     } catch (err) {
@@ -92,7 +94,7 @@ module.exports = function(db) {
   router.post('/change-password', require('../middleware/auth').authMiddleware, changePassword, async (req, res) => {
     try {
       const { oldPassword, newPassword } = req.body;
-      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+      const user = await prisma.user.findUnique({ where: { id: Number(req.user.id) } });
 
       const passwordMatch = await bcrypt.compare(oldPassword, user.password);
       if (!passwordMatch) {
@@ -100,7 +102,10 @@ module.exports = function(db) {
       }
 
       const hash = await bcrypt.hash(newPassword, 10);
-      db.prepare('UPDATE users SET password = ?, must_change_password = 0 WHERE id = ?').run(hash, req.user.id);
+      await prisma.user.update({
+        where: { id: Number(req.user.id) },
+        data: { password: hash, mustChangePassword: false }
+      });
       res.json({ message: 'رمز عبور با موفقیت تغییر کرد' });
     } catch (err) {
       res.status(500).json({ error: 'خطای سرور' });

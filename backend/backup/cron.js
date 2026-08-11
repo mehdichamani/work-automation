@@ -1,13 +1,8 @@
 const cron = require('node-cron');
 const path = require('path');
 const { homedir } = require('os');
+const prisma = require('../database/prisma');
 const { runBackup } = require('./index');
-
-let db = null;
-
-function init(database) {
-  db = database;
-}
 
 function getDefaultConfig() {
   const base = path.join(homedir(), 'Documents', 'edari-backups');
@@ -26,48 +21,48 @@ function getDefaultConfig() {
   };
 }
 
-function loadConfigFromDB() {
-  if (!db) return getDefaultConfig();
+async function loadConfigFromDB() {
+  const def = getDefaultConfig();
   try {
-    const row = db.prepare('SELECT * FROM backup_settings WHERE id = 1').get();
+    const row = await prisma.backupSetting.findUnique({ where: { id: 1 } });
     if (row) {
       return {
-        dailyPath: row.daily_path || getDefaultConfig().dailyPath,
-        weeklyPath: row.weekly_path || getDefaultConfig().weeklyPath,
-        dailyHour: row.daily_hour ?? 23,
-        dailyMinute: row.daily_minute ?? 0,
-        weeklyDay: row.weekly_day ?? 5,
-        weeklyHour: row.weekly_hour ?? 14,
-        weeklyMinute: row.weekly_minute ?? 0,
-        dailyRetentionDays: row.daily_retention_days ?? 30,
-        weeklyRetentionWeeks: row.weekly_retention_weeks ?? 12,
-        dailyEnabled: row.daily_enabled ?? 1,
-        weeklyEnabled: row.weekly_enabled ?? 1,
+        dailyPath: row.dailyPath || def.dailyPath,
+        weeklyPath: row.weeklyPath || def.weeklyPath,
+        dailyHour: row.dailyHour ?? 23,
+        dailyMinute: row.dailyMinute ?? 0,
+        weeklyDay: row.weeklyDay ?? 5,
+        weeklyHour: row.weeklyHour ?? 14,
+        weeklyMinute: row.weeklyMinute ?? 0,
+        dailyRetentionDays: row.dailyRetentionDays ?? 30,
+        weeklyRetentionWeeks: row.weeklyRetentionWeeks ?? 12,
+        dailyEnabled: row.dailyEnabled ?? true,
+        weeklyEnabled: row.weeklyEnabled ?? true,
       };
     }
   } catch (e) {
     console.error('[Backup] Failed to load config from DB:', e.message);
   }
-  return getDefaultConfig();
+  return def;
 }
 
 let scheduledJobs = [];
 
-function schedule() {
+async function schedule() {
   scheduledJobs.forEach(job => job.stop());
   scheduledJobs = [];
 
-  const cfg = loadConfigFromDB();
+  const cfg = await loadConfigFromDB();
 
   if (cfg.dailyEnabled) {
     const dailyExpr = `${cfg.dailyMinute} ${cfg.dailyHour} * * *`;
     const job = cron.schedule(dailyExpr, async () => {
       console.log('[Backup] Starting scheduled daily backup...');
       try {
-        const latestCfg = loadConfigFromDB();
+        const latestCfg = await loadConfigFromDB();
         const result = await runBackup('daily', latestCfg);
         console.log('[Backup] Daily backup completed:', result);
-        logBackup(result);
+        await logBackup(result);
       } catch (e) {
         console.error('[Backup] Daily backup failed:', e.message);
       }
@@ -81,10 +76,10 @@ function schedule() {
     const job = cron.schedule(weeklyExpr, async () => {
       console.log('[Backup] Starting scheduled weekly backup...');
       try {
-        const latestCfg = loadConfigFromDB();
+        const latestCfg = await loadConfigFromDB();
         const result = await runBackup('weekly', latestCfg);
         console.log('[Backup] Weekly backup completed:', result);
-        logBackup(result);
+        await logBackup(result);
       } catch (e) {
         console.error('[Backup] Weekly backup failed:', e.message);
       }
@@ -94,13 +89,22 @@ function schedule() {
   }
 }
 
-function logBackup(result) {
-  if (!db) return;
+async function logBackup(result) {
   try {
-    db.prepare(`
-      INSERT INTO backup_logs (type, date, db_file, db_size, uploads_file, uploads_size, uploads_files, backup_dir, status, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'success', '')
-    `).run(result.type, result.date, result.dbFile, result.dbSize, result.uploadsFile, result.uploadsSize, result.uploadsFiles, result.backupDir);
+    await prisma.backupLog.create({
+      data: {
+        type: result.type,
+        date: result.date,
+        dbFile: result.dbFile,
+        dbSize: result.dbSize,
+        uploadsFile: result.uploadsFile,
+        uploadsSize: result.uploadsSize,
+        uploadsFiles: result.uploadsFiles,
+        backupDir: result.backupDir,
+        status: 'success',
+        error: '',
+      },
+    });
   } catch (e) {
     console.error('[Backup] Failed to log backup:', e.message);
   }
@@ -113,4 +117,4 @@ function getStatus() {
   };
 }
 
-module.exports = { init, schedule, getStatus, loadConfigFromDB };
+module.exports = { init: () => {}, schedule, getStatus, loadConfigFromDB };

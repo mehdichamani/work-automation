@@ -26,7 +26,7 @@ export default {
         }
       },
       fontFamily: {
-        'vazir': ['Vazirmatn', 'Tahoma', 'Arial', 'sans-serif'],
+        sans: ['Vazirmatn', 'sans-serif'],
       }
     },
   },

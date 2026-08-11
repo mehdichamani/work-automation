@@ -3,6 +3,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { authMiddleware } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -41,22 +43,29 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-module.exports = function(db) {
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  router.post('/single', upload.single('file'), (req, res) => {
+  router.post('/single', upload.single('file'), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'فایلی انتخاب نشده' });
       const { module_name, record_id } = req.body;
 
       const url = `/uploads/attachments/${req.file.filename}`;
 
-      db.prepare(`INSERT INTO attachments (user_id, filename, original_name, mimetype, size, url, module_name, record_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        req.user.id, req.file.filename, req.file.originalname, req.file.mimetype,
-        req.file.size, url, module_name || null, record_id || null
-      );
+      await prisma.attachment.create({
+        data: {
+          userId: Number(req.user.id),
+          filename: req.file.filename,
+          originalName: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          url,
+          moduleName: module_name || null,
+          recordId: record_id ? Number(record_id) : null,
+        },
+      });
 
       res.json({ url, filename: req.file.filename, originalName: req.file.originalname, size: req.file.size });
     } catch (err) {
@@ -64,20 +73,30 @@ module.exports = function(db) {
     }
   });
 
-  router.post('/multiple', upload.array('files', 5), (req, res) => {
+  router.post('/multiple', upload.array('files', 5), async (req, res) => {
     try {
       if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'فایلی انتخاب نشده' });
       const { module_name, record_id } = req.body;
 
-      const results = req.files.map(file => {
-        const url = `/uploads/attachments/${file.filename}`;
-        db.prepare(`INSERT INTO attachments (user_id, filename, original_name, mimetype, size, url, module_name, record_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
-          req.user.id, file.filename, file.originalname, file.mimetype,
-          file.size, url, module_name || null, record_id || null
-        );
-        return { url, filename: file.filename, originalName: file.originalname, size: file.size };
+      await prisma.attachment.createMany({
+        data: req.files.map(file => ({
+          userId: Number(req.user.id),
+          filename: file.filename,
+          originalName: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          url: `/uploads/attachments/${file.filename}`,
+          moduleName: module_name || null,
+          recordId: record_id ? Number(record_id) : null,
+        })),
       });
+
+      const results = req.files.map(file => ({
+        url: `/uploads/attachments/${file.filename}`,
+        filename: file.filename,
+        originalName: file.originalname,
+        size: file.size,
+      }));
 
       res.json(results);
     } catch (err) {
@@ -85,35 +104,44 @@ module.exports = function(db) {
     }
   });
 
-  router.get('/list', (req, res) => {
+  router.get('/list', async (req, res) => {
     try {
       const { module_name, record_id } = req.query;
-      let where = 'WHERE 1=1';
-      const params = [];
-      if (module_name) { where += ' AND module_name = ?'; params.push(module_name); }
-      if (record_id) { where += ' AND record_id = ?'; params.push(record_id); }
+      const where = {};
+      if (module_name) { where.moduleName = module_name; }
+      if (record_id) { where.recordId = Number(record_id); }
 
-      const files = db.prepare(`SELECT a.*, u.full_name as uploader_name
-        FROM attachments a LEFT JOIN users u ON a.user_id = u.id
-        ${where} ORDER BY a.created_at DESC`).all(...params);
-      res.json(files);
+      const files = await prisma.attachment.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: { select: { fullName: true } },
+        },
+      });
+      const mapped = files.map(r => flattenJoins(r, { uploader_name: 'user.fullName' }));
+      res.json(mapRow(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.delete('/:id', (req, res) => {
+  router.delete('/:id', async (req, res) => {
     try {
-      const file = db.prepare('SELECT * FROM attachments WHERE id = ?').get(req.params.id);
+      const file = await prisma.attachment.findUnique({ where: { id: Number(req.params.id) } });
       if (!file) return res.status(404).json({ error: 'فایل یافت نشد' });
-      if (file.user_id !== req.user.id && req.user.role !== 'admin') {
+      if (file.userId !== Number(req.user.id) && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
 
       const filePath = path.join(__dirname, '..', file.url);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      const resolvedPath = path.resolve(filePath);
+      const uploadsDir = path.resolve(path.join(__dirname, '..', 'uploads'));
+      if (!resolvedPath.startsWith(uploadsDir)) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      }
+      if (fs.existsSync(resolvedPath)) fs.unlinkSync(resolvedPath);
 
-      db.prepare('DELETE FROM attachments WHERE id = ?').run(req.params.id);
+      await prisma.attachment.delete({ where: { id: Number(req.params.id) } });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

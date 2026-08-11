@@ -1,19 +1,18 @@
 const request = require('supertest');
 const { createTestApp, generateToken } = require('./setup');
 
-let app, db;
+let app;
 
 beforeAll(async () => {
   const result = createTestApp();
   app = result.app;
-  db = result.db;
 });
 
 describe('Auth API', () => {
   test('POST /api/auth/login - success', async () => {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ username: '1000', password: '123456' });
+      .send({ username: '1000', password: 'Test1234' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
     expect(res.body).toHaveProperty('user');
@@ -37,7 +36,7 @@ describe('Auth API', () => {
   test('POST /api/auth/login - non-numeric username', async () => {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ username: 'admin', password: '123456' });
+      .send({ username: 'admin', password: 'Test1234' });
     expect(res.status).toBe(400);
   });
 });
@@ -96,7 +95,7 @@ describe('SMS Auth', () => {
       .send({ phone: '09141234567' });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body).toHaveProperty('_dev_code');
+    expect(res.body.message).toBeDefined();
   });
 
   test('POST /api/sms/verify-code - missing fields', async () => {

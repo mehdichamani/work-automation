@@ -2,102 +2,144 @@ const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
 const { conference } = require('../middleware/validate');
 const { notify: notifyHelper, getNextNumber: getNextNumberHelper, addHistory: addHistoryHelper } = require('../utils/helpers');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
-module.exports = function (db) {
+const BOOKING_ALIASES = {
+  user_name: 'user.fullName',
+  department_name: 'user.department.name',
+  manager_name: 'manager.fullName',
+};
+
+const BOOKING_INCLUDE = {
+  user: { select: { fullName: true, department: { select: { name: true } } } },
+};
+
+const NAME_FK_FIELDS = ['managerId'];
+const NAME_KEYS = ['manager'];
+
+const PENDING_ALIASES = {
+  user_name: 'user.fullName',
+  department_name: 'user.department.name',
+};
+
+const PENDING_INCLUDE = {
+  user: { select: { fullName: true, department: { select: { name: true } } } },
+};
+
+module.exports = function () {
   const router = express.Router();
   router.use(authMiddleware);
 
-  function notify(userId, title, body, link) { notifyHelper(db, userId, title, body, link); }
-  function addHistory(id, userId, userName, action, comment) { addHistoryHelper(db, 'conference_history', 'request_id', id, userId, userName, action, comment); }
-  function getNextNumber() { return getNextNumberHelper(db, 'conference_counter', 'جلسه'); }
+  async function notify(userId, title, body, link) { await notifyHelper(userId, title, body, link); }
+  async function addHistory(id, userId, userName, action, comment) { await addHistoryHelper('conference_history', 'request_id', id, userId, userName, action, comment); }
+  async function getNextNumber() { return getNextNumberHelper('conference_counter', 'جلسه'); }
 
-  router.get('/', (req, res) => {
+  function toListResponse(rows, aliases, nameMap) {
+    return rows.map(r => mapRow(flattenJoins(decorateNames(r, nameMap), aliases || BOOKING_ALIASES)));
+  }
+
+  async function getRelatedUserNames(rows) {
+    const ids = new Set();
+    rows.forEach(r => {
+      NAME_FK_FIELDS.forEach(fk => {
+        if (r[fk]) ids.add(Number(r[fk]));
+      });
+    });
+    if (ids.size === 0) return {};
+    const users = await prisma.user.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, fullName: true },
+    });
+    const map = {};
+    users.forEach(u => { map[u.id] = u.fullName; });
+    return map;
+  }
+
+  function decorateNames(row, nameMap) {
+    NAME_KEYS.forEach((key, idx) => {
+      const fk = NAME_FK_FIELDS[idx];
+      const uid = row[fk] ? Number(row[fk]) : null;
+      row[key] = uid && nameMap[uid] ? { fullName: nameMap[uid] } : null;
+    });
+    return row;
+  }
+
+  router.get('/', async (req, res) => {
     try {
       const { status, page = 1, limit = 20 } = req.query;
-      const offset = (page - 1) * limit;
-      let where = '';
-      const params = [];
+      const pageNum = parseInt(page) || 1;
+      const limitNum = parseInt(limit) || 20;
+      const offset = (pageNum - 1) * limitNum;
+      const where = {};
 
-      if (req.user.role === 'user') {
-        where = 'WHERE c.user_id = ?';
-        params.push(req.user.id);
-      } else if (req.user.role === 'supervisor') {
-        where = 'WHERE c.user_id = ?';
-        params.push(req.user.id);
+      if (req.user.role === 'user' || req.user.role === 'supervisor') {
+        where.userId = req.user.id;
       } else if (req.user.role === 'manager') {
-        where = "WHERE c.status = 'pending_manager'";
+        where.status = 'pending_manager';
       }
 
       if (status && status !== 'all') {
-        where += (where ? ' AND ' : 'WHERE ') + 'c.status = ?';
-        params.push(status);
+        where.status = status;
       }
 
-      const total = db.prepare(`SELECT COUNT(*) as count FROM conference_bookings c ${where}`).get(...params).count;
-      const bookings = db.prepare(`
-        SELECT c.*, u.full_name as user_name, d.name as department_name,
-               m.full_name as manager_name
-        FROM conference_bookings c
-        LEFT JOIN users u ON c.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users m ON c.manager_id = m.id
-        ${where}
-        ORDER BY c.created_at DESC
-        LIMIT ? OFFSET ?
-      `).all(...params, parseInt(limit), parseInt(offset));
+      const total = await prisma.conferenceBooking.count({ where });
+      const bookings = await prisma.conferenceBooking.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: BOOKING_INCLUDE,
+        take: limitNum,
+        skip: offset,
+      });
 
-      res.json({ bookings, total, page: parseInt(page), limit: parseInt(limit) });
+      const nameMap = await getRelatedUserNames(bookings);
+
+      res.json({ bookings: toListResponse(bookings, BOOKING_ALIASES, nameMap), total, page: pageNum, limit: limitNum });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/my-bookings', (req, res) => {
+  router.get('/my-bookings', async (req, res) => {
     try {
-      const bookings = db.prepare(`
-        SELECT c.*, u.full_name as user_name, d.name as department_name,
-               m.full_name as manager_name
-        FROM conference_bookings c
-        LEFT JOIN users u ON c.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users m ON c.manager_id = m.id
-        WHERE c.user_id = ?
-        ORDER BY c.created_at DESC
-      `).all(req.user.id);
-      res.json(bookings);
+      const bookings = await prisma.conferenceBooking.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        include: BOOKING_INCLUDE,
+      });
+      const nameMap = await getRelatedUserNames(bookings);
+      res.json(toListResponse(bookings, BOOKING_ALIASES, nameMap));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/pending-manager', (req, res) => {
+  router.get('/pending-manager', async (req, res) => {
     try {
       if (req.user.role !== 'manager' && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
-      const bookings = db.prepare(`
-        SELECT c.*, u.full_name as user_name, d.name as department_name
-        FROM conference_bookings c
-        LEFT JOIN users u ON c.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        WHERE c.status = 'pending_manager'
-        ORDER BY c.created_at DESC
-      `).all();
-      res.json(bookings);
+      const bookings = await prisma.conferenceBooking.findMany({
+        where: { status: 'pending_manager' },
+        orderBy: { createdAt: 'desc' },
+        include: PENDING_INCLUDE,
+      });
+      const nameMap = await getRelatedUserNames(bookings);
+      res.json(toListResponse(bookings, PENDING_ALIASES, nameMap));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/available', (req, res) => {
+  router.get('/available', async (req, res) => {
     try {
       const { date } = req.query;
       if (!date) return res.status(400).json({ error: 'تاریخ الزامی است' });
 
-      const booked = db.prepare(`
-        SELECT start_time, end_time FROM conference_bookings
-        WHERE booking_date = ? AND status NOT IN ('rejected', 'cancelled')
-      `).all(date);
+      const booked = await prisma.conferenceBooking.findMany({
+        where: { bookingDate: date, status: { notIn: ['rejected', 'cancelled'] } },
+        select: { startTime: true, endTime: true },
+      });
 
       const allSlots = [
         { start: '08:00', end: '09:30' },
@@ -109,64 +151,81 @@ module.exports = function (db) {
       ];
 
       const available = allSlots.filter(slot => {
-        return !booked.some(b => b.start_time <= slot.start && b.end_time > slot.start);
+        return !booked.some(b => b.startTime <= slot.start && b.endTime > slot.start);
       });
 
-      res.json({ available, booked });
+      res.json({ available, booked: mapRow(booked) });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/:id', (req, res) => {
+  router.get('/:id', async (req, res) => {
     try {
-      const booking = db.prepare(`
-        SELECT c.*, u.full_name as user_name, d.name as department_name,
-               m.full_name as manager_name
-        FROM conference_bookings c
-        LEFT JOIN users u ON c.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users m ON c.manager_id = m.id
-        WHERE c.id = ?
-      `).get(req.params.id);
+      const booking = await prisma.conferenceBooking.findUnique({
+        where: { id: Number(req.params.id) },
+        include: BOOKING_INCLUDE,
+      });
       if (!booking) return res.status(404).json({ error: 'رزرو یافت نشد' });
 
-      const history = db.prepare('SELECT * FROM conference_history WHERE request_id = ? ORDER BY created_at ASC').all(req.params.id);
-      res.json({ booking, history });
+      const history = await prisma.conferenceHistory.findMany({
+        where: { requestId: Number(req.params.id) },
+        orderBy: { createdAt: 'asc' },
+      });
+      const nameMap = await getRelatedUserNames([booking]);
+      res.json({ booking: mapRow(flattenJoins(decorateNames(booking, nameMap), BOOKING_ALIASES)), history: mapRow(history) });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/', conference, (req, res) => {
+  router.post('/', conference, async (req, res) => {
     try {
       const { booking_date, start_time, end_time, title, description, attendees_count } = req.body;
       if (!booking_date || !start_time || !end_time || !title) {
         return res.status(400).json({ error: 'فیلدهای الزامی را پر کنید' });
       }
 
-      const conflict = db.prepare(`
-        SELECT id FROM conference_bookings
-        WHERE booking_date = ? AND status NOT IN ('rejected', 'cancelled')
-        AND NOT (end_time <= ? OR start_time >= ?)
-      `).get(booking_date, start_time, end_time);
+      const conflict = await prisma.conferenceBooking.findFirst({
+        where: {
+          bookingDate: booking_date,
+          status: { notIn: ['rejected', 'cancelled'] },
+          NOT: {
+            OR: [
+              { endTime: { lte: start_time } },
+              { startTime: { gte: end_time } },
+            ],
+          },
+        },
+        select: { id: true },
+      });
 
       if (conflict) {
         return res.status(400).json({ error: 'این بازه زمانی قبلاً رزرو شده است' });
       }
 
-      const requestNumber = getNextNumber();
+      const requestNumber = await getNextNumber();
 
-      const result = db.prepare(`
-        INSERT INTO conference_bookings (user_id, booking_date, start_time, end_time, title, description, attendees_count, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_manager')
-      `).run(req.user.id, booking_date, start_time, end_time, title, description || '', attendees_count || 0);
+      const result = await prisma.conferenceBooking.create({
+        data: {
+          userId: Number(req.user.id),
+          bookingDate: booking_date,
+          startTime: start_time,
+          endTime: end_time,
+          title,
+          description: description || '',
+          attendeesCount: attendees_count !== undefined && attendees_count !== '' ? Number(attendees_count) : 0,
+          status: 'pending_manager',
+        },
+      });
 
-      const bookingId = result.lastInsertRowid;
-      addHistory(bookingId, req.user.id, req.user.full_name, 'ثبت درخواست', '');
+      const bookingId = result.id;
+      await addHistory(bookingId, req.user.id, req.user.full_name, 'ثبت درخواست', '');
 
-      const managers = db.prepare("SELECT id FROM users WHERE role = 'manager' AND is_active = 1").all();
-      managers.forEach(mgr => notify(mgr.id, 'درخواست رزرو سالن جدید', `رزرو "${title}" توسط ${req.user.full_name} ثبت شده`, '/conference'));
+      const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true }, select: { id: true } });
+      for (const mgr of managers) {
+        await notify(mgr.id, 'درخواست رزرو سالن جدید', `رزرو "${title}" توسط ${req.user.full_name} ثبت شده`, '/conference');
+      }
 
       res.json({ id: bookingId, request_number: requestNumber });
     } catch (err) {
@@ -174,22 +233,25 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/:id/approve', (req, res) => {
+  router.post('/:id/approve', async (req, res) => {
     try {
       if (req.user.role !== 'manager' && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
-      const booking = db.prepare('SELECT * FROM conference_bookings WHERE id = ?').get(req.params.id);
+      const booking = await prisma.conferenceBooking.findUnique({ where: { id: Number(req.params.id) } });
       if (!booking) return res.status(404).json({ error: 'رزرو یافت نشد' });
       if (booking.status !== 'pending_manager') {
         return res.status(400).json({ error: 'این رزرو قبلاً بررسی شده' });
       }
 
-      db.prepare("UPDATE conference_bookings SET status = 'approved', manager_id = ?, manager_comment = ? WHERE id = ?").run(req.user.id, req.body.comment || '', req.params.id);
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'تایید مدیر', req.body.comment || '');
+      await prisma.conferenceBooking.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'approved', managerId: Number(req.user.id), managerComment: req.body.comment || '' },
+      });
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'تایید مدیر', req.body.comment || '');
 
-      if (booking.user_id) {
-        notify(booking.user_id, 'تایید رزرو سالن', `رزرو "${booking.title}" تایید شد`, '/conference');
+      if (booking.userId) {
+        await notify(booking.userId, 'تایید رزرو سالن', `رزرو "${booking.title}" تایید شد`, '/conference');
       }
 
       res.json({ message: 'رزرو تایید شد' });
@@ -198,22 +260,25 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/:id/reject', (req, res) => {
+  router.post('/:id/reject', async (req, res) => {
     try {
       if (req.user.role !== 'manager' && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
-      const booking = db.prepare('SELECT * FROM conference_bookings WHERE id = ?').get(req.params.id);
+      const booking = await prisma.conferenceBooking.findUnique({ where: { id: Number(req.params.id) } });
       if (!booking) return res.status(404).json({ error: 'رزرو یافت نشد' });
 
       const { comment } = req.body;
       if (!comment) return res.status(400).json({ error: 'دلیل رد الزامی است' });
 
-      db.prepare("UPDATE conference_bookings SET status = 'rejected', manager_id = ?, manager_comment = ? WHERE id = ?").run(req.user.id, comment, req.params.id);
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'رد مدیر', comment);
+      await prisma.conferenceBooking.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'rejected', managerId: Number(req.user.id), managerComment: comment },
+      });
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'رد مدیر', comment);
 
-      if (booking.user_id) {
-        notify(booking.user_id, 'رد رزرو سالن', `رزرو "${booking.title}" رد شد. دلیل: ${comment}`, '/conference');
+      if (booking.userId) {
+        await notify(booking.userId, 'رد رزرو سالن', `رزرو "${booking.title}" رد شد. دلیل: ${comment}`, '/conference');
       }
 
       res.json({ message: 'رزرو رد شد' });
@@ -222,17 +287,20 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/:id/cancel', (req, res) => {
+  router.post('/:id/cancel', async (req, res) => {
     try {
-      const booking = db.prepare('SELECT * FROM conference_bookings WHERE id = ?').get(req.params.id);
+      const booking = await prisma.conferenceBooking.findUnique({ where: { id: Number(req.params.id) } });
       if (!booking) return res.status(404).json({ error: 'رزرو یافت نشد' });
 
-      if (booking.user_id !== req.user.id && req.user.role !== 'admin') {
+      if (booking.userId !== req.user.id && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
 
-      db.prepare("UPDATE conference_bookings SET status = 'cancelled' WHERE id = ?").run(req.params.id);
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'لغو رزرو', '');
+      await prisma.conferenceBooking.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'cancelled' },
+      });
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'لغو رزرو', '');
 
       res.json({ success: true });
     } catch (err) {
@@ -240,15 +308,15 @@ module.exports = function (db) {
     }
   });
 
-  router.delete('/:id', (req, res) => {
+  router.delete('/:id', async (req, res) => {
     try {
-      const booking = db.prepare('SELECT * FROM conference_bookings WHERE id = ?').get(req.params.id);
+      const booking = await prisma.conferenceBooking.findUnique({ where: { id: Number(req.params.id) } });
       if (!booking) return res.status(404).json({ error: 'رزرو یافت نشد' });
       if (req.user.role !== 'admin') {
         return res.status(403).json({ error: 'فقط مدیر سیستم می‌تواند حذف کند' });
       }
 
-      db.prepare('DELETE FROM conference_bookings WHERE id = ?').run(req.params.id);
+      await prisma.conferenceBooking.delete({ where: { id: Number(req.params.id) } });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

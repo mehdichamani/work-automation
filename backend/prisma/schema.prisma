@@ -1,0 +1,1409 @@
+generator client {
+  provider = "prisma-client-js"
+  seed    = "node prisma/seed.js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  admin
+  manager
+  supervisor
+  user
+}
+
+enum PurchaseLocation {
+  Tehran
+  Urmia
+}
+
+model Department {
+  id        Int      @id @default(autoincrement())
+  name      String
+  parentId  Int?     @map("parent_id")
+  parent    Department? @relation("DeptHierarchy", fields: [parentId], references: [id])
+  children  Department[] @relation("DeptHierarchy")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users                  User[]
+  letters                Letter[]
+  letterUnits            LetterUnit[]
+  permissions            Permission[]
+  purchaseRequests       PurchaseRequest[]
+  missionRequests        MissionRequest[]
+  repairRequests         RepairRequest[]
+  repairExternalRequests RepairExternalRequest[]
+  inspectionRequests     InspectionRequest[]
+  dailyOutputs           DailyOutput[]
+  dailyWorkReports       DailyWorkReport[]
+  workOrders             WorkOrder[]
+  paymentRequests        PaymentRequest[]
+  projectSupplyRequests  ProjectSupplyRequest[]
+
+  @@map("departments")
+}
+
+model User {
+  id                 Int      @id
+  password           String
+  fullName           String   @map("full_name")
+  role               UserRole @default(user)
+  departmentId       Int?     @map("department_id")
+  department         Department? @relation(fields: [departmentId], references: [id])
+  workType           String?  @default("normal") @map("work_type")
+  isActive           Boolean  @default(true) @map("is_active")
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
+  username           String?
+  phone              String?
+  email              String?
+  lastLogin          String?  @map("last_login")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  signature                Signature?
+  digitalSignature         DigitalSignature?
+  signatureLogs            SignatureLog[]
+  leaveRequests            LeaveRequest[]
+  leaveBalance             LeaveBalance?
+  leaveChangeLogs          LeaveChangeLog[]
+  overtimeRequests         OvertimeRequest[]
+  sentLetters              Letter[]              @relation("LetterSender")
+  letterManagerLetters     Letter[]              @relation("LetterManager")
+  letterCentralLetters     Letter[]              @relation("LetterCentral")
+  letterSelectedMgmtLetters Letter[]             @relation("LetterSelectedManager")
+  letterHistory            LetterHistory[]
+  notifications            Notification[]
+  activityLogs             ActivityLog[]
+  purchaseRequests         PurchaseRequest[]
+  missionRequests          MissionRequest[]
+  repairRequests           RepairRequest[]
+  repairExternalRequests   RepairExternalRequest[]
+  inspectionRequests       InspectionRequest[]
+  dailyOutputs             DailyOutput[]
+  dailyWorkReports         DailyWorkReport[]
+  itRequests               ItRequest[]
+  itRequestAssigned        ItRequest[]           @relation("ItRequestAssigned")
+  workOrders               WorkOrder[]
+  paymentRequests          PaymentRequest[]
+  conferenceBookings       ConferenceBooking[]
+  securityReports          SecurityReport[]
+  projectSupplyRequests    ProjectSupplyRequest[]
+  chatRooms                ChatRoom[]
+  chatMembers              ChatMember[]
+  chatMessages             ChatMessage[]
+  workflowTemplates        WorkflowTemplate[]
+  workflowInstances        WorkflowInstance[]
+  workflowStepsLog         WorkflowStepLog[]
+  cardexItems              Cardex[]              @relation("CardexUser")
+  cardexWarehouseItems     Cardex[]              @relation("CardexWarehouse")
+  restaurantReservations   RestaurantReservation[]
+  userShiftAssignments     UserShiftAssignment[]
+  shiftChangeRequests      ShiftChangeRequest[]
+  shiftReviewers           ShiftChangeRequest[]  @relation("ShiftReviewer")
+  announcements            Announcement[]
+  jobApplications          JobApplication[]
+  jobApplicationReviews    JobApplication[]      @relation("JobAppReviewer")
+  educationalMaterials     EducationalMaterial[]
+  pushSubscriptions        PushSubscription[]
+  attachments              Attachment[]
+  smsCodes                 SmsCode[]
+  csvImportLogs            CsvImportLog[]
+  backupLogs               BackupLog[]
+  permissions              Permission[]
+
+  @@map("users")
+}
+model Signature {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  imageData String   @map("image_data")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("signatures")
+}
+
+model DigitalSignature {
+  id               Int      @id @default(autoincrement())
+  userId           Int      @unique @map("user_id")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signatureData    String   @map("signature_data")
+  signatureType    String   @default("drawn") @map("signature_type")
+  scannedSignature String?  @map("scanned_signature")
+  employeeCode     String?  @map("employee_code")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  signatureLogs SignatureLog[]
+  @@map("digital_signatures")
+}
+
+model SignatureLog {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signatureId Int?     @map("signature_id")
+  signature   DigitalSignature? @relation(fields: [signatureId], references: [id], onDelete: SetNull)
+  moduleName  String?  @map("module_name")
+  recordId    Int?     @map("record_id")
+  action      String
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
+  @@map("signature_logs")
+}
+
+model LeaveRequest {
+  id                 Int      @id @default(autoincrement())
+  userId             Int      @map("user_id")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leaveType          String   @map("leave_type")
+  startDate          String   @map("start_date")
+  endDate            String   @map("end_date")
+  startHour          String?  @map("start_hour")
+  endHour            String?  @map("end_hour")
+  hoursCount         Float    @map("hours_count")
+  reason             String?
+  status             String   @default("pending_supervisor")
+  supervisorId       Int?     @map("supervisor_id")
+  supervisorComment  String?  @map("supervisor_comment")
+  supervisorDate     String?  @map("supervisor_date")
+  adminId            Int?     @map("admin_id")
+  adminComment       String?  @map("admin_comment")
+  adminDate          String?  @map("admin_date")
+  managerId          Int?     @map("manager_id")
+  managerComment     String?  @map("manager_comment")
+  managerDate        String?  @map("manager_date")
+  securityId         Int?     @map("security_id")
+  securityDate       String?  @map("security_date")
+  editedBy           Int?     @map("edited_by")
+  editedAt           String?  @map("edited_at")
+  editReason         String?  @map("edit_reason")
+  remainingLeaveDays Float?   @map("remaining_leave_days")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  @@map("leave_requests")
+}
+
+model LeaveBalance {
+  id        Int     @id @default(autoincrement())
+  userId    Int     @unique @map("user_id")
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  totalDays Float   @default(0) @map("total_days")
+  usedHours Float   @default(0) @map("used_hours")
+  @@map("leave_balance")
+}
+
+model LeaveChangeLog {
+  id         Int      @id @default(autoincrement())
+  actionBy   Int      @map("action_by")
+  actor      User     @relation(fields: [actionBy], references: [id], onDelete: Cascade)
+  actionType String   @map("action_type")
+  targetId   Int      @map("target_id")
+  oldValue   String?  @map("old_value")
+  newValue   String?  @map("new_value")
+  details    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  @@map("leave_change_logs")
+}
+
+model OfficialHoliday {
+  id          Int      @id @default(autoincrement())
+  holidayDate String   @unique @map("holiday_date")
+  title       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  @@map("official_holidays")
+}
+
+model OvertimeRequest {
+  id                Int      @id @default(autoincrement())
+  userId            Int      @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startDate         String   @map("start_date")
+  endDate           String   @map("end_date")
+  startHour         String?  @map("start_hour")
+  endHour           String?  @map("end_hour")
+  hoursCount        Float    @map("hours_count")
+  reason            String?
+  status            String   @default("pending_supervisor")
+  supervisorId      Int?     @map("supervisor_id")
+  supervisorComment String?  @map("supervisor_comment")
+  supervisorDate    String?  @map("supervisor_date")
+  managerId         Int?     @map("manager_id")
+  managerComment    String?  @map("manager_comment")
+  managerDate       String?  @map("manager_date")
+  securityId        Int?     @map("security_id")
+  securityDate      String?  @map("security_date")
+  editedBy          Int?     @map("edited_by")
+  editedAt          String?  @map("edited_at")
+  editReason        String?  @map("edit_reason")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  @@map("overtime_requests")
+}
+
+model Letter {
+  id                Int      @id @default(autoincrement())
+  letterNumber      String?  @map("letter_number")
+  subject           String
+  body              String?
+  senderId          Int      @map("sender_id")
+  sender            User     @relation("LetterSender", fields: [senderId], references: [id], onDelete: Cascade)
+  senderUnitId      Int      @map("sender_unit_id")
+  senderUnit        Department @relation(fields: [senderUnitId], references: [id], onDelete: Cascade)
+  priority          String   @default("normal")
+  status            String   @default("pending_central")
+  selectedManagerId Int?     @map("selected_manager_id")
+  selectedManager   User?    @relation("LetterSelectedManager", fields: [selectedManagerId], references: [id], onDelete: SetNull)
+  centralId         Int?     @map("central_id")
+  central           User?    @relation("LetterCentral", fields: [centralId], references: [id], onDelete: SetNull)
+  centralDate       String?  @map("central_date")
+  centralComment    String?  @map("central_comment")
+  managerId         Int?     @map("manager_id")
+  manager           User?    @relation("LetterManager", fields: [managerId], references: [id], onDelete: SetNull)
+  managerComment    String?  @map("manager_comment")
+  managerDate       String?  @map("manager_date")
+  signatureData     String?  @map("signature_data")
+  attachmentName    String?  @map("attachment_name")
+  attachmentPath    String?  @map("attachment_path")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  units       LetterUnit[]
+  attachments LetterAttachment[]
+  history     LetterHistory[]
+  @@map("letters")
+}
+
+model LetterUnit {
+  id       Int      @id @default(autoincrement())
+  letterId Int      @map("letter_id")
+  letter   Letter   @relation(fields: [letterId], references: [id], onDelete: Cascade)
+  unitId   Int      @map("unit_id")
+  unit     Department @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  status   String   @default("pending")
+  seenDate String?  @map("seen_date")
+  @@map("letter_units")
+}
+
+model LetterAttachment {
+  id        Int      @id @default(autoincrement())
+  letterId  Int      @map("letter_id")
+  letter    Letter   @relation(fields: [letterId], references: [id], onDelete: Cascade)
+  fileName  String   @map("file_name")
+  filePath  String   @map("file_path")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("letter_attachments")
+}
+
+model LetterCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("letter_counter")
+}
+
+model LetterHistory {
+  id        Int      @id @default(autoincrement())
+  letterId  Int      @map("letter_id")
+  letter    Letter   @relation(fields: [letterId], references: [id], onDelete: Cascade)
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("letter_history")
+}
+
+model PurchaseRequest {
+  id                    Int      @id @default(autoincrement())
+  requestNumber         String?  @map("request_number")
+  userId                Int      @map("user_id")
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department            String?
+  description           String?
+  reason                String?
+  urgency               String   @default("normal")
+  departmentId          Int?     @map("department_id")
+  dept                  Department? @relation(fields: [departmentId], references: [id])
+  status                String   @default("pending_supervisor")
+  supervisorId          Int?     @map("supervisor_id")
+  supervisorComment     String?  @map("supervisor_comment")
+  supervisorDate        String?  @map("supervisor_date")
+  managerId             Int?     @map("manager_id")
+  managerComment        String?  @map("manager_comment")
+  managerDate           String?  @map("manager_date")
+  warehouseId           Int?     @map("warehouse_id")
+  warehouseComment      String?  @map("warehouse_comment")
+  warehouseDate         String?  @map("warehouse_date")
+  factoryManagerId      Int?     @map("factory_manager_id")
+  factoryManagerComment String?  @map("factory_manager_comment")
+  factoryManagerDate    String?  @map("factory_manager_date")
+  budgetId              Int?     @map("budget_id")
+  budgetComment         String?  @map("budget_comment")
+  budgetDate            String?  @map("budget_date")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  items PurchaseItem[]
+  @@map("purchase_requests")
+}
+
+model PurchaseItem {
+  id                Int     @id @default(autoincrement())
+  requestId         Int     @map("request_id")
+  request           PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  rowIndex          Int     @default(0) @map("row_index")
+  itemCode          String? @map("item_code")
+  description       String?
+  purchaseLocation  String? @map("purchase_location")
+  technicalSpecs    String? @map("technical_specs")
+  requestedQuantity Float   @default(0) @map("requested_quantity")
+  approvedQuantity  Float   @default(0) @map("approved_quantity")
+  usageLocation     String? @map("usage_location")
+  price             Float   @default(0)
+  unit              String?
+  @@map("purchase_items")
+}
+
+model PurchaseCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("purchase_counter")
+}
+
+model PurchaseHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("purchase_history")
+}
+
+model MissionRequest {
+  id                Int      @id @default(autoincrement())
+  requestNumber     String?  @map("request_number")
+  userId            Int      @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  missionDate       String   @map("mission_date")
+  startTime         String?  @map("start_time")
+  endTime           String?  @map("end_time")
+  destination       String?
+  missionType       String?  @map("mission_type")
+  description       String?
+  reason            String?
+  departmentId      Int?     @map("department_id")
+  dept              Department? @relation(fields: [departmentId], references: [id])
+  status            String   @default("pending_supervisor")
+  supervisorId      Int?     @map("supervisor_id")
+  supervisorComment String?  @map("supervisor_comment")
+  supervisorDate    String?  @map("supervisor_date")
+  managerId         Int?     @map("manager_id")
+  managerComment    String?  @map("manager_comment")
+  managerDate       String?  @map("manager_date")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  history MissionHistory[]
+  @@map("mission_requests")
+}
+
+model MissionCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("mission_counter")
+}
+
+model MissionHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  request   MissionRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("mission_history")
+}
+
+model RepairRequest {
+  id                Int      @id @default(autoincrement())
+  requestNumber     String?  @map("request_number")
+  userId            Int      @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title             String
+  description       String?
+  equipmentName     String?  @map("equipment_name")
+  location          String?
+  urgency           String   @default("normal")
+  estimatedCost     String?  @map("estimated_cost")
+  desiredDate       String?  @map("desired_date")
+  departmentId      Int?     @map("department_id")
+  dept              Department? @relation(fields: [departmentId], references: [id])
+  status            String   @default("pending_supervisor")
+  images            String?
+  supervisorId      Int?     @map("supervisor_id")
+  supervisorComment String?  @map("supervisor_comment")
+  supervisorDate    String?  @map("supervisor_date")
+  managerId         Int?     @map("manager_id")
+  managerComment    String?  @map("manager_comment")
+  managerDate       String?  @map("manager_date")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  history RepairHistory[]
+  @@map("repair_requests")
+}
+
+model RepairCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("repair_counter")
+}
+
+model RepairHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  request   RepairRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("repair_history")
+}
+
+model RepairExternalRequest {
+  id                       Int      @id @default(autoincrement())
+  requestNumber            String?  @map("request_number")
+  userId                   Int      @map("user_id")
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  departmentId             Int?     @map("department_id")
+  department               Department? @relation(fields: [departmentId], references: [id])
+  status                   String   @default("draft")
+  docCode                  String?  @default("PM_01") @map("doc_code")
+  editDate                 String?  @map("edit_date")
+  revisionNumber           String?  @map("revision_number")
+  formDate                 String?  @map("form_date")
+  fromUnit                 String?  @map("from_unit")
+  toUnit                   String?  @map("to_unit")
+  managerName              String?  @map("manager_name")
+  requestDate              DateTime @default(now()) @map("request_date")
+  urgency                  String   @default("normal")
+  repairSpeed              String   @default("urgent") @map("repair_speed")
+  deadline                 String?
+  workType                 String?  @map("work_type")
+  techDescription          String?  @map("tech_description")
+  estimatedCost            String?  @map("estimated_cost")
+  faultDescription         String?  @map("fault_description")
+  faultReason              String?  @map("fault_reason")
+  warehouseStock           Int?     @default(0) @map("warehouse_stock")
+  warehouseStockStatus     String?  @map("warehouse_stock_status")
+  equipmentName            String?  @map("equipment_name")
+  sketchFile               String?  @map("sketch_file")
+  photoFile                String?  @map("photo_file")
+  deliveryDate             String?  @map("delivery_date")
+  sendDate                 String?  @map("send_date")
+  sendSerial               String?  @map("send_serial")
+  destination              String?
+  contractorName           String?  @map("contractor_name")
+  contractorAddress        String?  @map("contractor_address")
+  repairDescription        String?  @map("repair_description")
+  repairCost               String?  @map("repair_cost")
+  supporterName            String?  @map("supporter_name")
+  returnDate               String?  @map("return_date")
+  returnSerial             String?  @map("return_serial")
+  qualityStatus            String?  @map("quality_status")
+  qualityNotes             String?  @map("quality_notes")
+  images                   String?
+  pmApproved               Boolean  @default(false) @map("pm_approved")
+  pmApprovedAt             String?  @map("pm_approved_at")
+  pmId                     Int?     @map("pm_id")
+  deptManagerApproved      Boolean  @default(false) @map("dept_manager_approved")
+  deptManagerApprovedAt    String?  @map("dept_manager_approved_at")
+  deptManagerId            Int?     @map("dept_manager_id")
+  techManagerApproved      Boolean  @default(false) @map("tech_manager_approved")
+  techManagerApprovedAt    String?  @map("tech_manager_approved_at")
+  techManagerId            Int?     @map("tech_manager_id")
+  warehouseApproved        Boolean  @default(false) @map("warehouse_approved")
+  warehouseApprovedAt      String?  @map("warehouse_approved_at")
+  warehouseId              Int?     @map("warehouse_id")
+  factoryManagerApproved   Boolean  @default(false) @map("factory_manager_approved")
+  factoryManagerApprovedAt String?  @map("factory_manager_approved_at")
+  factoryManagerId         Int?     @map("factory_manager_id")
+  supportCompleted         Boolean  @default(false) @map("support_completed")
+  supportCompletedAt       String?  @map("support_completed_at")
+  qualityApproved          Boolean  @default(false) @map("quality_approved")
+  qualityApprovedAt        String?  @map("quality_approved_at")
+  finalWarehouseApproved   Boolean  @default(false) @map("final_warehouse_approved")
+  finalWarehouseApprovedAt String?  @map("final_warehouse_approved_at")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+  items   RepairExternalItem[]
+  history RepairExternalHistory[]
+  @@map("repair_external_requests")
+}
+
+model RepairExternalItem {
+  id              Int      @id @default(autoincrement())
+  requestId       Int      @map("request_id")
+  request         RepairExternalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  itemName        String?  @map("item_name")
+  techSpecs       String?  @map("tech_specs")
+  serialNumber    String?  @map("serial_number")
+  quantity        Int      @default(1)
+  attachmentsDesc String?  @map("attachments_desc")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  @@map("repair_external_items")
+}
+
+model RepairExternalHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  request   RepairExternalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  oldStatus String?  @map("old_status")
+  newStatus String?  @map("new_status")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("repair_external_history")
+}
+
+model InspectionRequest {
+  id                Int      @id @default(autoincrement())
+  requestNumber     String?  @map("request_number")
+  userId            Int      @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title             String
+  description       String?
+  equipmentName     String?  @map("equipment_name")
+  location          String?
+  inspectionType    String?  @map("inspection_type")
+  urgency           String   @default("normal")
+  deadline          String?
+  departmentId      Int?     @map("department_id")
+  dept              Department? @relation(fields: [departmentId], references: [id])
+  status            String   @default("pending_supervisor")
+  supervisorId      Int?     @map("supervisor_id")
+  supervisorComment String?  @map("supervisor_comment")
+  supervisorDate    String?  @map("supervisor_date")
+  managerId         Int?     @map("manager_id")
+  managerComment    String?  @map("manager_comment")
+  managerDate       String?  @map("manager_date")
+  result            String?  @map("inspection_result")
+  inspectorId       Int?     @map("assigned_to")
+  inspectorComment  String?  @map("inspection_description")
+  inspectedAt       String?  @map("inspect_date")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  history InspectionHistory[]
+  @@map("inspection_requests")
+}
+
+model InspectionCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("inspection_counter")
+}
+
+model InspectionHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  request   InspectionRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("inspection_history")
+}
+
+model DailyOutput {
+  id                Int      @id @default(autoincrement())
+  reportNumber      String?  @map("report_number")
+  userId            Int      @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reportDate        String   @map("report_date")
+  productName       String?  @map("product_name")
+  quantity          Float    @default(0)
+  unit              String?  @default("عدد")
+  qualityScore      Float?   @map("quality_score")
+  description       String?
+  machineNumber     String?  @map("machine_number")
+  productType       String?  @map("product_type")
+  departmentId      Int?     @map("department_id")
+  dept              Department? @relation(fields: [departmentId], references: [id])
+  status            String   @default("pending")
+  supervisorId      Int?     @map("supervisor_id")
+  supervisorComment String?  @map("supervisor_comment")
+  supervisorDate    String?  @map("supervisor_date")
+  managerId         Int?     @map("manager_id")
+  managerComment    String?  @map("manager_comment")
+  managerDate       String?  @map("manager_date")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  history DailyOutputHistory[]
+  @@map("daily_output")
+}
+
+model DailyOutputHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  request   DailyOutput @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("daily_output_history")
+}
+
+model DailyWorkReport {
+  id                    Int      @id @default(autoincrement())
+  userId                Int      @map("user_id")
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reportDate            String   @map("report_date")
+  workDescription       String   @map("work_description")
+  workDuration          String?  @map("work_duration")
+  departmentId          Int?     @map("department_id")
+  department            Department? @relation(fields: [departmentId], references: [id])
+  status                String   @default("pending_central")
+  centralComment        String?  @map("central_comment")
+  centralBy             Int?     @map("central_by")
+  centralAt             String?  @map("central_at")
+  managerComment        String?  @map("manager_comment")
+  managerBy             Int?     @map("manager_by")
+  managerAt             String?  @map("manager_at")
+  projectControlComment String?  @map("project_control_comment")
+  projectControlBy      Int?     @map("project_control_by")
+  projectControlAt      String?  @map("project_control_at")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  history DailyWorkReportHistory[]
+  @@map("daily_work_reports")
+}
+
+model DailyWorkReportHistory {
+  id        Int      @id @default(autoincrement())
+  reportId  Int      @map("report_id")
+  report    DailyWorkReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("daily_work_report_history")
+}
+
+model ItRequest {
+  id                Int      @id @default(autoincrement())
+  requestNumber     String?  @map("request_number")
+  userId            Int      @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title             String
+  description       String?
+  requestType       String?  @map("request_type")
+  urgency           String   @default("normal")
+  deviceInfo        String?  @map("device_info")
+  assignedTo        Int?     @map("assigned_to")
+  assignedUser      User?    @relation("ItRequestAssigned", fields: [assignedTo], references: [id], onDelete: SetNull)
+  status            String   @default("pending")
+  completionComment String?  @map("completion_comment")
+  rejectComment     String?  @map("reject_comment")
+  completedAt       String?  @map("completed_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  history ItRequestHistory[]
+  @@map("it_requests")
+}
+
+model ItRequestCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("it_request_counter")
+}
+
+model ItRequestHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  request   ItRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("it_request_history")
+}
+
+model WorkflowTemplate {
+  id         Int      @id @default(autoincrement())
+  name       String
+  moduleName String   @map("module_name")
+  steps      Json     @default("[]")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdBy  Int?     @map("created_by")
+  creator    User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  instances WorkflowInstance[]
+  @@map("workflow_templates")
+}
+
+model WorkflowInstance {
+  id          Int      @id @default(autoincrement())
+  templateId  Int      @map("template_id")
+  template    WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  recordId    Int      @map("record_id")
+  currentStep Int      @default(0) @map("current_step")
+  status      String   @default("active")
+  startedBy   Int?     @map("started_by")
+  startedByUser User?  @relation(fields: [startedBy], references: [id], onDelete: SetNull)
+  completedAt String?  @map("completed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  stepsLog WorkflowStepLog[]
+  @@map("workflow_instances")
+}
+
+model WorkflowStepLog {
+  id         Int      @id @default(autoincrement())
+  instanceId Int      @map("instance_id")
+  instance   WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  stepIndex  Int      @map("step_index")
+  actorId    Int?     @map("actor_id")
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  comment    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  @@map("workflow_steps_log")
+}
+
+model WorkOrder {
+  id                Int      @id @default(autoincrement())
+  requestNumber     String?  @map("request_number")
+  userId            Int      @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title             String
+  description       String?
+  workType          String?  @map("work_type")
+  priority          String   @default("normal")
+  estimatedCost     String?  @map("estimated_cost")
+  deadline          String?
+  departmentId      Int?     @map("department_id")
+  dept              Department? @relation(fields: [departmentId], references: [id])
+  status            String   @default("pending_supervisor")
+  supervisorId      Int?     @map("supervisor_id")
+  supervisorComment String?  @map("supervisor_comment")
+  supervisorDate    String?  @map("supervisor_date")
+  managerId         Int?     @map("manager_id")
+  managerComment    String?  @map("manager_comment")
+  managerDate       String?  @map("manager_date")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  history WorkOrderHistory[]
+  @@map("work_orders")
+}
+
+model WorkOrderCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("work_order_counter")
+}
+
+model WorkOrderHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  request   WorkOrder @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("work_order_history")
+}
+
+model PaymentRequest {
+  id                Int      @id @default(autoincrement())
+  requestNumber     String?  @map("request_number")
+  userId            Int      @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount            String
+  paymentType       String   @map("payment_type")
+  description       String?
+  reason            String?
+  recipientName     String?  @map("recipient_name")
+  bankName          String?  @map("bank_name")
+  cardNumber        String?  @map("card_number")
+  paymentDate       String?  @map("payment_date")
+  departmentId      Int?     @map("department_id")
+  dept              Department? @relation(fields: [departmentId], references: [id])
+  status            String   @default("pending_supervisor")
+  supervisorId      Int?     @map("supervisor_id")
+  supervisorComment String?  @map("supervisor_comment")
+  supervisorDate    String?  @map("supervisor_date")
+  managerId         Int?     @map("manager_id")
+  managerComment    String?  @map("manager_comment")
+  managerDate       String?  @map("manager_date")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  history PaymentHistory[]
+  @@map("payment_requests")
+}
+
+model PaymentCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("payment_counter")
+}
+
+model PaymentHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  request   PaymentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("payment_history")
+}
+
+model InventoryItem {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  unit        String?  @default("عدد")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  cardex Cardex[]
+  @@map("inventory_items")
+}
+
+model Cardex {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @map("user_id")
+  user            User     @relation("CardexUser", fields: [userId], references: [id], onDelete: Cascade)
+  itemId          Int      @map("item_id")
+  item            InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  quantity        Float
+  deliveryDate    String   @map("delivery_date")
+  status          String   @default("pending_user")
+  warehouseUserId Int      @map("warehouse_user_id")
+  warehouseUser   User     @relation("CardexWarehouse", fields: [warehouseUserId], references: [id], onDelete: Cascade)
+  notes           String?
+  userConfirmDate String?  @map("user_confirm_date")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  @@map("cardex")
+}
+
+model RestaurantMenu {
+  id           Int      @id @default(autoincrement())
+  foodDate     String   @map("food_date")
+  optionNumber Int      @default(1) @map("option_number")
+  foodName     String   @map("food_name")
+  description  String?
+  price        Float    @default(0)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  reservations RestaurantReservation[]
+  @@unique([foodDate, optionNumber])
+  @@map("restaurant_menu")
+}
+
+model RestaurantReservation {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  foodId    Int      @map("food_id")
+  food      RestaurantMenu @relation(fields: [foodId], references: [id], onDelete: Cascade)
+  foodDate  String   @map("food_date")
+  quantity  Int      @default(1)
+  status    String   @default("active")
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("restaurant_reservations")
+}
+
+model WorkShift {
+  id          Int      @id @default(autoincrement())
+  name        String
+  startTime   String   @default("") @map("start_time")
+  endTime     String   @default("") @map("end_time")
+  description String?
+  color       String   @default("#3b82f6")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  assignments        UserShiftAssignment[]
+  currentShiftReqs   ShiftChangeRequest[]  @relation("CurrentShift")
+  requestedShiftReqs ShiftChangeRequest[]  @relation("RequestedShift")
+  @@map("work_shifts")
+}
+
+model UserShiftAssignment {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shiftId   Int      @map("shift_id")
+  shift     WorkShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("user_shift_assignments")
+}
+
+model ShiftChangeRequest {
+  id               Int      @id @default(autoincrement())
+  userId           Int      @map("user_id")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentShiftId   Int?     @map("current_shift_id")
+  currentShift     WorkShift? @relation("CurrentShift", fields: [currentShiftId], references: [id], onDelete: SetNull)
+  requestedShiftId Int      @map("requested_shift_id")
+  requestedShift   WorkShift @relation("RequestedShift", fields: [requestedShiftId], references: [id], onDelete: Cascade)
+  requestedDate    String?  @map("requested_date")
+  reason           String?
+  status           String   @default("pending")
+  reviewedBy       Int?     @map("reviewed_by")
+  reviewer         User?    @relation("ShiftReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt       String?  @map("reviewed_at")
+  reviewComment    String?  @map("review_comment")
+  createdAt        DateTime @default(now()) @map("created_at")
+  @@map("shift_change_requests")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String?
+  link      String?
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("notifications")
+}
+
+model Announcement {
+  id             Int      @id @default(autoincrement())
+  title          String
+  body           String?
+  imagePath      String?  @map("image_path")
+  targetAudience String   @default("all") @map("target_audience")
+  priority       String   @default("normal")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdBy      Int?     @map("created_by")
+  creator        User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  @@map("announcements")
+}
+
+model Permission {
+  id           Int      @id @default(autoincrement())
+  moduleKey    String   @map("module_key")
+  departmentId Int?     @map("department_id")
+  department   Department? @relation(fields: [departmentId], references: [id])
+  userId       Int?     @map("user_id")
+  user         User?    @relation(fields: [userId], references: [id])
+  isEnabled    Boolean  @default(true) @map("is_enabled")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  @@map("permissions")
+}
+
+model ChatRoom {
+  id        Int      @id @default(autoincrement())
+  name      String?
+  type      String   @default("direct")
+  createdBy Int?     @map("created_by")
+  creator   User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  members  ChatMember[]
+  messages ChatMessage[]
+  @@map("chat_rooms")
+}
+
+model ChatMember {
+  id         Int      @id @default(autoincrement())
+  roomId     Int      @map("room_id")
+  room       ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId     Int      @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt String?  @map("last_read_at")
+  joinedAt   DateTime @default(now()) @map("joined_at")
+  @@unique([roomId, userId])
+  @@map("chat_members")
+}
+
+model ChatMessage {
+  id            Int      @id @default(autoincrement())
+  roomId        Int      @map("room_id")
+  room          ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId        Int      @map("user_id")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message       String
+  messageType   String   @default("text") @map("message_type")
+  attachmentUrl String?  @map("attachment_url")
+  createdAt     DateTime @default(now()) @map("created_at")
+  @@map("chat_messages")
+}
+
+model ConferenceBooking {
+  id             Int      @id @default(autoincrement())
+  userId         Int      @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookingDate    String   @map("booking_date")
+  startTime      String   @map("start_time")
+  endTime        String   @map("end_time")
+  title          String?
+  description    String?
+  attendeesCount Int      @default(0) @map("attendees_count")
+  status         String   @default("approved")
+  managerId      Int?     @map("manager_id")
+  managerComment String?  @map("manager_comment")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  history ConferenceHistory[]
+  @@map("conference_bookings")
+}
+
+model ConferenceCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("conference_counter")
+}
+
+model ConferenceHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  request   ConferenceBooking @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("conference_history")
+}
+
+model SecurityReport {
+  id                Int      @id @default(autoincrement())
+  reportNumber      String?  @map("report_number")
+  userId            Int      @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reportDate        String   @map("report_date")
+  shiftType         String?  @map("shift_type")
+  incidents         String?
+  visitors          String?
+  vehicles          String?
+  notes             String?
+  status            String   @default("pending")
+  supervisorId      Int?     @map("supervisor_id")
+  supervisorComment String?  @map("supervisor_comment")
+  supervisorDate    String?  @map("supervisor_date")
+  managerId         Int?     @map("manager_id")
+  managerComment    String?  @map("manager_comment")
+  managerDate       String?  @map("manager_date")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  history SecurityHistory[]
+  @@map("security_reports")
+}
+
+model SecurityHistory {
+  id        Int      @id @default(autoincrement())
+  requestId Int      @map("request_id")
+  request   SecurityReport @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("security_history")
+}
+
+model ProjectSupplyRequest {
+  id                Int      @id @default(autoincrement())
+  requestNumber     String?  @map("request_number")
+  userId            Int      @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectName       String   @map("project_name")
+  items             Json
+  description       String?
+  urgency           String   @default("normal")
+  estimatedCost     String?  @map("estimated_cost")
+  deadline          String?
+  departmentId      Int?     @map("department_id")
+  dept              Department? @relation(fields: [departmentId], references: [id])
+  status            String   @default("pending_supervisor")
+  supervisorId      Int?     @map("supervisor_id")
+  supervisorComment String?  @map("supervisor_comment")
+  supervisorDate    String?  @map("supervisor_date")
+  managerId         Int?     @map("manager_id")
+  managerComment    String?  @map("manager_comment")
+  managerDate       String?  @map("manager_date")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  history ProjectSupplyRequestHistory[]
+  @@map("project_supply_requests")
+}
+
+model ProjectSupplyRequestCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("project_supply_counter")
+}
+
+model ProjectSupplyRequestHistory {
+  id        Int      @id @default(autoincrement())
+  supplyId  Int      @map("supply_id")
+  request   ProjectSupplyRequest @relation(fields: [supplyId], references: [id], onDelete: Cascade)
+  userId    Int?     @map("user_id")
+  userName  String?  @map("user_name")
+  action    String
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("project_supply_history")
+}
+
+model JobApplication {
+  id                       Int      @id @default(autoincrement())
+  userId                   Int?     @map("user_id")
+  user                     User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationNumber        String?  @map("application_number")
+  fullName                 String   @map("full_name")
+  fatherName               String?  @map("father_name")
+  nationalId               String?  @map("national_id")
+  nationalIdIssuedFrom     String?  @map("national_id_issued_from")
+  birthDate                String?  @map("birth_date")
+  birthPlace               String?  @map("birth_place")
+  residenceDuration        String?  @map("residence_duration")
+  nationality              String?  @default("ایرانی")
+  religion                 String?
+  language                 String?
+  educationLevel           String?  @map("education_level")
+  educationPlace           String?  @map("education_place")
+  militaryStatus           String?  @map("military_status")
+  militaryDone             String?  @default("خیر") @map("military_done")
+  militaryServiceType      String?  @map("military_service_type")
+  militaryExemptNonMedical String?  @map("military_exempt_non_medical")
+  militaryExemptMedical    String?  @map("military_exempt_medical")
+  militaryExemptReason     String?  @map("military_exempt_reason")
+  maritalStatus            String?  @map("marital_status")
+  childrenCount            Int      @default(0) @map("children_count")
+  spouseJob                String?  @map("spouse_job")
+  requestedSalary          String?  @default("0") @map("requested_salary")
+  housingStatus            String?  @map("housing_status")
+  housingRentAmount        String?  @default("0") @map("housing_rent_amount")
+  residentialAddress       String?  @map("residential_address")
+  phoneNumber              String?  @map("phone_number")
+  moralTraits              String?  @map("moral_traits")
+  relativesInCompany       String?  @default("خیر") @map("relatives_in_company")
+  relativesDetails         String?  @map("relatives_details")
+  criminalRecord           String?  @default("خیر") @map("criminal_record")
+  kaveFactories            String?  @map("kave_factories")
+  smoking                  String?  @default("خیر")
+  smokingDuration          String?  @map("smoking_duration")
+  foreignLanguages         String?  @map("foreign_languages")
+  turkishKnown             String?  @default("خیر") @map("turkish_known")
+  computerSkills           String?  @map("computer_skills")
+  trainingCourses          String?  @map("training_courses")
+  referencesInfo           String?  @map("references_info")
+  photo                    String?
+  status                   String   @default("new")
+  reviewedBy               Int?     @map("reviewed_by")
+  reviewer                 User?    @relation("JobAppReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt               String?  @map("reviewed_at")
+  reviewComment            String?  @map("review_comment")
+  isActive                 Boolean  @default(true) @map("is_active")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+  workHistory JobApplicationWorkHistory[]
+  attachments JobApplicationAttachment[]
+  @@map("job_applications")
+}
+
+model JobApplicationWorkHistory {
+  id            Int      @id @default(autoincrement())
+  applicationId Int      @map("application_id")
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  orgName       String?  @map("org_name")
+  position      String?
+  duration      String?
+  lastSalary    String?  @map("last_salary")
+  leaveReason   String?  @map("leave_reason")
+  contactInfo   String?  @map("contact_info")
+  sortOrder     Int      @default(0) @map("sort_order")
+  @@map("job_application_work_history")
+}
+
+model JobApplicationAttachment {
+  id            Int      @id @default(autoincrement())
+  applicationId Int      @map("application_id")
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fileName      String   @map("file_name")
+  filePath      String   @map("file_path")
+  fileType      String?  @map("file_type")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  @@map("job_application_attachments")
+}
+
+model JobApplicationCounter {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+  @@map("job_application_counter")
+}
+
+model EducationalMaterial {
+  id             Int      @id @default(autoincrement())
+  title          String
+  description    String?
+  category       String   @default("pdf")
+  fileUrl        String   @map("file_url")
+  fileType       String?  @map("file_type")
+  fileSize       Int      @default(0) @map("file_size")
+  thumbnailUrl   String?  @map("thumbnail_url")
+  targetAudience String   @default("all") @map("target_audience")
+  tags           String[]
+  isActive       Boolean  @default(true) @map("is_active")
+  uploadedBy     Int      @map("uploaded_by")
+  uploader       User     @relation(fields: [uploadedBy], references: [id])
+  viewCount      Int      @default(0) @map("view_count")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  @@map("educational_materials")
+}
+
+model ActivityLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?     @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moduleName String?  @map("module_name")
+  action     String
+  details    String?
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  @@map("activity_log")
+}
+
+model Attachment {
+  id           Int      @id @default(autoincrement())
+  userId       Int?     @map("user_id")
+  user         User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  filename     String
+  originalName String?  @map("original_name")
+  mimetype     String?
+  size         Int?
+  url          String
+  moduleName   String?  @map("module_name")
+  recordId     Int?     @map("record_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  @@map("attachments")
+}
+
+model SmsCode {
+  id        Int      @id @default(autoincrement())
+  phone     String
+  code      String
+  expiresAt String   @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  userId    Int?     @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([phone])
+  @@map("sms_codes")
+}
+
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("push_subscriptions")
+}
+
+model BackupSetting {
+  id                   Int      @id @default(autoincrement())
+  dailyPath            String?  @map("daily_path")
+  weeklyPath           String?  @map("weekly_path")
+  dailyHour            Int      @default(23) @map("daily_hour")
+  dailyMinute          Int      @default(0) @map("daily_minute")
+  weeklyDay            Int      @default(5) @map("weekly_day")
+  weeklyHour           Int      @default(14) @map("weekly_hour")
+  weeklyMinute         Int      @default(0) @map("weekly_minute")
+  dailyRetentionDays   Int      @default(30) @map("daily_retention_days")
+  weeklyRetentionWeeks Int      @default(12) @map("weekly_retention_weeks")
+  dailyEnabled         Boolean  @default(true) @map("daily_enabled")
+  weeklyEnabled        Boolean  @default(true) @map("weekly_enabled")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  @@map("backup_settings")
+}
+
+model BackupLog {
+  id           Int      @id @default(autoincrement())
+  type         String
+  date         String
+  dbFile       String?  @map("db_file")
+  dbSize       Int?     @map("db_size")
+  uploadsFile  String?  @map("uploads_file")
+  uploadsSize  Int?     @map("uploads_size")
+  uploadsFiles Int?     @map("uploads_files")
+  backupDir    String?  @map("backup_dir")
+  status       String   @default("success")
+  error        String?
+  createdBy    Int?     @map("created_by")
+  creator      User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  @@map("backup_logs")
+}
+
+model CsvImportLog {
+  id         Int      @id @default(autoincrement())
+  fileName   String   @map("file_name")
+  filePath   String   @map("file_path")
+  importedBy Int      @map("imported_by")
+  importer   User     @relation(fields: [importedBy], references: [id], onDelete: Cascade)
+  importedAt DateTime @default(now()) @map("imported_at")
+  rowCount   Int      @map("row_count")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  @@map("csv_imports_log")
+}
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String?
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("settings")
+}

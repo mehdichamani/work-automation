@@ -214,6 +214,7 @@ export default function Payment() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

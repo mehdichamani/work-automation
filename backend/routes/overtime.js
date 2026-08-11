@@ -1,38 +1,50 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
 const moment = require('moment-jalaali');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
+const { overtime } = require('../middleware/validate');
 
 let holidayCache = null;
 let holidayCacheTime = 0;
 const HOLIDAY_CACHE_TTL = 60000;
 
-function getHolidays(db) {
+async function getHolidays() {
   const now = Date.now();
   if (!holidayCache || now - holidayCacheTime > HOLIDAY_CACHE_TTL) {
-    holidayCache = db.prepare('SELECT holiday_date FROM official_holidays').all();
+    const rows = await prisma.officialHoliday.findMany({ select: { holidayDate: true } });
+    holidayCache = rows.map((r) => ({ holiday_date: r.holidayDate }));
     holidayCacheTime = now;
   }
   return holidayCache;
 }
 
-module.exports = function(db) {
+const pad = (n) => String(n).padStart(2, '0');
+function getNowString() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  function notify(userId, title, body, link) {
-    db.prepare('INSERT INTO notifications (user_id, title, body, link) VALUES (?, ?, ?, ?)').run(userId, title, body, link);
+  const userSelect = { fullName: true, department: { select: { name: true } } };
+
+  async function notify(userId, title, body, link) {
+    await prisma.notification.create({ data: { userId: Number(userId), title, body, link } });
   }
 
-  function hasOvertimePerm(user, moduleKey) {
+  async function hasOvertimePerm(user, moduleKey) {
     if (user.role === 'admin') return true;
-    const userPerm = db.prepare('SELECT is_enabled FROM permissions WHERE user_id = ? AND module_key = ?').get(user.id, moduleKey);
-    if (userPerm !== null && userPerm !== undefined) {
-      return userPerm.is_enabled === 1;
+    const userPerm = await prisma.permission.findFirst({ where: { userId: user.id, moduleKey } });
+    if (userPerm) {
+      return userPerm.isEnabled === true;
     }
     if (user.department_id) {
-      const deptPerm = db.prepare('SELECT is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL AND module_key = ?').get(user.department_id, moduleKey);
-      if (deptPerm !== null && deptPerm !== undefined) {
-        return deptPerm.is_enabled === 1;
+      const deptPerm = await prisma.permission.findFirst({ where: { departmentId: user.department_id, userId: null, moduleKey } });
+      if (deptPerm) {
+        return deptPerm.isEnabled === true;
       }
     }
     return false;
@@ -55,182 +67,182 @@ module.exports = function(db) {
     return { ...o, days_count: formatted, raw_hours: o.hours_count };
   }
 
-  router.get('/subordinates', (req, res) => {
+  const ACTOR_FIELDS = {
+    supervisor_name: 'supervisorId',
+    manager_name: 'managerId',
+    security_name: 'securityId',
+    editor_name: 'editedBy',
+  };
+
+  async function decorateOvertimeRows(rows, opts = {}) {
+    const { actors = [], supervisorDept = false } = opts;
+    const ids = new Set();
+    if (actors.length || supervisorDept) {
+      for (const r of rows) {
+        for (const field of actors) {
+          if (r[field]) ids.add(r[field]);
+        }
+        if (supervisorDept && r.supervisorId) ids.add(r.supervisorId);
+      }
+    }
+    const nameMap = new Map();
+    const deptMap = new Map();
+    if (ids.size) {
+      const users = await prisma.user.findMany({
+        where: { id: { in: [...ids] } },
+        select: { id: true, fullName: true, department: { select: { name: true } } },
+      });
+      users.forEach((u) => {
+        nameMap.set(u.id, u.fullName);
+        deptMap.set(u.id, u.department ? u.department.name : null);
+      });
+    }
+    return rows.map((r) => {
+      const flat = flattenJoins(r, { user_name: 'user.fullName', user_dept: 'user.department.name' });
+      for (const [alias, field] of Object.entries(ACTOR_FIELDS)) {
+        if (actors.includes(field)) {
+          flat[alias] = r[field] ? nameMap.get(r[field]) || null : null;
+        }
+      }
+      if (supervisorDept) {
+        flat.supervisor_dept = r.supervisorId ? deptMap.get(r.supervisorId) || null : null;
+      }
+      return flat;
+    });
+  }
+
+  router.get('/subordinates', async (req, res) => {
     try {
       if (!['admin', 'manager', 'supervisor'].includes(req.user.role)) {
         return res.json([]);
       }
       let users;
       if (req.user.role === 'supervisor') {
-        users = db.prepare(`
-          SELECT id, full_name, role 
-          FROM users 
-          WHERE department_id = ? AND id != ? AND is_active = 1 AND work_type != 'shift'
-          ORDER BY full_name
-        `).all(req.user.department_id, req.user.id);
+        users = await prisma.user.findMany({
+          where: { departmentId: req.user.department_id, id: { not: req.user.id }, isActive: true, workType: { not: 'shift' } },
+          select: { id: true, fullName: true, role: true },
+          orderBy: { fullName: 'asc' },
+        });
       } else {
-        // admin or manager
-        users = db.prepare(`
-          SELECT id, full_name, role 
-          FROM users 
-          WHERE id != ? AND is_active = 1 AND work_type != 'shift'
-          ORDER BY full_name
-        `).all(req.user.id);
+        users = await prisma.user.findMany({
+          where: { id: { not: req.user.id }, isActive: true, workType: { not: 'shift' } },
+          select: { id: true, fullName: true, role: true },
+          orderBy: { fullName: 'asc' },
+        });
       }
-      res.json(users);
+      res.json(mapRow(users));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/my-requests', (req, res) => {
+  router.get('/my-requests', async (req, res) => {
     try {
-      const requests = db.prepare(`
-        SELECT o.*, 
-               u.full_name as user_name, d.name as user_dept,
-               s.full_name as supervisor_name,
-               m.full_name as manager_name,
-               sec.full_name as security_name,
-               ed.full_name as editor_name
-        FROM overtime_requests o
-        JOIN users u ON o.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users s ON o.supervisor_id = s.id
-        LEFT JOIN users m ON o.manager_id = m.id
-        LEFT JOIN users sec ON o.security_id = sec.id
-        LEFT JOIN users ed ON o.edited_by = ed.id
-        WHERE o.user_id = ?
-        ORDER BY o.created_at DESC
-      `).all(req.user.id);
-      res.json(requests.map(mapOvertime));
+      const requests = await prisma.overtimeRequest.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: userSelect } },
+      });
+      const rows = await decorateOvertimeRows(requests, { actors: ['supervisorId', 'managerId', 'securityId', 'editedBy'] });
+      res.json(mapRow(rows).map(mapOvertime));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/pending-supervisor', (req, res) => {
+  router.get('/pending-supervisor', async (req, res) => {
     try {
       let requests;
       if (req.user.role === 'admin') {
-        requests = db.prepare(`
-          SELECT o.*, u.full_name as user_name, d.name as user_dept
-          FROM overtime_requests o
-          JOIN users u ON o.user_id = u.id
-          LEFT JOIN departments d ON u.department_id = d.id
-          WHERE o.status = 'pending_supervisor'
-          ORDER BY o.created_at DESC
-        `).all();
+        requests = await prisma.overtimeRequest.findMany({
+          where: { status: 'pending_supervisor' },
+          orderBy: { createdAt: 'desc' },
+          include: { user: { select: userSelect } },
+        });
       } else {
-        requests = db.prepare(`
-          SELECT o.*, u.full_name as user_name, d.name as user_dept
-          FROM overtime_requests o
-          JOIN users u ON o.user_id = u.id
-          LEFT JOIN departments d ON u.department_id = d.id
-          WHERE o.status = 'pending_supervisor' AND u.department_id = ?
-          ORDER BY o.created_at DESC
-        `).all(req.user.department_id);
+        requests = await prisma.overtimeRequest.findMany({
+          where: { status: 'pending_supervisor', user: { is: { departmentId: req.user.department_id } } },
+          orderBy: { createdAt: 'desc' },
+          include: { user: { select: userSelect } },
+        });
       }
-      res.json(requests.map(mapOvertime));
+      const rows = await decorateOvertimeRows(requests);
+      res.json(mapRow(rows).map(mapOvertime));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/pending-manager', (req, res) => {
+  router.get('/pending-manager', async (req, res) => {
     try {
-      const requests = db.prepare(`
-        SELECT o.*, u.full_name as user_name, d.name as user_dept,
-               s.full_name as supervisor_name, s_dept.name as supervisor_dept
-        FROM overtime_requests o
-        JOIN users u ON o.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users s ON o.supervisor_id = s.id
-        LEFT JOIN departments s_dept ON s.department_id = s_dept.id
-        WHERE o.status = 'pending_manager'
-        ORDER BY o.created_at DESC
-      `).all();
-      res.json(requests.map(mapOvertime));
+      const requests = await prisma.overtimeRequest.findMany({
+        where: { status: 'pending_manager' },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: userSelect } },
+      });
+      const rows = await decorateOvertimeRows(requests, { actors: ['supervisorId'], supervisorDept: true });
+      res.json(mapRow(rows).map(mapOvertime));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/security', (req, res) => {
-    if (!hasOvertimePerm(req.user, 'overtime_security_view')) {
-      return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی رویت حراست اضافه کار را ندارید' });
-    }
+  router.get('/security', async (req, res) => {
     try {
-      const requests = db.prepare(`
-        SELECT o.*, u.full_name as user_name, d.name as user_dept,
-               s.full_name as supervisor_name,
-               m.full_name as manager_name
-        FROM overtime_requests o
-        JOIN users u ON o.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users s ON o.supervisor_id = s.id
-        LEFT JOIN users m ON o.manager_id = m.id
-        WHERE o.status = 'approved'
-        ORDER BY o.created_at DESC
-      `).all();
-      res.json(requests.map(mapOvertime));
+      if (!(await hasOvertimePerm(req.user, 'overtime_security_view'))) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی رویت حراست اضافه کار را ندارید' });
+      }
+      const requests = await prisma.overtimeRequest.findMany({
+        where: { status: 'approved' },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: userSelect } },
+      });
+      const rows = await decorateOvertimeRows(requests, { actors: ['supervisorId', 'managerId'] });
+      res.json(mapRow(rows).map(mapOvertime));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/all', (req, res) => {
+  router.get('/all', async (req, res) => {
     try {
       const page = Math.max(1, parseInt(req.query.page) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
-      const offset = (page - 1) * limit;
+      const skip = (page - 1) * limit;
       const search = req.query.search || '';
-      
-      let baseQuery = `
-        FROM overtime_requests o
-        JOIN users u ON o.user_id = u.id
-        LEFT JOIN departments d ON u.department_id = d.id
-        LEFT JOIN users s ON o.supervisor_id = s.id
-        LEFT JOIN users m ON o.manager_id = m.id
-        LEFT JOIN users sec ON o.security_id = sec.id
-        LEFT JOIN users ed ON o.edited_by = ed.id
-      `;
-      let whereClause = '';
-      const params = [];
-      
+
+      const where = {};
+
       if (search) {
-        whereClause = ` WHERE (u.full_name ILIKE $${params.length + 1})`;
-        params.push(`%${search}%`);
+        where.OR = [
+          { user: { is: { fullName: { contains: search, mode: 'insensitive' } } } },
+        ];
       }
-      
+
       if (req.user.role === 'supervisor') {
-        const deptParam = `$${params.length + 1}`;
-        whereClause += whereClause ? ` AND u.department_id = ${deptParam} AND u.role != 'admin'` : ` WHERE u.department_id = ${deptParam} AND u.role != 'admin'`;
-        params.push(req.user.department_id);
-      } else if (!(req.user.role === 'admin' || req.user.role === 'manager' || hasOvertimePerm(req.user, 'overtime_edit_after_seen'))) {
+        where.user = { is: { departmentId: req.user.department_id, role: { not: 'admin' } } };
+      } else if (!(req.user.role === 'admin' || req.user.role === 'manager' || await hasOvertimePerm(req.user, 'overtime_edit_after_seen'))) {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
-      
-      const countResult = db.prepare(`SELECT COUNT(*) as total ${baseQuery} ${whereClause}`).get(...params);
-      const total = countResult ? countResult.total : 0;
-      
-      const requests = db.prepare(`
-        SELECT o.*, u.full_name as user_name, d.name as user_dept,
-               s.full_name as supervisor_name,
-               m.full_name as manager_name,
-               sec.full_name as security_name,
-               ed.full_name as editor_name
-        ${baseQuery} ${whereClause}
-        ORDER BY o.created_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `).all(...params);
-      
-      res.json({ data: requests.map(mapOvertime), total, page, limit });
+
+      const total = await prisma.overtimeRequest.count({ where });
+
+      const requests = await prisma.overtimeRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip,
+        include: { user: { select: userSelect } },
+      });
+
+      const rows = await decorateOvertimeRows(requests, { actors: ['supervisorId', 'managerId', 'securityId', 'editedBy'] });
+      res.json({ data: mapRow(rows).map(mapOvertime), total, page, limit });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/', (req, res) => {
+  router.post('/', async (req, res) => {
     try {
       const { user_id, start_date, start_time, end_date, end_time, reason } = req.body;
       if (!start_date || !start_time || !end_date || !end_time) {
@@ -244,45 +256,42 @@ module.exports = function(db) {
       let supervisorDate = null;
       let managerId = null;
       let managerDate = null;
-      
-      const userTypeCheck = db.prepare("SELECT work_type FROM users WHERE id = ?").get(req.user.id);
-      if (userTypeCheck && userTypeCheck.work_type === 'shift' && (!user_id || parseInt(user_id) === req.user.id)) {
+
+      const userTypeCheck = await prisma.user.findUnique({ where: { id: req.user.id }, select: { workType: true } });
+      if (userTypeCheck && userTypeCheck.workType === 'shift' && (!user_id || parseInt(user_id) === req.user.id)) {
         return res.status(400).json({ error: 'کاربران شیفتی مجاز به ثبت درخواست اضافه کار نیستند' });
       }
-
-      const pad = (n) => String(n).padStart(2, '0');
-      const getNowString = () => {
-        const d = new Date();
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-      };
 
       if (user_id && parseInt(user_id) !== req.user.id) {
         if (!['admin', 'manager', 'supervisor'].includes(req.user.role)) {
           return res.status(403).json({ error: 'شما مجاز به ثبت اضافه کار برای دیگران نیستید' });
         }
-        
-        const u = db.prepare('SELECT id, full_name, department_id, is_active, role, work_type FROM users WHERE id = ?').get(user_id);
-        if (!u || !u.is_active) {
+
+        const u = await prisma.user.findUnique({
+          where: { id: parseInt(user_id) },
+          select: { id: true, fullName: true, departmentId: true, isActive: true, role: true, workType: true },
+        });
+        if (!u || !u.isActive) {
           return res.status(404).json({ error: 'کاربر مورد نظر یافت نشد یا غیرفعال است' });
         }
-        
-        if (u.work_type === 'shift') {
+
+        if (u.workType === 'shift') {
           return res.status(400).json({ error: 'کاربر مورد نظر شیفتی بوده و مجاز به ثبت درخواست اضافه کار نمی‌باشد' });
         }
-        
+
         if (req.user.role === 'supervisor') {
-          if (u.department_id !== req.user.department_id) {
+          if (u.departmentId !== req.user.department_id) {
             return res.status(403).json({ error: 'شما فقط می‌توانید برای پرسنل واحد خودتان اضافه کار ثبت کنید' });
           }
           targetUserId = u.id;
-          targetUser = u;
+          targetUser = { ...u, full_name: u.fullName, department_id: u.departmentId };
           initialStatus = 'pending_manager'; // Direct to manager if supervisor registers for subordinate
           supervisorId = req.user.id;
           supervisorDate = getNowString();
         } else {
           // admin or manager
           targetUserId = u.id;
-          targetUser = u;
+          targetUser = { ...u, full_name: u.fullName, department_id: u.departmentId };
           initialStatus = 'approved';
           managerId = req.user.id;
           managerDate = getNowString();
@@ -304,79 +313,77 @@ module.exports = function(db) {
       }
 
       // Check for overlapping/duplicate requests
-      const existingRequests = db.prepare(`
-        SELECT id, start_date, start_hour, end_date, end_hour, status
-        FROM overtime_requests
-        WHERE user_id = ? AND status != 'rejected'
-      `).all(targetUserId);
+      const existingRequests = await prisma.overtimeRequest.findMany({
+        where: { userId: targetUserId, status: { not: 'rejected' } },
+        select: { id: true, startDate: true, startHour: true, endDate: true, endHour: true, status: true },
+      });
 
       const newStart = moment(`${start_date} ${start_time}`, 'jYYYY/jMM/jDD HH:mm');
       const newEnd = moment(`${end_date} ${end_time}`, 'jYYYY/jMM/jDD HH:mm');
 
       for (const reqOfUser of existingRequests) {
-        const reqStart = moment(`${reqOfUser.start_date} ${reqOfUser.start_hour}`, 'jYYYY/jMM/jDD HH:mm');
-        const reqEnd = moment(`${reqOfUser.end_date} ${reqOfUser.end_hour}`, 'jYYYY/jMM/jDD HH:mm');
-        
+        const reqStart = moment(`${reqOfUser.startDate} ${reqOfUser.startHour}`, 'jYYYY/jMM/jDD HH:mm');
+        const reqEnd = moment(`${reqOfUser.endDate} ${reqOfUser.endHour}`, 'jYYYY/jMM/jDD HH:mm');
+
         if (newStart.isBefore(reqEnd) && reqStart.isBefore(newEnd)) {
           const userMsg = targetUserId === req.user.id ? 'قبلی شما' : 'قبلی این کاربر';
-          return res.status(400).json({ error: `این درخواست با یکی از درخواست‌های اضافه کار ${userMsg} همپوشانی دارد (${reqOfUser.start_date} تا ${reqOfUser.end_date})` });
+          return res.status(400).json({ error: `این درخواست با یکی از درخواست‌های اضافه کار ${userMsg} همپوشانی دارد (${reqOfUser.startDate} تا ${reqOfUser.endDate})` });
         }
       }
 
-      const overtimeHours = calculateOvertimeHours(start_date, start_time, end_date, end_time);
+      const overtimeHours = await calculateOvertimeHours(start_date, start_time, end_date, end_time);
       if (overtimeHours <= 0) {
         return res.status(400).json({ error: 'زمان انتخاب شده در ساعات اضافه کار معتبر یا روزهای تعطیل قرار ندارد' });
       }
 
-      const result = db.prepare(`
-        INSERT INTO overtime_requests (
-          user_id, start_date, end_date, hours_count, reason, status, start_hour, end_hour,
-          supervisor_id, supervisor_date, manager_id, manager_date
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        targetUserId,
-        start_date,
-        end_date,
-        overtimeHours,
-        reason || '',
-        initialStatus,
-        start_time,
-        end_time,
-        supervisorId,
-        supervisorDate,
-        managerId,
-        managerDate
-      );
+      const result = await prisma.overtimeRequest.create({
+        data: {
+          userId: targetUserId,
+          startDate: start_date,
+          endDate: end_date,
+          hoursCount: overtimeHours,
+          reason: reason || '',
+          status: initialStatus,
+          startHour: start_time,
+          endHour: end_time,
+          supervisorId,
+          supervisorDate,
+          managerId,
+          managerDate,
+        },
+      });
 
       // Notifications
       if (targetUserId !== req.user.id) {
         if (req.user.role === 'supervisor') {
-          notify(targetUserId, 'ثبت اضافه کار توسط سرپرست', `اضافه کار برای شما توسط سرپرست (${req.user.full_name}) ثبت گردید و برای تایید مدیر ارسال شد`, '/overtime');
-          
-          const managers = db.prepare("SELECT id FROM users WHERE role = 'manager' AND is_active = 1").all();
-          managers.forEach(m => {
-            notify(m.id, 'درخواست اضافه کار جدید', `درخواست اضافه کار ثبت شده توسط سرپرست برای ${targetUser.full_name} نیاز به تایید مدیر دارد`, '/overtime');
-          });
+          await notify(targetUserId, 'ثبت اضافه کار توسط سرپرست', `اضافه کار برای شما توسط سرپرست (${req.user.full_name}) ثبت گردید و برای تایید مدیر ارسال شد`, '/overtime');
+
+          const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true }, select: { id: true } });
+          for (const m of managers) {
+            await notify(m.id, 'درخواست اضافه کار جدید', `درخواست اضافه کار ثبت شده توسط سرپرست برای ${targetUser.full_name} نیاز به تایید مدیر دارد`, '/overtime');
+          }
         } else {
-          notify(targetUserId, 'ثبت اضافه کار توسط مدیریت', `اضافه کار برای شما توسط مدیریت (${req.user.full_name}) ثبت و تایید گردید`, '/overtime');
+          await notify(targetUserId, 'ثبت اضافه کار توسط مدیریت', `اضافه کار برای شما توسط مدیریت (${req.user.full_name}) ثبت و تایید گردید`, '/overtime');
         }
       } else {
-        const supervisor = db.prepare("SELECT id FROM users WHERE role = 'supervisor' AND department_id = ? AND is_active = 1").get(req.user.department_id);
+        const supervisor = await prisma.user.findFirst({
+          where: { role: 'supervisor', departmentId: req.user.department_id, isActive: true },
+          select: { id: true },
+        });
         if (supervisor) {
-          notify(supervisor.id, 'درخواست اضافه کار جدید', `${req.user.full_name} درخواست اضافه کار ثبت کرده است`, '/overtime');
+          await notify(supervisor.id, 'درخواست اضافه کار جدید', `${req.user.full_name} درخواست اضافه کار ثبت کرده است`, '/overtime');
         }
       }
 
-      res.json({ id: result.lastInsertRowid, message: 'درخواست اضافه کار ثبت شد' });
+      res.json({ id: result.id, message: 'درخواست اضافه کار ثبت شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/:id/edit', (req, res) => {
+  router.put('/:id/edit', async (req, res) => {
     try {
-      const request = db.prepare("SELECT * FROM overtime_requests WHERE id = ? AND user_id = ? AND status = 'pending_supervisor'").get(req.params.id, req.user.id);
+      const request = await prisma.overtimeRequest.findFirst({ where: { id: Number(req.params.id), userId: req.user.id, status: 'pending_supervisor' } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد یا قابل ویرایش نیست' });
 
       const { start_date, start_time, end_date, end_time, reason } = req.body;
@@ -389,31 +396,32 @@ module.exports = function(db) {
         return res.status(400).json({ error: 'امکان ثبت اضافه کار برای تاریخ گذشته وجود ندارد' });
       }
 
-      const existingRequests = db.prepare(`
-        SELECT id, start_date, start_hour, end_date, end_hour
-        FROM overtime_requests
-        WHERE user_id = ? AND status != 'rejected' AND id != ?
-      `).all(req.user.id, req.params.id);
+      const existingRequests = await prisma.overtimeRequest.findMany({
+        where: { userId: req.user.id, status: { not: 'rejected' }, id: { not: Number(req.params.id) } },
+        select: { id: true, startDate: true, startHour: true, endDate: true, endHour: true },
+      });
 
       const newStart = moment(`${start_date} ${start_time}`, 'jYYYY/jMM/jDD HH:mm');
       const newEnd = moment(`${end_date} ${end_time}`, 'jYYYY/jMM/jDD HH:mm');
 
       for (const reqOfUser of existingRequests) {
-        const reqStart = moment(`${reqOfUser.start_date} ${reqOfUser.start_hour}`, 'jYYYY/jMM/jDD HH:mm');
-        const reqEnd = moment(`${reqOfUser.end_date} ${reqOfUser.end_hour}`, 'jYYYY/jMM/jDD HH:mm');
-        
+        const reqStart = moment(`${reqOfUser.startDate} ${reqOfUser.startHour}`, 'jYYYY/jMM/jDD HH:mm');
+        const reqEnd = moment(`${reqOfUser.endDate} ${reqOfUser.endHour}`, 'jYYYY/jMM/jDD HH:mm');
+
         if (newStart.isBefore(reqEnd) && reqStart.isBefore(newEnd)) {
-          return res.status(400).json({ error: `این تغییر با یکی از اضافه کارهای قبلی شما همپوشانی دارد (${reqOfUser.start_date} تا ${reqOfUser.end_date})` });
+          return res.status(400).json({ error: `این تغییر با یکی از اضافه کارهای قبلی شما همپوشانی دارد (${reqOfUser.startDate} تا ${reqOfUser.endDate})` });
         }
       }
 
-      const overtimeHours = calculateOvertimeHours(start_date, start_time, end_date, end_time);
+      const overtimeHours = await calculateOvertimeHours(start_date, start_time, end_date, end_time);
       if (overtimeHours <= 0) {
         return res.status(400).json({ error: 'زمان انتخاب شده در ساعات اضافه کار معتبر یا روزهای تعطیل قرار ندارد' });
       }
 
-      db.prepare('UPDATE overtime_requests SET start_date = ?, end_date = ?, hours_count = ?, reason = ?, start_hour = ?, end_hour = ? WHERE id = ?')
-        .run(start_date, end_date, overtimeHours, reason || '', start_time, end_time, req.params.id);
+      await prisma.overtimeRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { startDate: start_date, endDate: end_date, hoursCount: overtimeHours, reason: reason || '', startHour: start_time, endHour: end_time },
+      });
 
       res.json({ message: 'درخواست با موفقیت ویرایش شد' });
     } catch (err) {
@@ -421,29 +429,29 @@ module.exports = function(db) {
     }
   });
 
-  router.delete('/:id/delete', (req, res) => {
+  router.delete('/:id/delete', async (req, res) => {
     try {
-      const request = db.prepare("SELECT * FROM overtime_requests WHERE id = ? AND user_id = ? AND status = 'pending_supervisor'").get(req.params.id, req.user.id);
+      const request = await prisma.overtimeRequest.findFirst({ where: { id: Number(req.params.id), userId: req.user.id, status: 'pending_supervisor' } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد یا قابل حذف نیست' });
 
-      db.prepare('DELETE FROM overtime_requests WHERE id = ?').run(req.params.id);
+      await prisma.overtimeRequest.deleteMany({ where: { id: Number(req.params.id) } });
       res.json({ message: 'درخواست با موفقیت حذف شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.delete('/:id/admin-delete', (req, res) => {
+  router.delete('/:id/admin-delete', async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'فقط مدیر سیستم می‌تواند اضافه کار تایید شده را حذف کند' });
     }
     try {
-      const request = db.prepare('SELECT * FROM overtime_requests WHERE id = ?').get(req.params.id);
+      const request = await prisma.overtimeRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare('DELETE FROM overtime_requests WHERE id = ?').run(req.params.id);
+      await prisma.overtimeRequest.deleteMany({ where: { id: Number(req.params.id) } });
 
-      notify(request.user_id, 'حذف درخواست اضافه کار', `درخواست اضافه کار شما (${request.start_date} تا ${request.end_date}) توسط مدیر سیستم حذف شد`, '/overtime');
+      await notify(request.userId, 'حذف درخواست اضافه کار', `درخواست اضافه کار شما (${request.startDate} تا ${request.endDate}) توسط مدیر سیستم حذف شد`, '/overtime');
 
       res.json({ message: 'درخواست اضافه کار حذف شد' });
     } catch (err) {
@@ -451,30 +459,30 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/approve-supervisor', (req, res) => {
+  router.put('/:id/approve-supervisor', async (req, res) => {
     try {
       const { comment } = req.body;
-      const request = db.prepare('SELECT * FROM overtime_requests WHERE id = ? AND status = ?').get(req.params.id, 'pending_supervisor');
+      const request = await prisma.overtimeRequest.findFirst({ where: { id: Number(req.params.id), status: 'pending_supervisor' } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
       if (req.user.role !== 'admin') {
-        const leaveUser = db.prepare('SELECT department_id FROM users WHERE id = ?').get(request.user_id);
-        if (leaveUser && leaveUser.department_id !== req.user.department_id) {
+        const leaveUser = await prisma.user.findUnique({ where: { id: request.userId }, select: { departmentId: true } });
+        if (leaveUser && leaveUser.departmentId !== req.user.department_id) {
           return res.status(403).json({ error: 'دسترسی غیرمجاز' });
         }
       }
 
-      db.prepare(`
-        UPDATE overtime_requests SET status = 'pending_manager', supervisor_id = ?, supervisor_comment = ?, supervisor_date = datetime('now')
-        WHERE id = ?
-      `).run(req.user.id, comment || '', req.params.id);
-
-      notify(request.user_id, 'تایید سرپرست', `درخواست اضافه کار شما توسط سرپرست تایید شد و برای مدیر ارسال شد`, '/overtime');
-
-      const managers = db.prepare("SELECT id FROM users WHERE role = 'manager' AND is_active = 1").all();
-      managers.forEach(m => {
-        notify(m.id, 'درخواست اضافه کار جدید', `درخواست اضافه کار ${request.user_id} نیاز به تایید مدیر دارد`, '/overtime');
+      await prisma.overtimeRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'pending_manager', supervisorId: req.user.id, supervisorComment: comment || '', supervisorDate: getNowString() },
       });
+
+      await notify(request.userId, 'تایید سرپرست', `درخواست اضافه کار شما توسط سرپرست تایید شد و برای مدیر ارسال شد`, '/overtime');
+
+      const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true }, select: { id: true } });
+      for (const m of managers) {
+        await notify(m.id, 'درخواست اضافه کار جدید', `درخواست اضافه کار ${request.userId} نیاز به تایید مدیر دارد`, '/overtime');
+      }
 
       res.json({ message: 'درخواست توسط سرپرست تایید شد' });
     } catch (err) {
@@ -482,41 +490,44 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/reject-supervisor', (req, res) => {
+  router.put('/:id/reject-supervisor', async (req, res) => {
     try {
       const { comment } = req.body;
-      const request = db.prepare("SELECT * FROM overtime_requests WHERE id = ? AND status = 'pending_supervisor'").get(req.params.id);
+      const request = await prisma.overtimeRequest.findFirst({ where: { id: Number(req.params.id), status: 'pending_supervisor' } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare(`
-        UPDATE overtime_requests SET status = 'rejected', supervisor_id = ?, supervisor_comment = ?, supervisor_date = datetime('now')
-        WHERE id = ?
-      `).run(req.user.id, comment || 'رد شده توسط سرپرست', req.params.id);
+      await prisma.overtimeRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'rejected', supervisorId: req.user.id, supervisorComment: comment || 'رد شده توسط سرپرست', supervisorDate: getNowString() },
+      });
 
-      notify(request.user_id, 'رد درخواست اضافه کار', `درخواست اضافه کار شما توسط سرپرست رد شد`, '/overtime');
+      await notify(request.userId, 'رد درخواست اضافه کار', `درخواست اضافه کار شما توسط سرپرست رد شد`, '/overtime');
       res.json({ message: 'درخواست رد شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/:id/approve-manager', (req, res) => {
+  router.put('/:id/approve-manager', async (req, res) => {
     try {
       const { comment } = req.body;
-      const request = db.prepare("SELECT * FROM overtime_requests WHERE id = ? AND status = 'pending_manager'").get(req.params.id);
+      const request = await prisma.overtimeRequest.findFirst({ where: { id: Number(req.params.id), status: 'pending_manager' } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare(`
-        UPDATE overtime_requests SET status = 'approved', manager_id = ?, manager_comment = ?, manager_date = datetime('now')
-        WHERE id = ?
-      `).run(req.user.id, comment || '', req.params.id);
-
-      notify(request.user_id, 'تایید نهایی اضافه کار', `اضافه کار شما توسط مدیر تایید شد`, '/overtime');
-
-      const securityUsers = db.prepare("SELECT u.id FROM users u JOIN departments d ON u.department_id = d.id WHERE d.name LIKE '%حراست%' AND u.is_active = 1").all();
-      securityUsers.forEach(s => {
-        notify(s.id, 'اضافه کار تایید شده', `اضافه کار کاربر ${request.user_id} تایید شده - لطفاً مشاهده کنید`, '/overtime');
+      await prisma.overtimeRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'approved', managerId: req.user.id, managerComment: comment || '', managerDate: getNowString() },
       });
+
+      await notify(request.userId, 'تایید نهایی اضافه کار', `اضافه کار شما توسط مدیر تایید شد`, '/overtime');
+
+      const securityUsers = await prisma.user.findMany({
+        where: { department: { is: { name: { contains: 'حراست' } } }, isActive: true },
+        select: { id: true },
+      });
+      for (const s of securityUsers) {
+        await notify(s.id, 'اضافه کار تایید شده', `اضافه کار کاربر ${request.userId} تایید شده - لطفاً مشاهده کنید`, '/overtime');
+      }
 
       res.json({ message: 'اضافه کار توسط مدیر تایید شد' });
     } catch (err) {
@@ -524,36 +535,36 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/reject-manager', (req, res) => {
+  router.put('/:id/reject-manager', async (req, res) => {
     try {
       const { comment } = req.body;
-      const request = db.prepare("SELECT * FROM overtime_requests WHERE id = ? AND status = 'pending_manager'").get(req.params.id);
+      const request = await prisma.overtimeRequest.findFirst({ where: { id: Number(req.params.id), status: 'pending_manager' } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare(`
-        UPDATE overtime_requests SET status = 'rejected', manager_id = ?, manager_comment = ?, manager_date = datetime('now')
-        WHERE id = ?
-      `).run(req.user.id, comment || 'رد شده توسط مدیر', req.params.id);
+      await prisma.overtimeRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'rejected', managerId: req.user.id, managerComment: comment || 'رد شده توسط مدیر', managerDate: getNowString() },
+      });
 
-      notify(request.user_id, 'رد درخواست اضافه کار', `درخواست اضافه کار شما توسط مدیر رد شد`, '/overtime');
+      await notify(request.userId, 'رد درخواست اضافه کار', `درخواست اضافه کار شما توسط مدیر رد شد`, '/overtime');
       res.json({ message: 'درخواست رد شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/:id/seen-security', (req, res) => {
-    if (!hasOvertimePerm(req.user, 'overtime_security_view')) {
+  router.put('/:id/seen-security', async (req, res) => {
+    if (!(await hasOvertimePerm(req.user, 'overtime_security_view'))) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی رویت حراست را ندارید' });
     }
     try {
-      const request = db.prepare("SELECT * FROM overtime_requests WHERE id = ? AND status = 'approved'").get(req.params.id);
+      const request = await prisma.overtimeRequest.findFirst({ where: { id: Number(req.params.id), status: 'approved' } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      db.prepare(`
-        UPDATE overtime_requests SET status = 'seen_security', security_id = ?, security_date = datetime('now')
-        WHERE id = ?
-      `).run(req.user.id, req.params.id);
+      await prisma.overtimeRequest.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'seen_security', securityId: req.user.id, securityDate: getNowString() },
+      });
 
       res.json({ message: 'اضافه کار رویت شد' });
     } catch (err) {
@@ -562,13 +573,13 @@ module.exports = function(db) {
   });
 
   // Calculate endpoint
-  router.get('/calculate', (req, res) => {
+  router.get('/calculate', async (req, res) => {
     try {
       const { start_date, start_time, end_date, end_time } = req.query;
       if (!start_date || !start_time || !end_date || !end_time) {
         return res.status(400).json({ error: 'تمام فیلدهای تاریخ و ساعت شروع و پایان الزامی هستند' });
       }
-      const totalHours = calculateOvertimeHours(start_date, start_time, end_date, end_time);
+      const totalHours = await calculateOvertimeHours(start_date, start_time, end_date, end_time);
       const days = Math.floor(totalHours / 8);
       const remainingHours = totalHours % 8;
       res.json({ total_hours: totalHours, days, remaining_hours: remainingHours });
@@ -578,9 +589,13 @@ module.exports = function(db) {
   });
 
   // Total cumulative approved overtime
-  router.get('/balance', (req, res) => {
+  router.get('/balance', async (req, res) => {
     try {
-      const totalHours = db.prepare("SELECT COALESCE(SUM(hours_count), 0) as total FROM overtime_requests WHERE user_id = ? AND status IN ('approved', 'seen_security')").get(req.user.id).total;
+      const agg = await prisma.overtimeRequest.aggregate({
+        where: { userId: req.user.id, status: { in: ['approved', 'seen_security'] } },
+        _sum: { hoursCount: true },
+      });
+      const totalHours = agg._sum.hoursCount ?? 0;
       const days = Math.floor(totalHours / 8);
       const remainingHours = totalHours % 8;
       res.json({ total_hours: totalHours, days, remaining_hours: remainingHours });
@@ -589,38 +604,49 @@ module.exports = function(db) {
     }
   });
 
-  router.get('/balance-all', (req, res) => {
+  router.get('/balance-all', async (req, res) => {
     try {
-      let balances;
-      if (req.user.role === 'admin' || req.user.role === 'manager' || hasOvertimePerm(req.user, 'overtime_manager_approve')) {
-        balances = db.prepare(`
-          SELECT u.id as user_id, u.full_name, u.department_id, d.name as department_name,
-                 COALESCE((SELECT SUM(hours_count) FROM overtime_requests WHERE user_id = u.id AND status IN ('approved', 'seen_security')), 0) as total_hours
-          FROM users u
-          LEFT JOIN departments d ON u.department_id = d.id
-          WHERE u.is_active = 1
-          ORDER BY d.name, u.full_name
-        `).all();
+      let users;
+      const selectUser = { id: true, fullName: true, departmentId: true, department: { select: { name: true } } };
+      if (req.user.role === 'admin' || req.user.role === 'manager' || await hasOvertimePerm(req.user, 'overtime_manager_approve')) {
+        users = await prisma.user.findMany({
+          where: { isActive: true },
+          select: selectUser,
+          orderBy: [{ department: { name: 'asc' } }, { fullName: 'asc' }],
+        });
       } else if (req.user.role === 'supervisor') {
-        balances = db.prepare(`
-          SELECT u.id as user_id, u.full_name, u.department_id, d.name as department_name,
-                 COALESCE((SELECT SUM(hours_count) FROM overtime_requests WHERE user_id = u.id AND status IN ('approved', 'seen_security')), 0) as total_hours
-          FROM users u
-          LEFT JOIN departments d ON u.department_id = d.id
-          WHERE u.is_active = 1 AND u.department_id = ? AND u.role != 'admin'
-          ORDER BY u.full_name
-        `).all(req.user.department_id);
+        users = await prisma.user.findMany({
+          where: { isActive: true, departmentId: req.user.department_id, role: { not: 'admin' } },
+          select: selectUser,
+          orderBy: { fullName: 'asc' },
+        });
       } else {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
-      
-      res.json(balances.map(b => {
-        const days = Math.floor(b.total_hours / 8);
-        const remainingHours = b.total_hours % 8;
+
+      const userIds = users.map((u) => u.id);
+      const totalMap = new Map();
+      if (userIds.length) {
+        const groups = await prisma.overtimeRequest.groupBy({
+          by: ['userId'],
+          where: { userId: { in: userIds }, status: { in: ['approved', 'seen_security'] } },
+          _sum: { hoursCount: true },
+        });
+        groups.forEach((g) => totalMap.set(g.userId, g._sum.hoursCount ?? 0));
+      }
+
+      res.json(users.map((u) => {
+        const totalHours = totalMap.get(u.id) ?? 0;
+        const days = Math.floor(totalHours / 8);
+        const remainingHours = totalHours % 8;
         return {
-          ...b,
+          user_id: u.id,
+          full_name: u.fullName,
+          department_id: u.departmentId,
+          department_name: u.department ? u.department.name : null,
+          total_hours: totalHours,
           days,
-          remaining_hours: remainingHours
+          remaining_hours: remainingHours,
         };
       }));
     } catch (err) {
@@ -628,63 +654,87 @@ module.exports = function(db) {
     }
   });
 
-  router.put('/:id/edit-after-seen', (req, res) => {
-    if (req.user.role !== 'admin' && !hasOvertimePerm(req.user, 'overtime_edit_after_seen')) {
+  router.put('/:id/edit-after-seen', async (req, res) => {
+    if (req.user.role !== 'admin' && !(await hasOvertimePerm(req.user, 'overtime_edit_after_seen'))) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی ویرایش اضافه کار پس از رویت را ندارید' });
     }
     try {
       const { end_date, end_time, hours_count, reason } = req.body;
-      const overtimeId = req.params.id;
-      
-      const request = db.prepare("SELECT * FROM overtime_requests WHERE id = ?").get(overtimeId);
+      const overtimeId = Number(req.params.id);
+
+      const request = await prisma.overtimeRequest.findUnique({ where: { id: overtimeId } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
-      
+
       if (request.status !== 'seen_security') {
         return res.status(400).json({ error: 'ویرایش اضافه کار فقط پس از رویت حراست امکان‌پذیر است' });
       }
-      
-      if (request.edited_by) {
+
+      if (request.editedBy) {
         return res.status(400).json({ error: 'این اضافه کار قبلاً اصلاح شده است و اصلاح مجدد آن امکان‌پذیر نیست' });
       }
-      
-      db.prepare(`
-        UPDATE overtime_requests 
-        SET end_date = ?, end_hour = ?, hours_count = ?, reason = ?,
-            edited_by = ?, edited_at = datetime('now'), edit_reason = ?
-        WHERE id = ?
-      `).run(end_date, end_time, hours_count, reason || request.reason || '', req.user.id, reason || '', overtimeId);
-      
-      res.json({ message: 'درخواست اضافه کار با موفقیت ویرایش شد' });
+
+      const oldVal = JSON.stringify({
+        end_date: request.endDate,
+        end_time: request.endHour,
+        hours_count: request.hoursCount,
+        reason: request.reason
+      });
+
+      const newVal = JSON.stringify({
+        end_date,
+        end_time,
+        hours_count,
+        reason: reason || request.reason
+      });
+
+      await prisma.overtimeRequest.update({
+        where: { id: overtimeId },
+        data: { endDate: end_date, endHour: end_time, hoursCount: Number(hours_count), reason: reason || request.reason || '', editedBy: req.user.id, editedAt: getNowString(), editReason: reason || '' },
+      });
+
+      // Log the change
+      await prisma.leaveChangeLog.create({
+        data: {
+          actionBy: req.user.id,
+          actionType: 'overtime_edit',
+          targetId: overtimeId,
+          oldValue: oldVal,
+          newValue: newVal,
+          details: `ویرایش اضافه کار کاربر (اصلاح پس از رویت). کارکرد جدید: ${hours_count} ساعت.`,
+        },
+      });
+
+      res.json({ message: 'درخواست اضافه کار با موفقیت ویرایش و لاگ شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // Helper function to calculate overtime hours
-  function calculateOvertimeHours(startDateStr, startTimeStr, endDateStr, endTimeStr) {
-    const holidays = getHolidays(db);
+  async function calculateOvertimeHours(startDateStr, startTimeStr, endDateStr, endTimeStr) {
+    const holidays = await getHolidays();
     const holidaysSet = new Set(holidays.map(h => h.holiday_date));
-    
+
     let current = moment(startDateStr, 'jYYYY/jMM/jDD');
     const end = moment(endDateStr, 'jYYYY/jMM/jDD');
-    
+
     let totalMinutes = 0;
-    
+
     const timeToMinutes = (t) => {
       const [h, m] = t.split(':').map(Number);
       return h * 60 + m;
     };
-    
+
     while (current.isSameOrBefore(end, 'day')) {
       const dateStr = current.format('jYYYY/jMM/jDD');
       const dayOfWeek = current.day(); // 0 is Sunday, ..., 5 is Friday, 6 is Saturday
-      
+
       const isFriday = (dayOfWeek === 5);
       const isOfficialHoliday = holidaysSet.has(dateStr);
-      
+
       let reqStartMin = (dateStr === startDateStr) ? timeToMinutes(startTimeStr) : 0;
       let reqEndMin = (dateStr === endDateStr) ? timeToMinutes(endTimeStr) : 1440;
-      
+
       // Overtime slots
       let slots = [];
       if (isFriday || isOfficialHoliday) {
@@ -696,7 +746,7 @@ module.exports = function(db) {
         // Saturday-Wednesday working: 08:00-12:00 (480 to 720) and 13:00-17:00 (780 to 1020)
         slots = [[0, 480], [720, 780], [1020, 1440]];
       }
-      
+
       for (const [slotStart, slotEnd] of slots) {
         const overlapStart = Math.max(reqStartMin, slotStart);
         const overlapEnd = Math.min(reqEndMin, slotEnd);
@@ -704,10 +754,10 @@ module.exports = function(db) {
           totalMinutes += (overlapEnd - overlapStart);
         }
       }
-      
+
       current.add(1, 'day');
     }
-    
+
     return totalMinutes / 60;
   }
 

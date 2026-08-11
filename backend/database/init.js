@@ -1360,7 +1360,8 @@ async function initDatabase() {
 
   const existingAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();
   if (!existingAdmin) {
-    const hash = bcrypt.hashSync('admin123', 10);
+    const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || 'ChangeMe!123';
+    const hash = bcrypt.hashSync(defaultPassword, 10);
     db.prepare("INSERT INTO users (id, password, full_name, role, department_id, must_change_password) VALUES (?, ?, ?, ?, ?, 1)").run(1000, hash, 'مدیر سیستم', 'admin', 1);
     
     // Also create a leave balance for the admin

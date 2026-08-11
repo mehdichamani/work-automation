@@ -1,30 +1,25 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
+const prisma = require('../database/prisma');
 
-module.exports = function(db) {
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  try {
-    db.exec(`CREATE TABLE IF NOT EXISTS push_subscriptions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      endpoint TEXT NOT NULL,
-      p256dh TEXT NOT NULL,
-      auth TEXT NOT NULL,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )`);
-  } catch(e) {}
-
-  router.post('/subscribe', (req, res) => {
+  router.post('/subscribe', async (req, res) => {
     try {
       const { endpoint, p256dh, auth: authKey } = req.body;
       if (!endpoint) return res.status(400).json({ error: 'endpoint الزامی است' });
 
-      db.prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?').run(req.user.id, endpoint);
-      db.prepare('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)')
-        .run(req.user.id, endpoint, p256dh || '', authKey || '');
+      await prisma.pushSubscription.deleteMany({ where: { userId: Number(req.user.id), endpoint } });
+      await prisma.pushSubscription.create({
+        data: {
+          userId: Number(req.user.id),
+          endpoint,
+          p256dh: p256dh || '',
+          auth: authKey || '',
+        },
+      });
 
       res.json({ message: 'اعلان Push فعال شد' });
     } catch (err) {
@@ -32,13 +27,13 @@ module.exports = function(db) {
     }
   });
 
-  router.delete('/unsubscribe', (req, res) => {
+  router.delete('/unsubscribe', async (req, res) => {
     try {
       const { endpoint } = req.body;
       if (endpoint) {
-        db.prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?').run(req.user.id, endpoint);
+        await prisma.pushSubscription.deleteMany({ where: { userId: Number(req.user.id), endpoint } });
       } else {
-        db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(req.user.id);
+        await prisma.pushSubscription.deleteMany({ where: { userId: Number(req.user.id) } });
       }
       res.json({ message: 'اعلان Push غیرفعال شد' });
     } catch (err) {

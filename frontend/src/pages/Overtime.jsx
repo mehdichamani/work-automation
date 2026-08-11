@@ -762,6 +762,7 @@ export default function Overtime() {
                 ))}
               </tbody>
             </table>
+            </div>
             {myRequests.length === 0 && <p className="text-center text-gray-400 py-8">درخواستی ثبت نشده</p>}
           </div>
         )}
@@ -859,6 +860,7 @@ export default function Overtime() {
                 🖨️ چاپ کل گزارش
               </button>
             </div>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
                 <tr>
@@ -907,6 +909,7 @@ export default function Overtime() {
                 ))}
               </tbody>
             </table>
+            </div>
             <Pagination page={allRequestsPage} total={allRequestsTotal} limit={50} onChange={setAllRequestsPage} />
           </div>
         )}
@@ -930,6 +933,7 @@ export default function Overtime() {
                 🖨️ چاپ لیست کارکردها
               </button>
             </div>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
                 <tr>
@@ -950,6 +954,7 @@ export default function Overtime() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>

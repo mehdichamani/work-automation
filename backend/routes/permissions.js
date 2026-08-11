@@ -1,5 +1,7 @@
 const express = require('express');
 const { authMiddleware, roleGuard } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow } = require('../utils/dbAdapter');
 
 const MODULES = [
   { key: 'inventory_add', label: 'افزودن اقلام به کارتکس', group: 'کارتکس انبار' },
@@ -42,7 +44,7 @@ const MODULES = [
   { key: 'learning_view', label: 'مشاهده محتوای آموزشی', group: 'دسترسی‌های پایه' },
 ];
 
-module.exports = function (db) {
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
@@ -50,32 +52,35 @@ module.exports = function (db) {
     res.json(MODULES);
   });
 
-  router.get('/', roleGuard('admin'), (req, res) => {
+  router.get('/', roleGuard('admin'), async (req, res) => {
     try {
-      const perms = db.prepare('SELECT * FROM permissions WHERE user_id IS NULL').all();
-      res.json(perms);
+      const perms = await prisma.permission.findMany({ where: { userId: null } });
+      res.json(mapRow(perms));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/user-permissions', roleGuard('admin'), (req, res) => {
+  router.get('/user-permissions', roleGuard('admin'), async (req, res) => {
     try {
-      const allPerms = db.prepare('SELECT * FROM permissions').all();
+      const allPerms = await prisma.permission.findMany();
       const userPermsMap = {};
       for (const p of allPerms) {
-        if (p.user_id !== null && p.user_id !== undefined) {
-          if (!userPermsMap[p.user_id]) userPermsMap[p.user_id] = [];
-          userPermsMap[p.user_id].push({ module_key: p.module_key, is_enabled: p.is_enabled });
+        if (p.userId !== null && p.userId !== undefined) {
+          if (!userPermsMap[p.userId]) userPermsMap[p.userId] = [];
+          userPermsMap[p.userId].push({ module_key: p.moduleKey, is_enabled: p.isEnabled ? 1 : 0 });
         }
       }
+      const userIds = Object.keys(userPermsMap).map(Number);
       const result = [];
-      for (const [userId, perms] of Object.entries(userPermsMap)) {
-        const uid = Number(userId);
-        const users = db.prepare('SELECT id, full_name, username FROM users WHERE id = ?').all(uid);
-        if (!users.length) continue;
-        const user = users[0];
-        result.push({ user_id: user.id, full_name: user.full_name, username: user.username, permissions: perms });
+      if (userIds.length > 0) {
+        const users = await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, fullName: true, username: true },
+        });
+        for (const user of users) {
+          result.push({ user_id: user.id, full_name: user.fullName, username: user.username, permissions: userPermsMap[user.id] });
+        }
       }
       res.json(result);
     } catch (err) {
@@ -83,38 +88,52 @@ module.exports = function (db) {
     }
   });
 
-  router.put('/', roleGuard('admin'), (req, res) => {
+  router.put('/', roleGuard('admin'), async (req, res) => {
     try {
       const { permissions } = req.body;
       if (!Array.isArray(permissions)) {
         return res.status(400).json({ error: 'داده نامعتبر' });
       }
-      db.prepare('DELETE FROM permissions WHERE user_id IS NULL').run();
-      const ins = db.prepare('INSERT INTO permissions (module_key, department_id, is_enabled) VALUES (?, ?, ?)');
-      for (const p of permissions) {
-        if (p.module_key && p.department_id !== undefined) {
-          ins.run(p.module_key, p.department_id, p.is_enabled ? 1 : 0);
+      await prisma.$transaction(async (tx) => {
+        await tx.permission.deleteMany({ where: { userId: null } });
+        const rows = permissions
+          .filter(p => p.module_key && p.department_id !== undefined)
+          .map(p => ({
+            moduleKey: p.module_key,
+            departmentId: Number(p.department_id),
+            userId: null,
+            isEnabled: !!p.is_enabled,
+          }));
+        if (rows.length > 0) {
+          await tx.permission.createMany({ data: rows });
         }
-      }
+      });
       res.json({ message: 'دسترسی‌ها ذخیره شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/user-permissions', roleGuard('admin'), (req, res) => {
+  router.put('/user-permissions', roleGuard('admin'), async (req, res) => {
     try {
       const { user_id, permissions } = req.body;
       if (!user_id || !Array.isArray(permissions)) {
         return res.status(400).json({ error: 'داده نامعتبر' });
       }
-      db.prepare('DELETE FROM permissions WHERE user_id = ?').run(user_id);
-      const ins = db.prepare('INSERT INTO permissions (module_key, user_id, is_enabled) VALUES (?, ?, ?)');
-      for (const p of permissions) {
-        if (p.module_key) {
-          ins.run(p.module_key, user_id, p.is_enabled ? 1 : 0);
+      const uid = Number(user_id);
+      await prisma.$transaction(async (tx) => {
+        await tx.permission.deleteMany({ where: { userId: uid } });
+        const rows = permissions
+          .filter(p => p.module_key)
+          .map(p => ({
+            moduleKey: p.module_key,
+            userId: uid,
+            isEnabled: !!p.is_enabled,
+          }));
+        if (rows.length > 0) {
+          await tx.permission.createMany({ data: rows });
         }
-      }
+      });
       res.json({ message: 'دسترسی‌های کاربر ذخیره شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -122,60 +141,74 @@ module.exports = function (db) {
   });
 
   // GET /permissions/matrix - returns full permission-department-user matrix for both views
-  router.get('/matrix', roleGuard('admin'), (req, res) => {
+  router.get('/matrix', roleGuard('admin'), async (req, res) => {
     try {
-      const depts = db.prepare('SELECT id, name FROM departments WHERE is_active = 1 ORDER BY id').all();
+      const depts = await prisma.department.findMany({
+        where: { isActive: true },
+        orderBy: { id: 'asc' },
+        select: { id: true, name: true },
+      });
+
       const deptUsers = {};
       for (const dept of depts) {
-        deptUsers[dept.id] = db.prepare(
-          'SELECT id, full_name, username, role FROM users WHERE department_id = ? AND is_active = 1 ORDER BY full_name'
-        ).all(dept.id);
+        const users = await prisma.user.findMany({
+          where: { departmentId: dept.id, isActive: true },
+          orderBy: { fullName: 'asc' },
+          select: { id: true, fullName: true, username: true, role: true },
+        });
+        deptUsers[dept.id] = mapRow(users);
       }
 
-      const deptPerms = db.prepare(
-        'SELECT module_key, department_id, is_enabled FROM permissions WHERE user_id IS NULL'
-      ).all();
+      const deptPerms = await prisma.permission.findMany({
+        where: { userId: null },
+        select: { moduleKey: true, departmentId: true, isEnabled: true },
+      });
 
-      const userPerms = db.prepare(
-        'SELECT module_key, user_id, is_enabled FROM permissions WHERE user_id IS NOT NULL'
-      ).all();
+      const userPerms = await prisma.permission.findMany({
+        where: { userId: { not: null } },
+        select: { moduleKey: true, userId: true, isEnabled: true },
+      });
 
       const deptPermMap = {};
       for (const p of deptPerms) {
-        if (!deptPermMap[p.department_id]) deptPermMap[p.department_id] = {};
-        deptPermMap[p.department_id][p.module_key] = p.is_enabled;
+        if (!deptPermMap[p.departmentId]) deptPermMap[p.departmentId] = {};
+        deptPermMap[p.departmentId][p.moduleKey] = p.isEnabled ? 1 : 0;
       }
 
       const userPermMap = {};
       for (const p of userPerms) {
-        if (!userPermMap[p.user_id]) userPermMap[p.user_id] = {};
-        userPermMap[p.user_id][p.module_key] = p.is_enabled;
+        if (!userPermMap[p.userId]) userPermMap[p.userId] = {};
+        userPermMap[p.userId][p.moduleKey] = p.isEnabled ? 1 : 0;
       }
 
-      res.json({ departments: depts, deptUsers, deptPermMap, userPermMap, modules: MODULES });
+      res.json({ departments: mapRow(depts), deptUsers, deptPermMap, userPermMap, modules: MODULES });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // PUT /permissions/toggle-user - toggle a single user's permission
-  router.put('/toggle-user', roleGuard('admin'), (req, res) => {
+  router.put('/toggle-user', roleGuard('admin'), async (req, res) => {
     try {
       const { user_id, module_key, is_enabled } = req.body;
       if (!user_id || !module_key) {
         return res.status(400).json({ error: 'داده نامعتبر' });
       }
 
-      const existing = db.prepare(
-        'SELECT id FROM permissions WHERE user_id = ? AND module_key = ?'
-      ).get(user_id, module_key);
+      const uid = Number(user_id);
+      const existing = await prisma.permission.findFirst({
+        where: { userId: uid, moduleKey: module_key },
+      });
 
       if (existing) {
-        db.prepare('UPDATE permissions SET is_enabled = ? WHERE user_id = ? AND module_key = ?')
-          .run(is_enabled ? 1 : 0, user_id, module_key);
+        await prisma.permission.updateMany({
+          where: { userId: uid, moduleKey: module_key },
+          data: { isEnabled: !!is_enabled },
+        });
       } else {
-        db.prepare('INSERT INTO permissions (module_key, user_id, is_enabled) VALUES (?, ?, ?)')
-          .run(module_key, user_id, is_enabled ? 1 : 0);
+        await prisma.permission.create({
+          data: { moduleKey: module_key, userId: uid, isEnabled: !!is_enabled },
+        });
       }
 
       res.json({ message: 'وضعیت دسترسی تغییر کرد' });
@@ -185,33 +218,28 @@ module.exports = function (db) {
   });
 
   // PUT /permissions/bulk-toggle-dept - toggle permission for all members of a department
-  router.put('/bulk-toggle-dept', roleGuard('admin'), (req, res) => {
+  router.put('/bulk-toggle-dept', roleGuard('admin'), async (req, res) => {
     try {
       const { department_id, module_key, is_enabled } = req.body;
       if (!department_id || !module_key) {
         return res.status(400).json({ error: 'داده نامعتبر' });
       }
 
-      const members = db.prepare(
-        'SELECT id FROM users WHERE department_id = ? AND is_active = 1'
-      ).all(department_id);
+      const members = await prisma.user.findMany({
+        where: { departmentId: Number(department_id), isActive: true },
+        select: { id: true },
+      });
 
-      const del = db.prepare('DELETE FROM permissions WHERE user_id = ? AND module_key = ?');
-      const ins = db.prepare('INSERT INTO permissions (module_key, user_id, is_enabled) VALUES (?, ?, ?)');
-
-      db.exec('BEGIN TRANSACTION');
-      try {
+      await prisma.$transaction(async (tx) => {
         for (const m of members) {
-          del.run(m.id, module_key);
+          await tx.permission.deleteMany({ where: { userId: m.id, moduleKey: module_key } });
           if (is_enabled) {
-            ins.run(module_key, m.id, 1);
+            await tx.permission.create({
+              data: { moduleKey: module_key, userId: m.id, isEnabled: true },
+            });
           }
         }
-        db.exec('COMMIT');
-      } catch (e) {
-        db.exec('ROLLBACK');
-        throw e;
-      }
+      });
 
       res.json({ message: 'دسترسی گروهی اعمال شد', affected: members.length });
     } catch (err) {
@@ -219,7 +247,7 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/bulk-set-users', roleGuard('admin'), (req, res) => {
+  router.post('/bulk-set-users', roleGuard('admin'), async (req, res) => {
     try {
       const { userIds } = req.body;
       if (!Array.isArray(userIds) || userIds.length === 0) {
@@ -228,32 +256,29 @@ module.exports = function (db) {
 
       const activeModules = MODULES.map(m => m.key);
 
-      db.exec('BEGIN TRANSACTION');
-      try {
-        const del = db.prepare('DELETE FROM permissions WHERE user_id = ?');
-        const ins = db.prepare('INSERT INTO permissions (module_key, user_id, is_enabled) VALUES (?, ?, ?)');
-
+      await prisma.$transaction(async (tx) => {
         for (const userId of userIds) {
-          const user = db.prepare('SELECT id FROM users WHERE id = ? AND is_active = 1').get(userId);
+          const user = await tx.user.findFirst({
+            where: { id: Number(userId), isActive: true },
+            select: { id: true },
+          });
           if (!user) continue;
-          del.run(user.id);
-          for (const moduleKey of activeModules) {
-            ins.run(moduleKey, user.id, 1);
+          await tx.permission.deleteMany({ where: { userId: user.id } });
+          if (activeModules.length > 0) {
+            await tx.permission.createMany({
+              data: activeModules.map(moduleKey => ({ moduleKey, userId: user.id, isEnabled: true })),
+            });
           }
         }
+      });
 
-        db.exec('COMMIT');
-        res.json({ message: 'دسترسی‌ها با موفقیت برای کاربران انتخاب‌شده ثبت شد', affected: userIds.length });
-      } catch (e) {
-        db.exec('ROLLBACK');
-        throw e;
-      }
+      res.json({ message: 'دسترسی‌ها با موفقیت برای کاربران انتخاب‌شده ثبت شد', affected: userIds.length });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/my', (req, res) => {
+  router.get('/my', async (req, res) => {
     try {
       if (req.user.role === 'admin') {
         const allPerms = MODULES.map(m => ({ module_key: m.key, is_enabled: 1 }));
@@ -264,20 +289,26 @@ module.exports = function (db) {
 
       const deptId = req.user.department_id;
       if (deptId) {
-        const deptPerms = db.prepare('SELECT module_key, is_enabled FROM permissions WHERE department_id = ? AND user_id IS NULL').all(deptId);
+        const deptPerms = await prisma.permission.findMany({
+          where: { departmentId: Number(deptId), userId: null },
+          select: { moduleKey: true, isEnabled: true },
+        });
         for (const p of deptPerms) {
-          combined[p.module_key] = p.is_enabled;
+          combined[p.moduleKey] = p.isEnabled;
         }
       }
 
-      const userPerms = db.prepare('SELECT module_key, is_enabled FROM permissions WHERE user_id = ?').all(req.user.id);
+      const userPerms = await prisma.permission.findMany({
+        where: { userId: Number(req.user.id) },
+        select: { moduleKey: true, isEnabled: true },
+      });
       for (const p of userPerms) {
-        combined[p.module_key] = p.is_enabled;
+        combined[p.moduleKey] = p.isEnabled;
       }
 
       const result = Object.keys(combined).map(key => ({
         module_key: key,
-        is_enabled: combined[key]
+        is_enabled: combined[key] ? 1 : 0
       }));
 
       res.json(result);

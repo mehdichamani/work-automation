@@ -1,201 +1,235 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
 const { dailyOutput } = require('../middleware/validate');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
-module.exports = function (db) {
+const REPORT_ALIASES = {
+  user_name: 'user.fullName',
+  department_name: 'dept.name',
+};
+
+const REPORT_INCLUDE = {
+  user: { select: { fullName: true } },
+  dept: { select: { name: true } },
+};
+
+module.exports = function () {
   const router = express.Router();
   router.use(authMiddleware);
 
-  function notify(userId, title, body, link) {
-    db.prepare('INSERT INTO notifications (user_id, title, body, link) VALUES (?, ?, ?, ?)').run(userId, title, body, link);
+  async function notify(userId, title, body, link) {
+    await prisma.notification.create({ data: { userId: Number(userId), title, body, link } });
   }
 
-  function addHistory(reportId, userId, userName, action, comment) {
-    db.prepare('INSERT INTO daily_output_history (request_id, user_id, user_name, action, comment) VALUES (?, ?, ?, ?, ?)').run(reportId, userId, userName, action, comment || '');
+  async function addHistory(reportId, userId, userName, action, comment) {
+    await prisma.dailyOutputHistory.create({
+      data: {
+        requestId: Number(reportId),
+        userId: userId ? Number(userId) : null,
+        userName,
+        action,
+        comment: comment || '',
+      },
+    });
   }
 
-  function findSupervisorId(departmentId) {
+  async function findSupervisorId(departmentId) {
     if (!departmentId) return null;
-    const dept = db.prepare('SELECT parent_id FROM departments WHERE id = ?').get(departmentId);
-    if (!dept || !dept.parent_id) return null;
-    const sup = db.prepare('SELECT id FROM users WHERE department_id = ? AND role = ? LIMIT 1').get(dept.parent_id, 'supervisor');
+    const dept = await prisma.department.findUnique({ where: { id: Number(departmentId) }, select: { parentId: true } });
+    if (!dept || !dept.parentId) return null;
+    const sup = await prisma.user.findFirst({
+      where: { departmentId: dept.parentId, role: 'supervisor' },
+      select: { id: true },
+    });
     return sup ? sup.id : null;
   }
 
-  function isProduction(user) {
+  async function isProduction(user) {
     if (user.role === 'admin') return true;
-    const dept = db.prepare('SELECT name FROM departments WHERE id = ?').get(user.department_id);
+    const dept = await prisma.department.findUnique({ where: { id: Number(user.department_id) }, select: { name: true } });
     return dept && (dept.name.includes('تولید') || dept.name.includes('فنی'));
   }
 
-  router.get('/', (req, res) => {
+  function toListResponse(rows) {
+    return rows.map(r => mapRow(flattenJoins(r, REPORT_ALIASES)));
+  }
+
+  router.get('/', async (req, res) => {
     try {
       const { date, status, page = 1, limit = 20 } = req.query;
-      const offset = (page - 1) * limit;
-      let where = '';
-      const params = [];
+      const pageNum = parseInt(page) || 1;
+      const limitNum = parseInt(limit) || 20;
+      const offset = (pageNum - 1) * limitNum;
+      const where = {};
 
-      if (!isProduction(req.user)) {
-        where = 'WHERE d.user_id = ?';
-        params.push(req.user.id);
+      if (!(await isProduction(req.user))) {
+        where.userId = req.user.id;
       }
 
       if (date) {
-        where += (where ? ' AND ' : 'WHERE ') + 'd.report_date = ?';
-        params.push(date);
+        where.reportDate = date;
       }
 
       if (status) {
-        where += (where ? ' AND ' : 'WHERE ') + 'd.status = ?';
-        params.push(status);
+        where.status = status;
       }
 
-      const total = db.prepare(`SELECT COUNT(*) as count FROM daily_output d ${where}`).get(...params).count;
-      const reports = db.prepare(`
-        SELECT d.*, u.full_name as user_name, dept.name as department_name
-        FROM daily_output d
-        LEFT JOIN users u ON d.user_id = u.id
-        LEFT JOIN departments dept ON d.department_id = dept.id
-        ${where}
-        ORDER BY d.report_date DESC
-        LIMIT ? OFFSET ?
-      `).all(...params, parseInt(limit), parseInt(offset));
+      const total = await prisma.dailyOutput.count({ where });
+      const reports = await prisma.dailyOutput.findMany({
+        where,
+        orderBy: { reportDate: 'desc' },
+        include: REPORT_INCLUDE,
+        take: limitNum,
+        skip: offset,
+      });
 
-      res.json({ reports, total, page: parseInt(page), limit: parseInt(limit) });
+      res.json({ reports: toListResponse(reports), total, page: pageNum, limit: limitNum });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/my-reports', (req, res) => {
+  router.get('/my-reports', async (req, res) => {
     try {
-      const reports = db.prepare(`
-        SELECT d.*, u.full_name as user_name, dept.name as department_name
-        FROM daily_output d
-        LEFT JOIN users u ON d.user_id = u.id
-        LEFT JOIN departments dept ON d.department_id = dept.id
-        WHERE d.user_id = ?
-        ORDER BY d.report_date DESC
-      `).all(req.user.id);
-      res.json(reports);
+      const reports = await prisma.dailyOutput.findMany({
+        where: { userId: req.user.id },
+        orderBy: { reportDate: 'desc' },
+        include: REPORT_INCLUDE,
+      });
+      res.json(toListResponse(reports));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/summary', (req, res) => {
+  router.get('/summary', async (req, res) => {
     try {
       const { from_date, to_date } = req.query;
-      let where = '';
-      const params = [];
+      const where = {};
 
       if (from_date) {
-        where += 'AND d.report_date >= ?';
-        params.push(from_date);
+        where.reportDate = { gte: from_date };
       }
       if (to_date) {
-        where += 'AND d.report_date <= ?';
-        params.push(to_date);
+        where.reportDate = { lte: to_date };
       }
 
-      const summary = db.prepare(`
-        SELECT d.product_name, SUM(d.quantity) as total_quantity, AVG(d.quality_score) as avg_quality
-        FROM daily_output d
-        WHERE 1=1 ${where}
-        GROUP BY d.product_name
-        ORDER BY total_quantity DESC
-      `).all(...params);
+      const grouped = await prisma.dailyOutput.groupBy({
+        by: ['productName'],
+        where,
+        _sum: { quantity: true },
+        _avg: { qualityScore: true },
+      });
 
-      res.json(summary);
+      const summary = grouped
+        .map(g => ({
+          product_name: g.productName,
+          total_quantity: g._sum.quantity || 0,
+          avg_quality: g._avg.qualityScore,
+        }))
+        .sort((a, b) => (b.total_quantity || 0) - (a.total_quantity || 0));
+
+      res.json(mapRow(summary));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/pending-review', (req, res) => {
+  router.get('/pending-review', async (req, res) => {
     try {
       const { page = 1, limit = 20 } = req.query;
-      const offset = (page - 1) * limit;
+      const pageNum = parseInt(page) || 1;
+      const limitNum = parseInt(limit) || 20;
+      const offset = (pageNum - 1) * limitNum;
 
-      let where = "WHERE 1=1";
-      const params = [];
+      let where = {};
 
-      if (req.user.role === 'supervisor') {
-        where += " AND d.status = 'pending'";
-      } else if (req.user.role === 'manager') {
-        where += " AND d.status = 'pending'";
+      if (req.user.role === 'supervisor' || req.user.role === 'manager') {
+        where.status = 'pending';
       } else if (req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
 
-      const total = db.prepare(`SELECT COUNT(*) as count FROM daily_output d ${where}`).get(...params).count;
-      const reports = db.prepare(`
-        SELECT d.*, u.full_name as user_name, dept.name as department_name
-        FROM daily_output d
-        LEFT JOIN users u ON d.user_id = u.id
-        LEFT JOIN departments dept ON d.department_id = dept.id
-        ${where}
-        ORDER BY d.created_at ASC
-        LIMIT ? OFFSET ?
-      `).all(...params, parseInt(limit), parseInt(offset));
+      const total = await prisma.dailyOutput.count({ where });
+      const reports = await prisma.dailyOutput.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        include: REPORT_INCLUDE,
+        take: limitNum,
+        skip: offset,
+      });
 
-      res.json({ reports, total, page: parseInt(page), limit: parseInt(limit) });
+      res.json({ reports: toListResponse(reports), total, page: pageNum, limit: limitNum });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/:id', (req, res) => {
+  router.get('/:id', async (req, res) => {
     try {
-      const report = db.prepare(`
-        SELECT d.*, u.full_name as user_name, dept.name as department_name
-        FROM daily_output d
-        LEFT JOIN users u ON d.user_id = u.id
-        LEFT JOIN departments dept ON d.department_id = dept.id
-        WHERE d.id = ?
-      `).get(req.params.id);
+      const report = await prisma.dailyOutput.findUnique({
+        where: { id: Number(req.params.id) },
+        include: REPORT_INCLUDE,
+      });
 
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
 
-      const history = db.prepare('SELECT * FROM daily_output_history WHERE request_id = ? ORDER BY created_at ASC').all(req.params.id);
+      const history = await prisma.dailyOutputHistory.findMany({
+        where: { requestId: Number(req.params.id) },
+        orderBy: { createdAt: 'asc' },
+      });
 
-      res.json({ report, history });
+      res.json({ report: mapRow(flattenJoins(report, REPORT_ALIASES)), history: mapRow(history) });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/', dailyOutput, (req, res) => {
+  router.post('/', dailyOutput, async (req, res) => {
     try {
       const { report_date, product_name, quantity, unit, quality_score, description, machine_number } = req.body;
       if (!report_date || !product_name || quantity === undefined) {
         return res.status(400).json({ error: 'تاریخ، نام محصول و تعداد الزامی است' });
       }
 
-      const user = db.prepare('SELECT department_id FROM users WHERE id = ?').get(req.user.id);
-      const supervisorId = findSupervisorId(user?.department_id);
+      const user = await prisma.user.findUnique({
+        where: { id: Number(req.user.id) },
+        select: { departmentId: true },
+      });
+      const supervisorId = await findSupervisorId(user?.departmentId);
 
-      const result = db.prepare(`
-        INSERT INTO daily_output (user_id, department_id, report_date, product_name, quantity, unit, quality_score, description, machine_number, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(req.user.id, user?.department_id, report_date, product_name, quantity, unit || 'عدد', quality_score || null, description || '', machine_number || '', 'pending');
+      const result = await prisma.dailyOutput.create({
+        data: {
+          userId: Number(req.user.id),
+          departmentId: user?.departmentId || null,
+          reportDate: report_date,
+          productName: product_name,
+          quantity: Number(quantity),
+          unit: unit || 'عدد',
+          qualityScore: quality_score !== undefined && quality_score !== null ? Number(quality_score) : null,
+          description: description || '',
+          machineNumber: machine_number || '',
+          status: 'pending',
+        },
+      });
 
-      addHistory(result.lastInsertRowid, req.user.id, req.user.full_name, 'ثبت گزارش', null);
+      await addHistory(result.id, req.user.id, req.user.full_name, 'ثبت گزارش', null);
 
       if (supervisorId) {
-        notify(supervisorId, 'گزارش تولید روزانه جدید', `گزارش توسط ${req.user.full_name} ثبت شد و نیاز به بررسی دارد`, '/daily-output');
+        await notify(supervisorId, 'گزارش تولید روزانه جدید', `گزارش توسط ${req.user.full_name} ثبت شد و نیاز به بررسی دارد`, '/daily-output');
       }
 
-      res.json({ id: result.lastInsertRowid, message: 'گزارش ثبت شد' });
+      res.json({ id: result.id, message: 'گزارش ثبت شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/:id/review', (req, res) => {
+  router.post('/:id/review', async (req, res) => {
     try {
       const { comment } = req.body;
-      const report = db.prepare('SELECT * FROM daily_output WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyOutput.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
       if (report.status !== 'pending') {
         return res.status(400).json({ error: 'این گزارش قبلاً بررسی شده است' });
@@ -205,12 +239,14 @@ module.exports = function (db) {
         return res.status(403).json({ error: 'فقط سرپرست می‌تواند گزارش را بررسی کند' });
       }
 
-      db.prepare('UPDATE daily_output SET status = ?, supervisor_id = ?, supervisor_comment = ?, supervisor_date = ? WHERE id = ?')
-        .run('reviewed', req.user.id, comment || '', new Date().toISOString(), req.params.id);
+      await prisma.dailyOutput.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'reviewed', supervisorId: Number(req.user.id), supervisorComment: comment || '', supervisorDate: new Date().toISOString() },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'بررسی توسط سرپرست', comment);
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'بررسی توسط سرپرست', comment);
 
-      notify(report.user_id, 'گزارش بررسی شد', `گزارش تولید روزانه شما توسط سرپرست بررسی شد`, '/daily-output');
+      await notify(report.userId, 'گزارش بررسی شد', `گزارش تولید روزانه شما توسط سرپرست بررسی شد`, '/daily-output');
 
       res.json({ success: true, status: 'reviewed' });
     } catch (err) {
@@ -218,10 +254,10 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/:id/approve', (req, res) => {
+  router.post('/:id/approve', async (req, res) => {
     try {
       const { comment } = req.body;
-      const report = db.prepare('SELECT * FROM daily_output WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyOutput.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
       if (report.status !== 'reviewed') {
         return res.status(400).json({ error: 'گزارش باید ابتدا توسط سرپرست بررسی شود' });
@@ -231,12 +267,14 @@ module.exports = function (db) {
         return res.status(403).json({ error: 'فقط مدیر می‌تواند گزارش را تایید کند' });
       }
 
-      db.prepare('UPDATE daily_output SET status = ?, manager_id = ?, manager_comment = ?, manager_date = ? WHERE id = ?')
-        .run('approved', req.user.id, comment || '', new Date().toISOString(), req.params.id);
+      await prisma.dailyOutput.update({
+        where: { id: Number(req.params.id) },
+        data: { status: 'approved', managerId: Number(req.user.id), managerComment: comment || '', managerDate: new Date().toISOString() },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'تایید توسط مدیر', comment);
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'تایید توسط مدیر', comment);
 
-      notify(report.user_id, 'گزارش تایید شد', `گزارش تولید روزانه شما توسط مدیر تایید شد`, '/daily-output');
+      await notify(report.userId, 'گزارش تایید شد', `گزارش تولید روزانه شما توسط مدیر تایید شد`, '/daily-output');
 
       res.json({ success: true, status: 'approved' });
     } catch (err) {
@@ -244,10 +282,10 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/:id/reject', (req, res) => {
+  router.post('/:id/reject', async (req, res) => {
     try {
       const { comment } = req.body;
-      const report = db.prepare('SELECT * FROM daily_output WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyOutput.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
       if (!comment) return res.status(400).json({ error: 'دلیل رد الزامی است' });
       if (!['pending', 'reviewed'].includes(report.status)) {
@@ -262,16 +300,20 @@ module.exports = function (db) {
       const action = isSupervisor ? 'رد توسط سرپرست' : 'رد توسط مدیر';
 
       if (isSupervisor) {
-        db.prepare('UPDATE daily_output SET status = ?, supervisor_id = ?, supervisor_comment = ?, supervisor_date = ? WHERE id = ?')
-          .run('rejected', req.user.id, comment, new Date().toISOString(), req.params.id);
+        await prisma.dailyOutput.update({
+          where: { id: Number(req.params.id) },
+          data: { status: 'rejected', supervisorId: Number(req.user.id), supervisorComment: comment, supervisorDate: new Date().toISOString() },
+        });
       } else {
-        db.prepare('UPDATE daily_output SET status = ?, manager_id = ?, manager_comment = ?, manager_date = ? WHERE id = ?')
-          .run('rejected', req.user.id, comment, new Date().toISOString(), req.params.id);
+        await prisma.dailyOutput.update({
+          where: { id: Number(req.params.id) },
+          data: { status: 'rejected', managerId: Number(req.user.id), managerComment: comment, managerDate: new Date().toISOString() },
+        });
       }
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, action, comment);
+      await addHistory(req.params.id, req.user.id, req.user.full_name, action, comment);
 
-      notify(report.user_id, 'گزارش رد شد', `گزارش تولید روزانه شما رد شد. دلیل: ${comment}`, '/daily-output');
+      await notify(report.userId, 'گزارش رد شد', `گزارش تولید روزانه شما رد شد. دلیل: ${comment}`, '/daily-output');
 
       res.json({ success: true, status: 'rejected' });
     } catch (err) {
@@ -279,12 +321,12 @@ module.exports = function (db) {
     }
   });
 
-  router.put('/:id', (req, res) => {
+  router.put('/:id', async (req, res) => {
     try {
-      const report = db.prepare('SELECT * FROM daily_output WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyOutput.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
 
-      if (report.user_id !== req.user.id && req.user.role !== 'admin') {
+      if (report.userId !== req.user.id && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
 
@@ -294,10 +336,19 @@ module.exports = function (db) {
 
       const { product_name, quantity, unit, quality_score, description, machine_number } = req.body;
 
-      db.prepare('UPDATE daily_output SET product_name = ?, quantity = ?, unit = ?, quality_score = ?, description = ?, machine_number = ? WHERE id = ?')
-        .run(product_name || report.product_name, quantity || report.quantity, unit || report.unit, quality_score || report.quality_score, description || report.description, machine_number || report.machine_number, req.params.id);
+      await prisma.dailyOutput.update({
+        where: { id: Number(req.params.id) },
+        data: {
+          productName: product_name || report.productName,
+          quantity: quantity !== undefined && quantity !== '' ? Number(quantity) : report.quantity,
+          unit: unit || report.unit,
+          qualityScore: quality_score !== undefined && quality_score !== null && quality_score !== '' ? Number(quality_score) : report.qualityScore,
+          description: description || report.description,
+          machineNumber: machine_number || report.machineNumber,
+        },
+      });
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, 'ویرایش گزارش', null);
+      await addHistory(req.params.id, req.user.id, req.user.full_name, 'ویرایش گزارش', null);
 
       res.json({ message: 'گزارش بروزرسانی شد' });
     } catch (err) {
@@ -305,19 +356,19 @@ module.exports = function (db) {
     }
   });
 
-  router.delete('/:id', (req, res) => {
+  router.delete('/:id', async (req, res) => {
     try {
-      const report = db.prepare('SELECT * FROM daily_output WHERE id = ?').get(req.params.id);
+      const report = await prisma.dailyOutput.findUnique({ where: { id: Number(req.params.id) } });
       if (!report) return res.status(404).json({ error: 'گزارش یافت نشد' });
-      if (report.user_id !== req.user.id && req.user.role !== 'admin') {
+      if (report.userId !== req.user.id && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
       if (!['pending'].includes(report.status)) {
         return res.status(400).json({ error: 'امکان حذف در این مرحله وجود ندارد' });
       }
 
-      db.prepare('DELETE FROM daily_output_history WHERE request_id = ?').run(req.params.id);
-      db.prepare('DELETE FROM daily_output WHERE id = ?').run(req.params.id);
+      await prisma.dailyOutputHistory.deleteMany({ where: { requestId: Number(req.params.id) } });
+      await prisma.dailyOutput.delete({ where: { id: Number(req.params.id) } });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

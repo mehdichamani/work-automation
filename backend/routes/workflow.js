@@ -1,25 +1,32 @@
 const express = require('express');
 const { authMiddleware, roleGuard } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
-module.exports = function(db) {
+function getNowString() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  router.get('/templates', roleGuard(['admin']), (req, res) => {
+  router.get('/templates', roleGuard(['admin']), async (req, res) => {
     try {
-      const templates = db.prepare(`
-        SELECT wt.*, u.full_name as creator_name
-        FROM workflow_templates wt
-        LEFT JOIN users u ON wt.created_by = u.id
-        ORDER BY wt.created_at DESC
-      `).all();
-      res.json(templates);
+      const templates = await prisma.workflowTemplate.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: { creator: { select: { fullName: true } } },
+      });
+      const mapped = templates.map(t => flattenJoins(t, { creator_name: 'creator.fullName' }));
+      res.json(mapRow(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/templates', roleGuard(['admin']), (req, res) => {
+  router.post('/templates', roleGuard(['admin']), async (req, res) => {
     try {
       const { name, module_name, steps } = req.body;
       if (!name || !module_name || !steps || steps.length === 0) {
@@ -37,32 +44,29 @@ module.exports = function(db) {
         }
       }
 
-      const result = db.prepare(`
-        INSERT INTO workflow_templates (name, module_name, steps, created_by)
-        VALUES (?, ?, ?, ?)
-      `).run(name, module_name, JSON.stringify(steps), req.user.id);
+      const result = await prisma.workflowTemplate.create({
+        data: { name, moduleName: module_name, steps, createdBy: Number(req.user.id) },
+      });
 
-      res.json({ id: result.lastInsertRowid, success: true });
+      res.json({ id: result.id, success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/templates/:id', roleGuard(['admin']), (req, res) => {
+  router.put('/templates/:id', roleGuard(['admin']), async (req, res) => {
     try {
       const { name, module_name, steps, is_active } = req.body;
-      const existing = db.prepare('SELECT * FROM workflow_templates WHERE id = ?').get(req.params.id);
+      const existing = await prisma.workflowTemplate.findUnique({ where: { id: Number(req.params.id) } });
       if (!existing) return res.status(404).json({ error: 'قالب یافت نشد' });
 
-      db.prepare(`
-        UPDATE workflow_templates
-        SET name = COALESCE(?, name),
-            module_name = COALESCE(?, module_name),
-            steps = COALESCE(?, steps),
-            is_active = COALESCE(?, is_active),
-            updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
-        WHERE id = ?
-      `).run(name || null, module_name || null, steps ? JSON.stringify(steps) : null, is_active != null ? is_active : null, req.params.id);
+      const data = {};
+      if (name != null) data.name = name;
+      if (module_name != null) data.moduleName = module_name;
+      if (steps != null) data.steps = steps;
+      if (is_active != null) data.isActive = !!is_active;
+
+      await prisma.workflowTemplate.update({ where: { id: Number(req.params.id) }, data });
 
       res.json({ success: true });
     } catch (err) {
@@ -70,126 +74,136 @@ module.exports = function(db) {
     }
   });
 
-  router.delete('/templates/:id', roleGuard(['admin']), (req, res) => {
+  router.delete('/templates/:id', roleGuard(['admin']), async (req, res) => {
     try {
-      db.prepare('DELETE FROM workflow_templates WHERE id = ?').run(req.params.id);
+      await prisma.workflowTemplate.deleteMany({ where: { id: Number(req.params.id) } });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/templates/module/:module', (req, res) => {
+  router.get('/templates/module/:module', async (req, res) => {
     try {
-      const templates = db.prepare(`
-        SELECT * FROM workflow_templates
-        WHERE module_name = ? AND is_active = 1
-        ORDER BY created_at DESC
-      `).all(req.params.module);
-      res.json(templates);
+      const templates = await prisma.workflowTemplate.findMany({
+        where: { moduleName: req.params.module, isActive: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      res.json(mapRow(templates));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/instances', (req, res) => {
+  router.get('/instances', async (req, res) => {
     try {
       const { status, template_id } = req.query;
-      let where = 'WHERE 1=1';
-      const params = [];
-      if (status) { where += ' AND wi.status = ?'; params.push(status); }
-      if (template_id) { where += ' AND wi.template_id = ?'; params.push(template_id); }
+      const where = {};
+      if (status) where.status = status;
+      if (template_id) where.templateId = Number(template_id);
 
       if (req.user.role === 'user') {
-        where += ' AND wi.started_by = ?';
-        params.push(req.user.id);
+        where.startedBy = Number(req.user.id);
       }
 
-      const instances = db.prepare(`
-        SELECT wi.*, wt.name as template_name, wt.module_name, u.full_name as started_by_name
-        FROM workflow_instances wi
-        LEFT JOIN workflow_templates wt ON wi.template_id = wt.id
-        LEFT JOIN users u ON wi.started_by = u.id
-        ${where}
-        ORDER BY wi.created_at DESC
-        LIMIT 100
-      `).all(...params);
-      res.json(instances);
+      const instances = await prisma.workflowInstance.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        include: {
+          template: { select: { name: true, moduleName: true } },
+          startedByUser: { select: { fullName: true } },
+        },
+      });
+      const mapped = instances.map(i => flattenJoins(i, {
+        template_name: 'template.name',
+        module_name: 'template.moduleName',
+        started_by_name: 'startedByUser.fullName',
+      }));
+      res.json(mapRow(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/instances', (req, res) => {
+  router.post('/instances', async (req, res) => {
     try {
       const { template_id, record_id } = req.body;
       if (!template_id || !record_id) {
         return res.status(400).json({ error: 'template_id و record_id الزامی است' });
       }
 
-      const template = db.prepare('SELECT * FROM workflow_templates WHERE id = ? AND is_active = 1').get(template_id);
+      const template = await prisma.workflowTemplate.findFirst({ where: { id: Number(template_id), isActive: true } });
       if (!template) return res.status(404).json({ error: 'قالب یافت نشد ا غیرفعال است' });
 
-      const result = db.prepare(`
-        INSERT INTO workflow_instances (template_id, record_id, current_step, status, started_by)
-        VALUES (?, ?, 0, 'active', ?)
-      `).run(template_id, record_id, req.user.id);
+      const result = await prisma.workflowInstance.create({
+        data: {
+          templateId: Number(template_id),
+          recordId: Number(record_id),
+          currentStep: 0,
+          status: 'active',
+          startedBy: Number(req.user.id),
+        },
+      });
 
-      res.json({ id: result.lastInsertRowid, success: true });
+      res.json({ id: result.id, success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/instances/:id/action', (req, res) => {
+  router.post('/instances/:id/action', async (req, res) => {
     try {
       const { action, comment } = req.body;
       if (!action || !['approve', 'reject'].includes(action)) {
         return res.status(400).json({ error: 'عملیات نامعتبر (approve یا reject)' });
       }
 
-      const instance = db.prepare(`
-        SELECT wi.*, wt.steps
-        FROM workflow_instances wi
-        LEFT JOIN workflow_templates wt ON wi.template_id = wt.id
-        WHERE wi.id = ?
-      `).get(req.params.id);
+      const instance = await prisma.workflowInstance.findUnique({
+        where: { id: Number(req.params.id) },
+        include: { template: { select: { steps: true } } },
+      });
 
       if (!instance) return res.status(404).json({ error: '实例 یافت نشد' });
       if (instance.status !== 'active') return res.status(400).json({ error: 'این实例 غیرفعال است' });
 
-      const steps = JSON.parse(instance.steps || '[]');
-      const currentStep = steps[instance.current_step];
+      const rawSteps = instance.template.steps;
+      const steps = Array.isArray(rawSteps)
+        ? rawSteps
+        : (typeof rawSteps === 'string' ? JSON.parse(rawSteps || '[]') : []);
+      const currentStep = steps[instance.currentStep];
       if (!currentStep) return res.status(400).json({ error: 'مرحله فعلی یافت نشد' });
 
       if (currentStep.role !== req.user.role && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'شما اجازه عملیات در این مرحله را ندارید' });
       }
 
-      db.prepare(`
-        INSERT INTO workflow_steps_log (instance_id, step_index, actor_id, action, comment)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(instance.id, instance.current_step, req.user.id, action, comment || null);
+      await prisma.workflowStepLog.create({
+        data: {
+          instanceId: instance.id,
+          stepIndex: instance.currentStep,
+          actorId: Number(req.user.id),
+          action,
+          comment: comment || null,
+        },
+      });
 
       if (action === 'reject') {
-        db.prepare(`
-          UPDATE workflow_instances
-          SET status = 'rejected', completed_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
-          WHERE id = ?
-        `).run(instance.id);
+        await prisma.workflowInstance.update({
+          where: { id: instance.id },
+          data: { status: 'rejected', completedAt: getNowString() },
+        });
       } else {
-        if (instance.current_step >= steps.length - 1) {
-          db.prepare(`
-            UPDATE workflow_instances
-            SET status = 'completed', current_step = ?, completed_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text)
-            WHERE id = ?
-          `).run(instance.current_step + 1, instance.id);
+        if (instance.currentStep >= steps.length - 1) {
+          await prisma.workflowInstance.update({
+            where: { id: instance.id },
+            data: { status: 'completed', currentStep: instance.currentStep + 1, completedAt: getNowString() },
+          });
         } else {
-          db.prepare(`
-            UPDATE workflow_instances
-            SET current_step = ?
-            WHERE id = ?
-          `).run(instance.current_step + 1, instance.id);
+          await prisma.workflowInstance.update({
+            where: { id: instance.id },
+            data: { currentStep: instance.currentStep + 1 },
+          });
         }
       }
 
@@ -199,16 +213,15 @@ module.exports = function(db) {
     }
   });
 
-  router.get('/instances/:id/log', (req, res) => {
+  router.get('/instances/:id/log', async (req, res) => {
     try {
-      const logs = db.prepare(`
-        SELECT wsl.*, u.full_name as actor_name
-        FROM workflow_steps_log wsl
-        LEFT JOIN users u ON wsl.actor_id = u.id
-        WHERE wsl.instance_id = ?
-        ORDER BY wsl.created_at ASC
-      `).all(req.params.id);
-      res.json(logs);
+      const logs = await prisma.workflowStepLog.findMany({
+        where: { instanceId: Number(req.params.id) },
+        orderBy: { createdAt: 'asc' },
+        include: { actor: { select: { fullName: true } } },
+      });
+      const mapped = logs.map(l => flattenJoins(l, { actor_name: 'actor.fullName' }));
+      res.json(mapRow(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

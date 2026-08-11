@@ -40,7 +40,7 @@ function getDbConfig() {
       port: parseInt(process.env.DB_PORT || '5432', 10),
       database: process.env.DB_NAME || 'edari',
       user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD !== undefined ? process.env.DB_PASSWORD : 'postgrespassword'
+      password: process.env.DB_PASSWORD || ''
     };
   }
 
@@ -72,12 +72,13 @@ function getDbConfig() {
   }
 
   // Default configuration
+  console.error('WARNING: No database configuration found. Set DB_PASSWORD or DATABASE_URL in .env');
   return {
     host: 'localhost',
     port: 5432,
     database: 'edari',
     user: 'postgres',
-    password: 'postgrespassword'
+    password: ''
   };
 }
 

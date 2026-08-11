@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
+const prisma = require('../database/prisma');
 
 let JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -10,10 +11,14 @@ if (!JWT_SECRET) {
       JWT_SECRET = fs.readFileSync(secretPath, 'utf8').trim();
     } else {
       JWT_SECRET = require('crypto').randomBytes(32).toString('hex');
-      fs.writeFileSync(secretPath, JWT_SECRET, 'utf8');
+      try {
+        fs.writeFileSync(secretPath, JWT_SECRET, 'utf8');
+      } catch (writeErr) {
+        console.error('WARNING: Could not write JWT secret file. Using in-memory secret (will change on restart).');
+      }
     }
   } catch (err) {
-    console.error('CRITICAL: Could not read or create JWT secret file. Set JWT_SECRET in .env instead.');
+    console.error('CRITICAL: Could not read JWT secret file. Set JWT_SECRET in .env instead.');
     process.exit(1);
   }
 }
@@ -45,23 +50,43 @@ function roleGuard(...roles) {
   };
 }
 
-function auditLog(db) {
+function auditLog() {
+  const sensitiveFields = ['password', 'oldPassword', 'newPassword', 'token', 'secret', 'key', 'authorization'];
   return (req, res, next) => {
     if (req.method === 'GET' || req.path.includes('/login') || req.path.includes('/health')) {
       return next();
     }
     const originalSend = res.send;
     res.send = function(body) {
-      try {
-        const userId = req.user?.id;
-        const action = `${req.method} ${req.path}`;
-        const moduleMatch = req.path.match(/\/api\/([^\/]+)/);
-        const moduleName = moduleMatch ? moduleMatch[1] : '';
-        const details = typeof body === 'string' ? body.substring(0, 500) : '';
-        db.prepare('INSERT INTO activity_log (user_id, module_name, action, details, ip_address) VALUES (?, ?, ?, ?, ?)').run(
-          userId || null, moduleName, action, details, req.ip
-        );
-      } catch (e) {}
+      (async () => {
+        try {
+          const userId = req.user?.id;
+          const action = `${req.method} ${req.path}`;
+          const moduleMatch = req.path.match(/\/api\/([^\/]+)/);
+          const moduleName = moduleMatch ? moduleMatch[1] : '';
+
+          let sanitizedBody = '';
+          if (typeof body === 'string') {
+            try {
+              const parsed = JSON.parse(body);
+              sensitiveFields.forEach(field => { if (parsed[field]) parsed[field] = '[REDACTED]'; });
+              sanitizedBody = JSON.stringify(parsed).substring(0, 500);
+            } catch {
+              sanitizedBody = body.substring(0, 500);
+            }
+          }
+
+          await prisma.activityLog.create({
+            data: {
+              userId: userId || null,
+              moduleName,
+              action,
+              details: sanitizedBody,
+              ipAddress: req.ip,
+            },
+          });
+        } catch (e) {}
+      })();
       return originalSend.call(this, body);
     };
     next();
@@ -69,7 +94,10 @@ function auditLog(db) {
 }
 
 function validatePassword(pw) {
-  if (!pw || pw.length < 6) return 'رمز عبور باید حداقل ۶ کاراکتر باشد';
+  if (!pw || pw.length < 8) return 'رمز عبور باید حداقل ۸ کاراکتر باشد';
+  if (!/[A-Z]/.test(pw)) return 'رمز عبور باید حداقل یک حرف بزرگ داشته باشد';
+  if (!/[a-z]/.test(pw)) return 'رمز عبور باید حداقل یک حرف کوچک داشته باشد';
+  if (!/[0-9]/.test(pw)) return 'رمز عبور باید حداقل یک عدد داشته باشد';
   return null;
 }
 

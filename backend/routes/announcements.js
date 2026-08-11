@@ -2,6 +2,8 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { authMiddleware, roleGuard } = require('../middleware/auth');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
 function saveBase64Image(base64Data) {
   const matches = base64Data.match(/^data:image\/(\w+);base64,(.+)$/);
@@ -9,11 +11,11 @@ function saveBase64Image(base64Data) {
   const ext = matches[1].toLowerCase();
   const allowed = ['jpeg', 'jpg', 'png', 'gif', 'webp'];
   if (!allowed.includes(ext)) return null;
-  
+
   const buffer = Buffer.from(matches[2], 'base64');
   const MAX_SIZE = 5 * 1024 * 1024;
   if (buffer.length > MAX_SIZE) return null;
-  
+
   const filename = Date.now() + '-' + Math.round(Math.random() * 1E9) + '.' + ext;
   const dir = path.join(__dirname, '..', 'uploads', 'announcements');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -27,51 +29,51 @@ function deleteImageFile(imagePath) {
   if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
 }
 
-module.exports = function(db) {
+module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  router.get('/', roleGuard('admin'), (req, res) => {
+  router.get('/', roleGuard('admin'), async (req, res) => {
     try {
-      const announcements = db.prepare(`
-        SELECT a.*, u.full_name as creator_name 
-        FROM announcements a 
-        LEFT JOIN users u ON a.created_by = u.id 
-        ORDER BY a.created_at DESC
-      `).all();
-      res.json(announcements);
+      const announcements = await prisma.announcement.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: {
+          creator: { select: { fullName: true } },
+        },
+      });
+      const mapped = announcements.map(r => flattenJoins(r, { creator_name: 'creator.fullName' }));
+      res.json(mapRow(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/active', (req, res) => {
+  router.get('/active', async (req, res) => {
     try {
       const role = req.user.role;
-      let audienceFilter = '';
-      
+      let audiences = ['all'];
+
       if (role === 'admin' || role === 'manager') {
-        audienceFilter = "(target_audience = 'all' OR target_audience = 'manager')";
+        audiences.push('manager');
       } else if (role === 'supervisor') {
-        audienceFilter = "(target_audience = 'all' OR target_audience = 'supervisor')";
-      } else {
-        audienceFilter = "target_audience = 'all'";
+        audiences.push('supervisor');
       }
 
-      const announcements = db.prepare(`
-        SELECT a.*, u.full_name as creator_name 
-        FROM announcements a 
-        LEFT JOIN users u ON a.created_by = u.id 
-        WHERE a.is_active = 1 AND ${audienceFilter}
-        ORDER BY a.created_at DESC
-      `).all();
-      res.json(announcements);
+      const announcements = await prisma.announcement.findMany({
+        where: { isActive: true, targetAudience: { in: audiences } },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          creator: { select: { fullName: true } },
+        },
+      });
+      const mapped = announcements.map(r => flattenJoins(r, { creator_name: 'creator.fullName' }));
+      res.json(mapRow(mapped));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/', roleGuard('admin'), (req, res) => {
+  router.post('/', roleGuard('admin'), async (req, res) => {
     try {
       const { title, body, target_audience, priority, image } = req.body;
       if (!title || !title.trim()) {
@@ -83,10 +85,16 @@ module.exports = function(db) {
         imagePath = saveBase64Image(image);
       }
 
-      const result = db.prepare(`
-        INSERT INTO announcements (title, body, image_path, target_audience, priority, created_by) 
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(title.trim(), body || '', imagePath, target_audience || 'all', priority || 'normal', req.user.id);
+      const result = await prisma.announcement.create({
+        data: {
+          title: title.trim(),
+          body: body || '',
+          imagePath,
+          targetAudience: target_audience || 'all',
+          priority: priority || 'normal',
+          createdBy: Number(req.user.id),
+        },
+      });
 
       const targetRoles = [];
       if (target_audience === 'all') {
@@ -98,54 +106,56 @@ module.exports = function(db) {
       }
 
       if (targetRoles.length > 0) {
-        const placeholders = targetRoles.map(() => '?').join(',');
-        const users = db.prepare(`SELECT id FROM users WHERE role IN (${placeholders}) AND is_active = 1`).all(...targetRoles);
+        const users = await prisma.user.findMany({
+          where: { role: { in: targetRoles }, isActive: true },
+          select: { id: true },
+        });
         if (users.length > 0) {
-          const userIds = users.map(u => u.id);
-          const valPlaceholders = userIds.map(() => '(?, ?, ?, ?)').join(',');
-          const flatParams = [];
-          for (const uid of userIds) {
-            flatParams.push(uid, `📢 ${title.trim()}`, body || '', '/dashboard');
-          }
-          db.prepare(`INSERT INTO notifications (user_id, title, body, link) VALUES ${valPlaceholders}`).run(...flatParams);
+          await prisma.notification.createMany({
+            data: users.map(u => ({
+              userId: u.id,
+              title: `📢 ${title.trim()}`,
+              body: body || '',
+              link: '/dashboard',
+            })),
+          });
         }
       }
 
-      res.json({ message: 'اطلاعیه ایجاد شد', id: result.lastInsertRowid });
+      res.json({ message: 'اطلاعیه ایجاد شد', id: result.id });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/:id', roleGuard('admin'), (req, res) => {
+  router.put('/:id', roleGuard('admin'), async (req, res) => {
     try {
       const { title, body, target_audience, priority, is_active, image } = req.body;
-      const existing = db.prepare('SELECT * FROM announcements WHERE id = ?').get(req.params.id);
+      const existing = await prisma.announcement.findUnique({ where: { id: Number(req.params.id) } });
       if (!existing) {
         return res.status(404).json({ error: 'اطلاعیه یافت نشد' });
       }
 
-      let imagePath = existing.image_path;
+      let imagePath = existing.imagePath;
       if (image === null) {
-        deleteImageFile(existing.image_path);
+        deleteImageFile(existing.imagePath);
         imagePath = null;
       } else if (image && image.startsWith('data:image')) {
-        deleteImageFile(existing.image_path);
+        deleteImageFile(existing.imagePath);
         imagePath = saveBase64Image(image);
       }
 
-      db.prepare(`
-        UPDATE announcements SET title = ?, body = ?, image_path = ?, target_audience = ?, priority = ?, is_active = ?
-        WHERE id = ?
-      `).run(
-        title !== undefined ? title : existing.title,
-        body !== undefined ? body : existing.body,
-        imagePath,
-        target_audience || existing.target_audience,
-        priority || existing.priority,
-        is_active !== undefined ? Number(is_active) : existing.is_active,
-        req.params.id
-      );
+      await prisma.announcement.update({
+        where: { id: Number(req.params.id) },
+        data: {
+          title: title !== undefined ? title : existing.title,
+          body: body !== undefined ? body : existing.body,
+          imagePath,
+          targetAudience: target_audience || existing.targetAudience,
+          priority: priority || existing.priority,
+          isActive: is_active !== undefined ? !!Number(is_active) : existing.isActive,
+        },
+      });
 
       res.json({ message: 'اطلاعیه ویرایش شد' });
     } catch (err) {
@@ -153,15 +163,15 @@ module.exports = function(db) {
     }
   });
 
-  router.delete('/:id', roleGuard('admin'), (req, res) => {
+  router.delete('/:id', roleGuard('admin'), async (req, res) => {
     try {
-      const existing = db.prepare('SELECT * FROM announcements WHERE id = ?').get(req.params.id);
+      const existing = await prisma.announcement.findUnique({ where: { id: Number(req.params.id) } });
       if (!existing) {
         return res.status(404).json({ error: 'اطلاعیه یافت نشد' });
       }
 
-      deleteImageFile(existing.image_path);
-      db.prepare('DELETE FROM announcements WHERE id = ?').run(req.params.id);
+      deleteImageFile(existing.imagePath);
+      await prisma.announcement.delete({ where: { id: Number(req.params.id) } });
       res.json({ message: 'اطلاعیه حذف شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });

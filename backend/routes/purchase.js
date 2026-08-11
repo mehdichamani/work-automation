@@ -2,153 +2,219 @@ const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
 const { validateInput } = require('../middleware/validate');
 const { notify: notifyHelper, findSupervisorId: findSupervisorIdHelper, getNextNumber: getNextNumberHelper, addHistory: addHistoryHelper } = require('../utils/helpers');
+const prisma = require('../database/prisma');
+const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
-module.exports = function (db) {
+const REQUEST_ALIASES = {
+  user_name: 'user.fullName',
+  department_name: 'dept.name',
+  supervisor_name: 'supervisor.fullName',
+  manager_name: 'manager.fullName',
+  warehouse_name: 'warehouse.fullName',
+  factory_manager_name: 'factoryManager.fullName',
+  budget_name: 'budget.fullName',
+};
+
+const REQUEST_INCLUDE = {
+  user: { select: { fullName: true } },
+  dept: { select: { name: true } },
+};
+
+const NAME_FK_FIELDS = ['supervisorId', 'managerId', 'warehouseId', 'factoryManagerId', 'budgetId'];
+const NAME_KEYS = ['supervisor', 'manager', 'warehouse', 'factoryManager', 'budget'];
+
+module.exports = function () {
   const router = express.Router();
   router.use(authMiddleware);
 
-  function notify(userId, title, body, link) { notifyHelper(db, userId, title, body, link); }
-  function addHistory(id, userId, userName, action, comment) { addHistoryHelper(db, 'purchase_history', 'request_id', id, userId, userName, action, comment); }
-  function findSupervisorId(departmentId) { return findSupervisorIdHelper(db, departmentId); }
-  function getNextNumber() { return getNextNumberHelper(db, 'purchase_counter', 'خرید'); }
+  async function notify(userId, title, body, link) { await notifyHelper(userId, title, body, link); }
+  async function addHistory(id, userId, userName, action, comment) { await addHistoryHelper('purchase_history', 'request_id', id, userId, userName, action, comment); }
+  async function findSupervisorId(departmentId) { return findSupervisorIdHelper(departmentId); }
+  async function getNextNumber() { return getNextNumberHelper('purchase_counter', 'خرید'); }
 
-  function getItems(requestId) {
-    return db.prepare('SELECT * FROM purchase_items WHERE request_id = ? ORDER BY row_index ASC').all(requestId);
-  }
-
-  function saveItems(requestId, items) {
-    db.prepare('DELETE FROM purchase_items WHERE request_id = ?').run(requestId);
-    const stmt = db.prepare(`
-      INSERT INTO purchase_items (request_id, row_index, item_code, description, purchase_location, technical_specs, requested_quantity, approved_quantity, usage_location, price, unit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    items.forEach((item, i) => {
-      stmt.run(requestId, i + 1, item.item_code || '', item.description || '', item.purchase_location || 'Urmia', item.technical_specs || '', item.requested_quantity || 0, item.approved_quantity || 0, item.usage_location || '', item.price || 0, item.unit || '');
+  async function getItems(requestId) {
+    return prisma.purchaseItem.findMany({
+      where: { requestId: Number(requestId) },
+      orderBy: { rowIndex: 'asc' },
     });
   }
 
-  router.get('/', (req, res) => {
+  async function saveItems(requestId, items) {
+    await prisma.$transaction(async (tx) => {
+      await tx.purchaseItem.deleteMany({ where: { requestId: Number(requestId) } });
+      if (items && items.length > 0) {
+        await tx.purchaseItem.createMany({
+          data: items.map((item, i) => ({
+            requestId: Number(requestId),
+            rowIndex: i + 1,
+            itemCode: item.item_code || '',
+            description: item.description || '',
+            purchaseLocation: item.purchase_location || 'Urmia',
+            technicalSpecs: item.technical_specs || '',
+            requestedQuantity: Number(item.requested_quantity) || 0,
+            approvedQuantity: Number(item.approved_quantity) || 0,
+            usageLocation: item.usage_location || '',
+            price: Number(item.price) || 0,
+            unit: item.unit || '',
+          })),
+        });
+      }
+    });
+  }
+
+  async function getRelatedUserNames(rows) {
+    const ids = new Set();
+    rows.forEach(r => {
+      NAME_FK_FIELDS.forEach(fk => {
+        if (r[fk]) ids.add(Number(r[fk]));
+      });
+    });
+    if (ids.size === 0) return {};
+    const users = await prisma.user.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, fullName: true },
+    });
+    const map = {};
+    users.forEach(u => { map[u.id] = u.fullName; });
+    return map;
+  }
+
+  function decorateNames(row, nameMap) {
+    NAME_KEYS.forEach((key, idx) => {
+      const fk = NAME_FK_FIELDS[idx];
+      const uid = row[fk] ? Number(row[fk]) : null;
+      row[key] = uid && nameMap[uid] ? { fullName: nameMap[uid] } : null;
+    });
+    return row;
+  }
+
+  function toListResponse(rows, nameMap) {
+    return rows.map(r => mapRow(flattenJoins(decorateNames(r, nameMap), REQUEST_ALIASES)));
+  }
+
+  router.get('/', async (req, res) => {
     try {
       const { status, page = 1, limit = 20 } = req.query;
-      const offset = (page - 1) * limit;
-      let where = '';
-      const params = [];
+      const pageNum = parseInt(page) || 1;
+      const limitNum = parseInt(limit) || 20;
+      const offset = (pageNum - 1) * limitNum;
+      const where = {};
 
       if (req.user.role === 'user') {
-        where = 'WHERE p.user_id = ?';
-        params.push(req.user.id);
+        where.userId = req.user.id;
       } else if (req.user.role === 'supervisor') {
-        where = "WHERE p.status = 'pending_supervisor'";
+        where.status = 'pending_supervisor';
       } else if (req.user.role === 'manager') {
-        where = "WHERE p.status = 'pending_manager'";
+        where.status = 'pending_manager';
       }
 
       if (status) {
-        where += (where ? ' AND ' : 'WHERE ') + 'p.status = ?';
-        params.push(status);
+        where.status = status;
       }
 
-      const total = db.prepare(`SELECT COUNT(*) as count FROM purchase_requests p ${where}`).get(...params).count;
-      const requests = db.prepare(`
-        SELECT p.*, u.full_name as user_name, d.name as department_name,
-               s.full_name as supervisor_name, m.full_name as manager_name,
-               w.full_name as warehouse_name, fm.full_name as factory_manager_name,
-               b.full_name as budget_name
-        FROM purchase_requests p
-        LEFT JOIN users u ON p.user_id = u.id
-        LEFT JOIN departments d ON p.department_id = d.id
-        LEFT JOIN users s ON p.supervisor_id = s.id
-        LEFT JOIN users m ON p.manager_id = m.id
-        LEFT JOIN users w ON p.warehouse_id = w.id
-        LEFT JOIN users fm ON p.factory_manager_id = fm.id
-        LEFT JOIN users b ON p.budget_id = b.id
-        ${where}
-        ORDER BY p.created_at DESC
-        LIMIT ? OFFSET ?
-      `).all(...params, parseInt(limit), parseInt(offset));
+      const total = await prisma.purchaseRequest.count({ where });
+      const rows = await prisma.purchaseRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limitNum,
+        skip: offset,
+        include: REQUEST_INCLUDE,
+      });
+      const nameMap = await getRelatedUserNames(rows);
 
-      res.json({ requests, total, page: parseInt(page), limit: parseInt(limit) });
+      res.json({ requests: toListResponse(rows, nameMap), total, page: pageNum, limit: limitNum });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/my-requests', (req, res) => {
+  router.get('/my-requests', async (req, res) => {
     try {
-      const requests = db.prepare(`
-        SELECT p.*, u.full_name as user_name, d.name as department_name,
-               s.full_name as supervisor_name, m.full_name as manager_name,
-               w.full_name as warehouse_name, fm.full_name as factory_manager_name,
-               b.full_name as budget_name
-        FROM purchase_requests p
-        LEFT JOIN users u ON p.user_id = u.id
-        LEFT JOIN departments d ON p.department_id = d.id
-        LEFT JOIN users s ON p.supervisor_id = s.id
-        LEFT JOIN users m ON p.manager_id = m.id
-        LEFT JOIN users w ON p.warehouse_id = w.id
-        LEFT JOIN users fm ON p.factory_manager_id = fm.id
-        LEFT JOIN users b ON p.budget_id = b.id
-        WHERE p.user_id = ?
-        ORDER BY p.created_at DESC
-      `).all(req.user.id);
-      res.json(requests);
+      const rows = await prisma.purchaseRequest.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        include: REQUEST_INCLUDE,
+      });
+      const nameMap = await getRelatedUserNames(rows);
+      res.json(toListResponse(rows, nameMap));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/:id', (req, res) => {
+  router.get('/:id', async (req, res) => {
     try {
-      const request = db.prepare(`
-        SELECT p.*, u.full_name as user_name, d.name as department_name,
-               s.full_name as supervisor_name, m.full_name as manager_name,
-               w.full_name as warehouse_name, fm.full_name as factory_manager_name,
-               b.full_name as budget_name
-        FROM purchase_requests p
-        LEFT JOIN users u ON p.user_id = u.id
-        LEFT JOIN departments d ON p.department_id = d.id
-        LEFT JOIN users s ON p.supervisor_id = s.id
-        LEFT JOIN users m ON p.manager_id = m.id
-        LEFT JOIN users w ON p.warehouse_id = w.id
-        LEFT JOIN users fm ON p.factory_manager_id = fm.id
-        LEFT JOIN users b ON p.budget_id = b.id
-        WHERE p.id = ?
-      `).get(req.params.id);
+      const request = await prisma.purchaseRequest.findUnique({
+        where: { id: Number(req.params.id) },
+        include: REQUEST_INCLUDE,
+      });
 
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
-      request.items = getItems(req.params.id);
-      const history = db.prepare('SELECT * FROM purchase_history WHERE request_id = ? ORDER BY created_at ASC').all(req.params.id);
+      request.items = await getItems(req.params.id);
+      const history = await prisma.purchaseHistory.findMany({
+        where: { requestId: Number(req.params.id) },
+        orderBy: { createdAt: 'asc' },
+      });
+      const nameMap = await getRelatedUserNames([request]);
 
-      res.json({ request, history });
+      res.json({
+        request: mapRow(flattenJoins(decorateNames(request, nameMap), REQUEST_ALIASES)),
+        history: mapRow(history),
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/', validateInput({ description: 1000 }), (req, res) => {
+  router.post('/', validateInput({ description: 1000 }), async (req, res) => {
     try {
       const { items, department, urgency = 'normal', reason } = req.body;
       if (!items || items.length === 0) {
         return res.status(400).json({ error: 'حداقل یک کالا وارد کنید' });
       }
 
-      const user = db.prepare('SELECT department_id FROM users WHERE id = ?').get(req.user.id);
-      const supervisorId = findSupervisorId(user?.department_id);
-      const requestNumber = getNextNumber();
+      const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { departmentId: true } });
+      const supervisorId = await findSupervisorId(user?.departmentId);
+      const requestNumber = await getNextNumber();
 
-      const result = db.prepare(`
-        INSERT INTO purchase_requests (user_id, request_number, department, urgency, reason, department_id, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(req.user.id, requestNumber, department || '', urgency, reason || '', user?.department_id, 'pending_supervisor');
+      const newRequest = await prisma.$transaction(async (tx) => {
+        const created = await tx.purchaseRequest.create({
+          data: {
+            userId: req.user.id,
+            requestNumber,
+            department: department || '',
+            urgency,
+            reason: reason || '',
+            departmentId: user?.departmentId ?? null,
+            status: 'pending_supervisor',
+          },
+        });
+        if (items.length > 0) {
+          await tx.purchaseItem.createMany({
+            data: items.map((item, i) => ({
+              requestId: created.id,
+              rowIndex: i + 1,
+              itemCode: item.item_code || '',
+              description: item.description || '',
+              purchaseLocation: item.purchase_location || 'Urmia',
+              technicalSpecs: item.technical_specs || '',
+              requestedQuantity: Number(item.requested_quantity) || 0,
+              approvedQuantity: Number(item.approved_quantity) || 0,
+              usageLocation: item.usage_location || '',
+              price: Number(item.price) || 0,
+              unit: item.unit || '',
+            })),
+          });
+        }
+        return created;
+      });
 
-      const requestId = result.lastInsertRowid;
-      saveItems(requestId, items);
-
-      addHistory(requestId, req.user.id, req.user.full_name, 'ثبت درخواست', null);
+      const requestId = newRequest.id;
+      await addHistory(requestId, req.user.id, req.user.full_name, 'ثبت درخواست', null);
 
       if (supervisorId) {
-        notify(supervisorId, 'درخواست خرید جدید', `درخواست شماره ${requestNumber} توسط ${req.user.full_name} ثبت شد`, '/purchase');
+        await notify(supervisorId, 'درخواست خرید جدید', `درخواست شماره ${requestNumber} توسط ${req.user.full_name} ثبت شد`, '/purchase');
       }
 
       res.json({ id: requestId, request_number: requestNumber });
@@ -157,10 +223,10 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/:id/approve', (req, res) => {
+  router.post('/:id/approve', async (req, res) => {
     try {
       const { comment, items } = req.body;
-      const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ?').get(req.params.id);
+      const request = await prisma.purchaseRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
 
       const now = new Date().toISOString();
@@ -169,32 +235,42 @@ module.exports = function (db) {
 
       if (request.status === 'pending_supervisor') {
         newStatus = 'pending_manager';
-        db.prepare('UPDATE purchase_requests SET supervisor_id = ?, supervisor_comment = ?, supervisor_date = ?, status = ? WHERE id = ?')
-          .run(req.user.id, comment, now, newStatus, req.params.id);
+        await prisma.purchaseRequest.update({
+          where: { id: Number(req.params.id) },
+          data: { supervisorId: req.user.id, supervisorComment: comment, supervisorDate: now, status: newStatus },
+        });
         historyAction = 'تایید سرپرست';
-        const managers = db.prepare("SELECT id FROM users WHERE role = 'manager'").all();
-        managers.forEach(mgr => notify(mgr.id, 'درخواست خرید نیاز به تایید', `درخواست شماره ${request.request_number} توسط سرپرست تایید شد`, '/purchase'));
+        const managers = await prisma.user.findMany({ where: { role: 'manager' }, select: { id: true } });
+        for (const mgr of managers) {
+          await notify(mgr.id, 'درخواست خرید نیاز به تایید', `درخواست شماره ${request.request_number} توسط سرپرست تایید شد`, '/purchase');
+        }
       } else if (request.status === 'pending_manager') {
         newStatus = 'pending_warehouse';
-        db.prepare('UPDATE purchase_requests SET manager_id = ?, manager_comment = ?, manager_date = ?, status = ? WHERE id = ?')
-          .run(req.user.id, comment, now, newStatus, req.params.id);
+        await prisma.purchaseRequest.update({
+          where: { id: Number(req.params.id) },
+          data: { managerId: req.user.id, managerComment: comment, managerDate: now, status: newStatus },
+        });
         historyAction = 'تایید مدیر';
-        const warehouseUsers = db.prepare("SELECT id FROM users WHERE role = 'admin'").all();
-        warehouseUsers.forEach(w => notify(w.id, 'درخواست خرید نیاز به تایید انبار', `درخواست شماره ${request.request_number} توسط مدیر تایید شد`, '/purchase'));
+        const warehouseUsers = await prisma.user.findMany({ where: { role: 'admin' }, select: { id: true } });
+        for (const w of warehouseUsers) {
+          await notify(w.id, 'درخواست خرید نیاز به تایید انبار', `درخواست شماره ${request.request_number} توسط مدیر تایید شد`, '/purchase');
+        }
       } else if (request.status === 'pending_warehouse') {
         newStatus = 'approved';
-        db.prepare('UPDATE purchase_requests SET warehouse_id = ?, warehouse_comment = ?, warehouse_date = ?, status = ? WHERE id = ?')
-          .run(req.user.id, comment, now, newStatus, req.params.id);
+        await prisma.purchaseRequest.update({
+          where: { id: Number(req.params.id) },
+          data: { warehouseId: req.user.id, warehouseComment: comment, warehouseDate: now, status: newStatus },
+        });
         historyAction = 'تایید نهایی انبار';
         if (items && items.length > 0) {
-          saveItems(req.params.id, items);
+          await saveItems(req.params.id, items);
         }
       } else {
         return res.status(400).json({ error: 'وضعیت درخواست نامعتبر است' });
       }
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, historyAction, comment);
-      notify(request.user_id, 'تایید درخواست خرید', `درخواست شماره ${request.request_number} ${historyAction} شد`, '/purchase');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, historyAction, comment);
+      await notify(request.userId, 'تایید درخواست خرید', `درخواست شماره ${request.request_number} ${historyAction} شد`, '/purchase');
 
       res.json({ success: true, status: newStatus });
     } catch (err) {
@@ -202,10 +278,10 @@ module.exports = function (db) {
     }
   });
 
-  router.post('/:id/reject', (req, res) => {
+  router.post('/:id/reject', async (req, res) => {
     try {
       const { comment } = req.body;
-      const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ?').get(req.params.id);
+      const request = await prisma.purchaseRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
       if (!comment) return res.status(400).json({ error: 'دلیل رد الزامی است' });
 
@@ -213,23 +289,29 @@ module.exports = function (db) {
       let historyAction = '';
 
       if (request.status === 'pending_supervisor') {
-        db.prepare('UPDATE purchase_requests SET supervisor_id = ?, supervisor_comment = ?, supervisor_date = ?, status = ? WHERE id = ?')
-          .run(req.user.id, comment, now, 'rejected', req.params.id);
+        await prisma.purchaseRequest.update({
+          where: { id: Number(req.params.id) },
+          data: { supervisorId: req.user.id, supervisorComment: comment, supervisorDate: now, status: 'rejected' },
+        });
         historyAction = 'رد توسط سرپرست';
       } else if (request.status === 'pending_manager') {
-        db.prepare('UPDATE purchase_requests SET manager_id = ?, manager_comment = ?, manager_date = ?, status = ? WHERE id = ?')
-          .run(req.user.id, comment, now, 'rejected', req.params.id);
+        await prisma.purchaseRequest.update({
+          where: { id: Number(req.params.id) },
+          data: { managerId: req.user.id, managerComment: comment, managerDate: now, status: 'rejected' },
+        });
         historyAction = 'رد توسط مدیر';
       } else if (request.status === 'pending_warehouse') {
-        db.prepare('UPDATE purchase_requests SET warehouse_id = ?, warehouse_comment = ?, warehouse_date = ?, status = ? WHERE id = ?')
-          .run(req.user.id, comment, now, 'rejected', req.params.id);
+        await prisma.purchaseRequest.update({
+          where: { id: Number(req.params.id) },
+          data: { warehouseId: req.user.id, warehouseComment: comment, warehouseDate: now, status: 'rejected' },
+        });
         historyAction = 'رد توسط انبار';
       } else {
         return res.status(400).json({ error: 'وضعیت درخواست نامعتبر است' });
       }
 
-      addHistory(req.params.id, req.user.id, req.user.full_name, historyAction, comment);
-      notify(request.user_id, 'رد درخواست خرید', `درخواست شماره ${request.request_number} رد شد. دلیل: ${comment}`, '/purchase');
+      await addHistory(req.params.id, req.user.id, req.user.full_name, historyAction, comment);
+      await notify(request.userId, 'رد درخواست خرید', `درخواست شماره ${request.request_number} رد شد. دلیل: ${comment}`, '/purchase');
 
       res.json({ success: true, status: 'rejected' });
     } catch (err) {
@@ -237,20 +319,20 @@ module.exports = function (db) {
     }
   });
 
-  router.delete('/:id', (req, res) => {
+  router.delete('/:id', async (req, res) => {
     try {
-      const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ?').get(req.params.id);
+      const request = await prisma.purchaseRequest.findUnique({ where: { id: Number(req.params.id) } });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
-      if (request.user_id !== req.user.id && req.user.role !== 'admin') {
+      if (request.userId !== req.user.id && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
       if (request.status !== 'pending_supervisor') {
         return res.status(400).json({ error: 'امکان حذف درخواست در این مرحله وجود ندارد' });
       }
 
-      db.prepare('DELETE FROM purchase_items WHERE request_id = ?').run(req.params.id);
-      db.prepare('DELETE FROM purchase_history WHERE request_id = ?').run(req.params.id);
-      db.prepare('DELETE FROM purchase_requests WHERE id = ?').run(req.params.id);
+      await prisma.purchaseItem.deleteMany({ where: { requestId: Number(req.params.id) } });
+      await prisma.purchaseHistory.deleteMany({ where: { requestId: Number(req.params.id) } });
+      await prisma.purchaseRequest.delete({ where: { id: Number(req.params.id) } });
 
       res.json({ success: true });
     } catch (err) {

@@ -1,12 +1,11 @@
 const request = require('supertest');
 const { createTestApp, generateToken } = require('./setup');
 
-let app, db, adminToken, userToken;
+let app, adminToken, userToken;
 
 beforeAll(async () => {
   const result = createTestApp();
   app = result.app;
-  db = result.db;
   adminToken = generateToken({ id: 1000, role: 'admin', full_name: 'مدیر سیستم', department_id: 1 });
   userToken = generateToken({ id: 1001, role: 'user', full_name: 'کارمند', department_id: 2 });
 });
