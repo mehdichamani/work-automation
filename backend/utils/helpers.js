@@ -88,4 +88,31 @@ async function addHistory(table, idColumn, recordId, userId, userName, action, c
   });
 }
 
-module.exports = { notify, notifyAll, findSupervisorId, getNextNumber, addHistory };
+/**
+ * Executes a database operation (query or transaction) with retry logic
+ * for transient errors like deadlocks (40P01) or serialization failures (40001).
+ */
+async function executeWithRetry(fn, retries = 3, delay = 100) {
+  let attempt = 0;
+  while (attempt < retries) {
+    try {
+      return await fn();
+    } catch (error) {
+      attempt++;
+      // Check for PostgreSQL deadlock (40P01) or serialization failure (40001) codes.
+      // Also check error message text as Prisma or driver might wrap the code.
+      const isTransient = error.code === '40P01' ||
+                          error.code === '40001' ||
+                          (error.message && (error.message.includes('deadlock') || error.message.includes('serialization')));
+
+      if (isTransient && attempt < retries) {
+        console.warn(`[DB Retry] Transient database error (code: ${error.code}). Retrying in ${delay * attempt}ms... (Attempt ${attempt}/${retries})`);
+        await new Promise((resolve) => setTimeout(resolve, delay * attempt)); // Exponential backoff
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+module.exports = { notify, notifyAll, findSupervisorId, getNextNumber, addHistory, executeWithRetry };
