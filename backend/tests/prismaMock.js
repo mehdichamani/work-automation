@@ -28,11 +28,12 @@ const REL_FK = {
   user: 'userId', dept: 'departmentId', department: 'departmentId',
   supervisor: 'supervisorId', manager: 'managerId', creator: 'createdBy',
   uploader: 'uploadedBy', request: 'requestId', assignedUser: 'assignedTo',
+  template: 'templateId', startedByUser: 'startedBy', actor: 'actorId',
 };
 const REL_MODEL = {
   user: 'user', dept: 'department', department: 'department',
   supervisor: 'user', manager: 'user', creator: 'user', uploader: 'user',
-  assignedUser: 'user',
+  assignedUser: 'user', template: 'workflowTemplate', startedByUser: 'user', actor: 'user',
 };
 
 function createMockPrisma() {
@@ -122,8 +123,18 @@ function createMockPrisma() {
         return res.map(r => resolveIncludes(r, args));
       },
       create: async (args) => { const row = { id: nextId++, ...args.data }; rows.push(row); return { ...row }; },
-      createMany: async (args) => { const data = Array.isArray(args.data) ? args.data : [args.data]; data.forEach(d => rows.push({ id: nextId++, ...d })); return { count: data.length }; },
+      createMany: async (args = {}) => { const data = Array.isArray(args.data) ? args.data : [args.data]; data.forEach(d => rows.push({ id: nextId++, ...d })); return { count: data.length }; },
       update: async (args) => { const i = rows.findIndex(r => matchWhere(r, args.where)); if (i >= 0) Object.assign(rows[i], args.data); return i >= 0 ? { ...rows[i] } : null; },
+      updateMany: async (args = {}) => {
+        let count = 0;
+        rows.forEach(r => {
+          if (matchWhere(r, args.where)) {
+            Object.assign(r, args.data);
+            count++;
+          }
+        });
+        return { count };
+      },
       delete: async (args) => { const i = rows.findIndex(r => matchWhere(r, args.where)); if (i >= 0) rows.splice(i, 1); return {}; },
       deleteMany: async (args = {}) => { const before = rows.length; if (!args || !args.where) { rows.length = 0; } else { const kept = rows.filter(r => !matchWhere(r, args.where)); rows.length = 0; rows.push(...kept); } return { count: before - rows.length }; },
       count: async (args = {}) => { if (!args.where) return rows.length; return rows.filter(r => matchWhere(r, args.where)).length; },
