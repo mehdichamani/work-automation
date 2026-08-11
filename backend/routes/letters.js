@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const moment = require('moment-jalaali');
 const { authMiddleware } = require('../middleware/auth');
+const { letters } = require('../middleware/validate');
 const prisma = require('../database/prisma');
 const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
@@ -183,11 +184,14 @@ module.exports = function() {
   // ============================================================
   // ایجاد نامه جدید
   // ============================================================
-  router.post('/', upload.array('attachments', 10), async (req, res) => {
+  router.post('/', upload.array('attachments', 10), (req, res, next) => {
+    // Check if body parameter is parsed but express-validator needs a custom validation
+    // Since we upload using multer, body is populated inside multer.
+    // Let's validate subject and other values using express-validator array.
+    next();
+  }, letters, async (req, res) => {
     try {
       const { subject, body, priority } = req.body;
-      if (!subject) return res.status(400).json({ error: 'موضوع نامه الزامی است' });
-
       const letter_number = await getNextLetterNumber();
       const senderUnitId = req.user.department_id || 1;
 
@@ -455,13 +459,18 @@ module.exports = function() {
       const { manager_id, comment } = req.body;
       if (!manager_id) return res.status(400).json({ error: 'انتخاب مدیر الزامی است' });
 
-      const letter = await prisma.letter.findFirst({ where: { id: Number(req.params.id), status: 'pending_central' } });
+      const letterId = Number(req.params.id);
+      if (isNaN(letterId)) {
+        return res.status(400).json({ error: 'شناسه نامعتبر است' });
+      }
+
+      const letter = await prisma.letter.findFirst({ where: { id: letterId, status: 'pending_central' } });
       if (!letter) return res.status(404).json({ error: 'نامه یافت نشد' });
 
       const manager = await prisma.user.findUnique({ where: { id: Number(manager_id) }, select: { fullName: true } });
 
       await prisma.letter.update({
-        where: { id: Number(req.params.id) },
+        where: { id: letterId },
         data: {
           status: 'pending_manager',
           selectedManagerId: Number(manager_id),
@@ -471,7 +480,7 @@ module.exports = function() {
         },
       });
 
-      await addHistory(req.params.id, req.user.id, req.user.full_name, 'sent_to_manager', `ارسال به مدیر: ${manager?.fullName}${comment ? ` - توضیح: ${comment}` : ''}`);
+      await addHistory(letterId, req.user.id, req.user.full_name, 'sent_to_manager', `ارسال به مدیر: ${manager?.fullName}${comment ? ` - توضیح: ${comment}` : ''}`);
       await notify(manager_id, 'نامه جدید', `نامه "${letter.subject}" برای شما ارسال شده`, '/letters');
 
       res.json({ message: 'نامه به مدیر ارسال شد' });
@@ -483,13 +492,17 @@ module.exports = function() {
   router.put('/:id/approve', async (req, res) => {
     try {
       const { comment } = req.body;
+      const letterId = Number(req.params.id);
+      if (isNaN(letterId)) {
+        return res.status(400).json({ error: 'شناسه نامعتبر است' });
+      }
       const letter = await prisma.letter.findFirst({
-        where: { id: Number(req.params.id), status: 'pending_manager', selectedManagerId: Number(req.user.id) },
+        where: { id: letterId, status: 'pending_manager', selectedManagerId: Number(req.user.id) },
       });
       if (!letter) return res.status(404).json({ error: 'نامه یافت نشد' });
 
       await prisma.letter.update({
-        where: { id: Number(req.params.id) },
+        where: { id: letterId },
         data: {
           status: 'approved',
           managerId: Number(req.user.id),
@@ -498,7 +511,7 @@ module.exports = function() {
         },
       });
 
-      await addHistory(req.params.id, req.user.id, req.user.full_name, 'approved', comment || 'تایید شده');
+      await addHistory(letterId, req.user.id, req.user.full_name, 'approved', comment || 'تایید شده');
 
       const sender = await prisma.user.findUnique({ where: { id: letter.senderId }, select: { id: true, fullName: true } });
       if (sender) await notify(sender.id, 'تایید نامه', `نامه "${letter.subject}" تایید شد`, '/letters');
@@ -514,13 +527,17 @@ module.exports = function() {
   router.put('/:id/reject', async (req, res) => {
     try {
       const { comment } = req.body;
+      const letterId = Number(req.params.id);
+      if (isNaN(letterId)) {
+        return res.status(400).json({ error: 'شناسه نامعتبر است' });
+      }
       const letter = await prisma.letter.findFirst({
-        where: { id: Number(req.params.id), status: 'pending_manager', selectedManagerId: Number(req.user.id) },
+        where: { id: letterId, status: 'pending_manager', selectedManagerId: Number(req.user.id) },
       });
       if (!letter) return res.status(404).json({ error: 'نامه یافت نشد' });
 
       await prisma.letter.update({
-        where: { id: Number(req.params.id) },
+        where: { id: letterId },
         data: {
           status: 'rejected',
           managerId: Number(req.user.id),
@@ -529,7 +546,7 @@ module.exports = function() {
         },
       });
 
-      await addHistory(req.params.id, req.user.id, req.user.full_name, 'rejected', comment || 'رد شده');
+      await addHistory(letterId, req.user.id, req.user.full_name, 'rejected', comment || 'رد شده');
 
       const sender = await prisma.user.findUnique({ where: { id: letter.senderId }, select: { id: true, fullName: true } });
       if (sender) await notify(sender.id, 'رد نامه', `نامه "${letter.subject}" رد شد`, '/letters');
@@ -545,11 +562,15 @@ module.exports = function() {
   router.put('/:id/archive', async (req, res) => {
     try {
       if (!(await isSantral(req.user))) return res.status(403).json({ error: 'دسترسی غیرمجاز' });
-      const letter = await prisma.letter.findFirst({ where: { id: Number(req.params.id), status: 'approved' } });
+      const letterId = Number(req.params.id);
+      if (isNaN(letterId)) {
+        return res.status(400).json({ error: 'شناسه نامعتبر است' });
+      }
+      const letter = await prisma.letter.findFirst({ where: { id: letterId, status: 'approved' } });
       if (!letter) return res.status(404).json({ error: 'نامه یافت نشد' });
 
-      await prisma.letter.update({ where: { id: Number(req.params.id) }, data: { status: 'archived' } });
-      await addHistory(req.params.id, req.user.id, req.user.full_name, 'archived', 'بایگانی شد');
+      await prisma.letter.update({ where: { id: letterId }, data: { status: 'archived' } });
+      await addHistory(letterId, req.user.id, req.user.full_name, 'archived', 'بایگانی شد');
 
       const sender = await prisma.user.findUnique({ where: { id: letter.senderId }, select: { id: true, fullName: true } });
       if (sender) await notify(sender.id, 'بایگانی نامه', `نامه "${letter.subject}" بایگانی شد`, '/letters');
@@ -566,10 +587,14 @@ module.exports = function() {
       const { unit_ids } = req.body;
       if (!unit_ids || unit_ids.length === 0) return res.status(400).json({ error: 'انتخاب حداقل یک واحد الزامی است' });
 
-      const letter = await prisma.letter.findUnique({ where: { id: Number(req.params.id) } });
+      const letterId = Number(req.params.id);
+      if (isNaN(letterId)) {
+        return res.status(400).json({ error: 'شناسه نامعتبر است' });
+      }
+      const letter = await prisma.letter.findUnique({ where: { id: letterId } });
       if (!letter) return res.status(404).json({ error: 'نامه یافت نشد' });
 
-      await prisma.letter.update({ where: { id: Number(req.params.id) }, data: { status: 'forwarded' } });
+      await prisma.letter.update({ where: { id: letterId }, data: { status: 'forwarded' } });
 
       const deptNames = [];
       const depts = await prisma.department.findMany({
@@ -584,7 +609,7 @@ module.exports = function() {
 
       for (const uid of unit_ids) {
         await prisma.letterUnit.create({
-          data: { letterId: Number(req.params.id), unitId: Number(uid), status: 'pending' },
+          data: { letterId: letterId, unitId: Number(uid), status: 'pending' },
         });
       }
 
@@ -596,7 +621,7 @@ module.exports = function() {
         await notify(u.id, 'نامه ارجاعی', `نامه "${letter.subject}" به واحد شما ارجاع شده`, '/letters');
       }
 
-      await addHistory(req.params.id, req.user.id, req.user.full_name, 'forwarded', `ارجاع: ${deptNames.join('، ')}`);
+      await addHistory(letterId, req.user.id, req.user.full_name, 'forwarded', `ارجاع: ${deptNames.join('، ')}`);
 
       const sender = await prisma.user.findUnique({ where: { id: letter.senderId }, select: { id: true, fullName: true } });
       if (sender) await notify(sender.id, 'ارجاع نامه', `نامه "${letter.subject}" ارجاع شد`, '/letters');
@@ -609,13 +634,17 @@ module.exports = function() {
 
   router.put('/:id/seen-unit', async (req, res) => {
     try {
+      const letterId = Number(req.params.id);
+      if (isNaN(letterId)) {
+        return res.status(400).json({ error: 'شناسه نامعتبر است' });
+      }
       const lu = await prisma.letterUnit.findFirst({
-        where: { letterId: Number(req.params.id), unitId: Number(req.user.department_id), status: 'pending' },
+        where: { letterId: letterId, unitId: Number(req.user.department_id), status: 'pending' },
       });
       if (!lu) return res.status(404).json({ error: 'نامه یافت نشد' });
 
       await prisma.letterUnit.update({ where: { id: lu.id }, data: { status: 'seen', seenDate: getNowString() } });
-      await addHistory(req.params.id, req.user.id, req.user.full_name, 'seen_unit', 'رویت شده');
+      await addHistory(letterId, req.user.id, req.user.full_name, 'seen_unit', 'رویت شده');
       res.json({ message: 'رویت شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -628,8 +657,12 @@ module.exports = function() {
 
   router.get('/:id/history', async (req, res) => {
     try {
+      const letterId = Number(req.params.id);
+      if (isNaN(letterId)) {
+        return res.status(400).json({ error: 'شناسه نامعتبر است' });
+      }
       const history = await prisma.letterHistory.findMany({
-        where: { letterId: Number(req.params.id) },
+        where: { letterId: letterId },
         orderBy: { createdAt: 'asc' },
       });
       res.json(mapRow(history));

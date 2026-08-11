@@ -1,5 +1,6 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
+const { chatMessage } = require('../middleware/validate');
 const prisma = require('../database/prisma');
 const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
@@ -98,14 +99,19 @@ module.exports = function() {
       const limit = parseInt(req.query.limit) || 50;
       const before = req.query.before;
 
+      const roomId = Number(req.params.id);
+      if (isNaN(roomId)) {
+        return res.status(400).json({ error: 'شناسه اتاق نامعتبر است' });
+      }
+
       const member = await prisma.chatMember.findFirst({
-        where: { roomId: Number(req.params.id), userId: Number(req.user.id) },
+        where: { roomId: roomId, userId: Number(req.user.id) },
       });
       if (!member && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
 
-      const where = { roomId: Number(req.params.id) };
+      const where = { roomId: roomId };
       if (before) {
         where.id = { lt: Number(before) };
       }
@@ -133,13 +139,17 @@ module.exports = function() {
     }
   });
 
-  router.post('/rooms/:id/messages', async (req, res) => {
+  router.post('/rooms/:id/messages', chatMessage, async (req, res) => {
     try {
       const { message, message_type, attachment_url } = req.body;
-      if (!message && !attachment_url) return res.status(400).json({ error: 'پیام الزامی است' });
+
+      const roomId = Number(req.params.id);
+      if (isNaN(roomId)) {
+        return res.status(400).json({ error: 'شناسه اتاق نامعتبر است' });
+      }
 
       const member = await prisma.chatMember.findFirst({
-        where: { roomId: Number(req.params.id), userId: Number(req.user.id) },
+        where: { roomId: roomId, userId: Number(req.user.id) },
       });
       if (!member && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
@@ -147,7 +157,7 @@ module.exports = function() {
 
       const result = await prisma.chatMessage.create({
         data: {
-          roomId: Number(req.params.id),
+          roomId: roomId,
           userId: Number(req.user.id),
           message: message || '',
           messageType: message_type || 'text',

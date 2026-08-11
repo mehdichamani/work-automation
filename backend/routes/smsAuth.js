@@ -2,6 +2,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { JWT_SECRET } = require('../middleware/auth');
+const { smsAuthSend, smsAuthVerify } = require('../middleware/validate');
 const prisma = require('../database/prisma');
 const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000;
@@ -39,12 +40,9 @@ async function sendSMS(phone, code) {
 module.exports = function() {
   const router = express.Router();
 
-  router.post('/send-code', async (req, res) => {
+  router.post('/send-code', smsAuthSend, async (req, res) => {
     try {
       const { phone } = req.body;
-      if (!phone || !/^09\d{9}$/.test(phone)) {
-        return res.status(400).json({ error: 'شماره موبایل معتبر نیست (مثال: 09141234567)' });
-      }
 
       const recentCode = await prisma.smsCode.findFirst({
         where: { phone: phone, createdAt: { gt: new Date(Date.now() - 60000) } }
@@ -67,12 +65,9 @@ module.exports = function() {
     }
   });
 
-  router.post('/verify-code', async (req, res) => {
+  router.post('/verify-code', smsAuthVerify, async (req, res) => {
     try {
       const { phone, code } = req.body;
-      if (!phone || !code) {
-        return res.status(400).json({ error: 'شماره موبایل و کد تأیید الزامی است' });
-      }
 
       const record = await prisma.smsCode.findFirst({
         where: { phone: phone, code: code, used: false, expiresAt: { gt: new Date().toISOString() } },

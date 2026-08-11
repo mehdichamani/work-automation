@@ -172,6 +172,54 @@ const pagination = [
   handleErrors,
 ];
 
+const announcements = [
+  body('title').notEmpty().withMessage('عنوان الزامی است')
+    .isLength({ max: 200 }).withMessage('عنوان حداکثر ۲۰۰ کاراکتر'),
+  body('body').optional().isLength({ max: 5000 }).withMessage('متن حداکثر ۵۰۰۰ کاراکتر'),
+  body('target_audience').optional().isIn(['all', 'manager', 'supervisor']).withMessage('مخاطب هدف نامعتبر'),
+  body('priority').optional().isIn(['normal', 'important', 'urgent']).withMessage('اولویت نامعتبر'),
+  body('is_active').optional().isBoolean().withMessage('وضعیت فعال‌بودن نامعتبر'),
+  handleErrors,
+];
+
+const smsAuthSend = [
+  body('phone').notEmpty().withMessage('شماره موبایل الزامی است')
+    .matches(/^09\d{9}$/).withMessage('شماره موبایل معتبر نیست'),
+  handleErrors,
+];
+
+const smsAuthVerify = [
+  body('phone').notEmpty().withMessage('شماره موبایل الزامی است')
+    .matches(/^09\d{9}$/).withMessage('شماره موبایل معتبر نیست'),
+  body('code').notEmpty().withMessage('کد تایید الزامی است')
+    .isLength({ min: 4, max: 8 }).withMessage('کد تایید نامعتبر است'),
+  handleErrors,
+];
+
+const pushSubscribe = [
+  body('subscription').notEmpty().withMessage('اطلاعات سابسکرایب الزامی است'),
+  handleErrors,
+];
+
+const letters = [
+  body('letter_type').notEmpty().withMessage('نوع نامه الزامی است')
+    .isIn(['internal', 'external', 'incoming', 'outgoing']).withMessage('نوع نامه نامعتبر است'),
+  body('title').notEmpty().withMessage('عنوان نامه الزامی است')
+    .isLength({ max: 200 }).withMessage('عنوان حداکثر ۲۰۰ کاراکتر'),
+  body('content').notEmpty().withMessage('متن نامه الزامی است')
+    .isLength({ max: 10000 }).withMessage('متن نامه حداکثر ۱۰۰۰۰ کاراکتر'),
+  body('receiver_id').optional().isInt({ min: 1 }).withMessage('شناسه دریافت‌کننده نامعتبر'),
+  body('severity').optional().isIn(['normal', 'immediate', 'critical']).withMessage('فوریت نامعتبر'),
+  body('security_level').optional().isIn(['normal', 'confidential', 'secret']).withMessage('سطح محرمانگی نامعتبر'),
+  handleErrors,
+];
+
+const chatMessage = [
+  body('message').notEmpty().withMessage('متن پیام الزامی است')
+    .isLength({ max: 2000 }).withMessage('متن پیام حداکثر ۲۰۰۰ کاراکتر'),
+  handleErrors,
+];
+
 function validateInput(config) {
   return (req, res, next) => {
     for (const [field, maxLength] of Object.entries(config)) {
@@ -191,4 +239,5 @@ module.exports = {
   leave, overtime, purchase, mission, workOrder, payment,
   repair, itRequest, conference, security, dailyOutput,
   projectSupply, inspection, auth, changePassword, pagination,
+  announcements, smsAuthSend, smsAuthVerify, pushSubscribe, letters, chatMessage,
 };

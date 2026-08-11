@@ -1,15 +1,15 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
+const { pushSubscribe } = require('../middleware/validate');
 const prisma = require('../database/prisma');
 
 module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  router.post('/subscribe', async (req, res) => {
+  router.post('/subscribe', pushSubscribe, async (req, res) => {
     try {
       const { endpoint, p256dh, auth: authKey } = req.body;
-      if (!endpoint) return res.status(400).json({ error: 'endpoint الزامی است' });
 
       await prisma.pushSubscription.deleteMany({ where: { userId: Number(req.user.id), endpoint } });
       await prisma.pushSubscription.create({
