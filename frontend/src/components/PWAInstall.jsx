@@ -24,24 +24,45 @@ export default function PWAInstall() {
       return;
     }
 
-    const handler = (e) => {
+    // Check if prompt has already been captured globally by index.html
+    if (window.deferredPrompt) {
+      setDeferredPrompt(window.deferredPrompt);
+      setShowInstall(true);
+    }
+
+    const handlePrompt = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
       setShowInstall(true);
     };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+
+    const handleCustomPromptAvailable = () => {
+      if (window.deferredPrompt) {
+        setDeferredPrompt(window.deferredPrompt);
+        setShowInstall(true);
+      }
+    };
+
+    window.addEventListener('beforeinstallprompt', handlePrompt);
+    window.addEventListener('pwa-prompt-available', handleCustomPromptAvailable);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handlePrompt);
+      window.removeEventListener('pwa-prompt-available', handleCustomPromptAvailable);
+    };
   }, []);
 
   const handleInstall = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
+    const promptEvent = deferredPrompt || window.deferredPrompt;
+    if (!promptEvent) return;
+    promptEvent.prompt();
+    const { outcome } = await promptEvent.userChoice;
     if (outcome === 'accepted') {
       setShowInstall(false);
       localStorage.setItem('pwa_install_dismissed', '1');
     }
     setDeferredPrompt(null);
+    window.deferredPrompt = null;
   };
 
   const handleDismiss = () => {
