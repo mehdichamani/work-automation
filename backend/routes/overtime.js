@@ -5,19 +5,7 @@ const prisma = require('../database/prisma');
 const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 const { overtime } = require('../middleware/validate');
 
-let holidayCache = null;
-let holidayCacheTime = 0;
-const HOLIDAY_CACHE_TTL = 60000;
-
-async function getHolidays() {
-  const now = Date.now();
-  if (!holidayCache || now - holidayCacheTime > HOLIDAY_CACHE_TTL) {
-    const rows = await prisma.officialHoliday.findMany({ select: { holidayDate: true } });
-    holidayCache = rows.map((r) => ({ holiday_date: r.holidayDate }));
-    holidayCacheTime = now;
-  }
-  return holidayCache;
-}
+const { getHolidays } = require('../utils/holidayCache');
 
 const pad = (n) => String(n).padStart(2, '0');
 function getNowString() {
