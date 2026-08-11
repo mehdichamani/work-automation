@@ -4,6 +4,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const hpp = require('hpp');
+const mongoSanitize = require('express-mongo-sanitize');
 const path = require('path');
 const { exec, execFile } = require('child_process');
 const prisma = require('./database/prisma');
@@ -69,6 +71,8 @@ async function startServer() {
 
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
+  app.use(hpp());
+  app.use(mongoSanitize());
 
   // Global WebSocket mutation broadcast middleware
   app.use((req, res, next) => {

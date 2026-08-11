@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { authMiddleware, roleGuard } = require('../middleware/auth');
+const { announcements } = require('../middleware/validate');
 const prisma = require('../database/prisma');
 const { mapRow, flattenJoins } = require('../utils/dbAdapter');
 
@@ -73,7 +74,7 @@ module.exports = function() {
     }
   });
 
-  router.post('/', roleGuard('admin'), async (req, res) => {
+  router.post('/', roleGuard('admin'), announcements, async (req, res) => {
     try {
       const { title, body, target_audience, priority, image } = req.body;
       if (!title || !title.trim()) {
@@ -128,10 +129,14 @@ module.exports = function() {
     }
   });
 
-  router.put('/:id', roleGuard('admin'), async (req, res) => {
+  router.put('/:id', roleGuard('admin'), announcements, async (req, res) => {
     try {
       const { title, body, target_audience, priority, is_active, image } = req.body;
-      const existing = await prisma.announcement.findUnique({ where: { id: Number(req.params.id) } });
+      const announcementId = Number(req.params.id);
+      if (isNaN(announcementId)) {
+        return res.status(400).json({ error: 'شناسه نامعتبر است' });
+      }
+      const existing = await prisma.announcement.findUnique({ where: { id: announcementId } });
       if (!existing) {
         return res.status(404).json({ error: 'اطلاعیه یافت نشد' });
       }
@@ -146,7 +151,7 @@ module.exports = function() {
       }
 
       await prisma.announcement.update({
-        where: { id: Number(req.params.id) },
+        where: { id: announcementId },
         data: {
           title: title !== undefined ? title : existing.title,
           body: body !== undefined ? body : existing.body,
@@ -165,13 +170,17 @@ module.exports = function() {
 
   router.delete('/:id', roleGuard('admin'), async (req, res) => {
     try {
-      const existing = await prisma.announcement.findUnique({ where: { id: Number(req.params.id) } });
+      const announcementId = Number(req.params.id);
+      if (isNaN(announcementId)) {
+        return res.status(400).json({ error: 'شناسه نامعتبر است' });
+      }
+      const existing = await prisma.announcement.findUnique({ where: { id: announcementId } });
       if (!existing) {
         return res.status(404).json({ error: 'اطلاعیه یافت نشد' });
       }
 
       deleteImageFile(existing.imagePath);
-      await prisma.announcement.delete({ where: { id: Number(req.params.id) } });
+      await prisma.announcement.delete({ where: { id: announcementId } });
       res.json({ message: 'اطلاعیه حذف شد' });
     } catch (err) {
       res.status(500).json({ error: err.message });
