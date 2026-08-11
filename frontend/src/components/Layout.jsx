@@ -55,6 +55,21 @@ export default function Layout({ children }) {
     return typeof window !== 'undefined' ? window.innerWidth > 768 : false;
   });
 
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  });
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.body.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.body.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth > 768) {
@@ -251,23 +266,32 @@ export default function Layout({ children }) {
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-white shadow-sm h-16 flex items-center justify-between px-6">
+        <header className="bg-white dark:bg-slate-900 border-b dark:border-slate-800/80 shadow-sm h-16 flex items-center justify-between px-6 transition-colors duration-200">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 -mr-2 text-gray-600 hover:text-primary-500 md:hidden text-xl"
+              className="p-2 -mr-2 text-gray-600 dark:text-slate-300 hover:text-primary-500 md:hidden text-xl"
             >
               ☰
             </button>
-            <h2 className="text-lg font-bold text-gray-800">
+            <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100">
               {filteredMenu.find(m => m.path === location.pathname)?.label || 'داشبورد'}
             </h2>
           </div>
           <div className="flex items-center gap-4">
+            {/* Theme toggle */}
+            <button
+              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              className="p-2 text-xl hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors duration-200"
+              title={theme === 'light' ? 'حالت تاریک' : 'حالت روشن'}
+            >
+              {theme === 'light' ? '🌙' : '☀️'}
+            </button>
+
             <div className="relative">
               <button 
                 onClick={() => setShowNotifPanel(!showNotifPanel)}
-                className="relative p-2 text-gray-600 hover:text-primary-500 transition-colors"
+                className="relative p-2 text-gray-600 dark:text-slate-300 hover:text-primary-500 transition-colors"
               >
                 🔔
                 {unreadCount > 0 && (
@@ -278,21 +302,21 @@ export default function Layout({ children }) {
               </button>
               
               {showNotifPanel && (
-                <div className="absolute left-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border z-50 animate-fade-in">
+                <div className="absolute left-0 mt-2 w-80 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border dark:border-slate-800/80 z-50 animate-fade-in text-gray-800 dark:text-slate-100">
                   {activeAnnouncements.length > 0 && (
-                    <div className="border-b bg-orange-50">
-                      <div className="p-3 border-b flex justify-between items-center">
-                        <span className="font-bold text-sm text-orange-700">📢 اطلاعیه‌ها</span>
+                    <div className="border-b dark:border-slate-800 bg-orange-50 dark:bg-orange-950/20">
+                      <div className="p-3 border-b dark:border-slate-800 flex justify-between items-center">
+                        <span className="font-bold text-sm text-orange-700 dark:text-orange-400">📢 اطلاعیه‌ها</span>
                       </div>
                       <div className="max-h-40 overflow-y-auto">
                         {activeAnnouncements.map(a => (
-                            <div key={a.id} className="p-3 border-b border-orange-100 hover:bg-orange-100 cursor-pointer">
+                            <div key={a.id} className="p-3 border-b border-orange-100 dark:border-orange-900/50 hover:bg-orange-100 dark:hover:bg-orange-900/30 cursor-pointer">
                             <div className="flex items-center gap-2 mb-1">
-                              <p className="font-bold text-xs text-orange-800">{a.title}</p>
+                              <p className="font-bold text-xs text-orange-800 dark:text-orange-300">{a.title}</p>
                               {a.priority === 'urgent' && <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded-full">فوری</span>}
                               {a.priority === 'important' && <span className="text-[9px] bg-yellow-500 text-white px-1.5 py-0.5 rounded-full">مهم</span>}
                             </div>
-                            {a.body && <p className="text-[11px] text-orange-600 line-clamp-2">{a.body}</p>}
+                            {a.body && <p className="text-[11px] text-orange-600 dark:text-orange-400 line-clamp-2">{a.body}</p>}
                             {a.image_path && (
                               <img src={a.image_path} alt={a.title} className="mt-1 w-full h-20 object-cover rounded-lg" />
                             )}
@@ -301,22 +325,22 @@ export default function Layout({ children }) {
                       </div>
                     </div>
                   )}
-                  <div className="p-3 border-b flex justify-between items-center">
+                  <div className="p-3 border-b dark:border-slate-800 flex justify-between items-center">
                     <span className="font-bold text-sm">اعلانات</span>
-                    <button onClick={markAllRead} className="text-xs text-primary-500 hover:underline">خواندن همه</button>
+                    <button onClick={markAllRead} className="text-xs text-primary-500 dark:text-primary-400 hover:underline">خواندن همه</button>
                   </div>
                   <div className="max-h-80 overflow-y-auto">
                     {notifications.length === 0 ? (
-                      <p className="p-4 text-sm text-gray-400 text-center">اعلانی وجود ندارد</p>
+                      <p className="p-4 text-sm text-gray-400 dark:text-slate-500 text-center">اعلانی وجود ندارد</p>
                     ) : (
                       notifications.map(n => (
                         <div 
                           key={n.id} 
                           onClick={() => { markRead(n.id); if(n.link) navigate(n.link); setShowNotifPanel(false); }}
-                          className={`p-3 border-b cursor-pointer hover:bg-gray-50 ${!n.is_read ? 'bg-blue-50' : ''}`}
+                          className={`p-3 border-b dark:border-slate-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 ${!n.is_read ? 'bg-blue-50 dark:bg-blue-950/20' : ''}`}
                         >
                           <p className="font-bold text-xs">{n.title}</p>
-                          <p className="text-xs text-gray-600 mt-1">{n.body}</p>
+                          <p className="text-xs text-gray-600 dark:text-slate-300 mt-1">{n.body}</p>
                         </div>
                       ))
                     )}
@@ -325,10 +349,10 @@ export default function Layout({ children }) {
               )}
             </div>
 
-            <div className="flex items-center gap-3 border-r pr-4">
+            <div className="flex items-center gap-3 border-r dark:border-slate-800 pr-4">
               <div className="text-left hidden sm:block">
-                <p className="text-sm font-bold text-gray-800">{user?.full_name}</p>
-                <p className="text-xs text-gray-500">{roleLabels[user?.role]} • {user?.department_name}</p>
+                <p className="text-sm font-bold text-gray-800 dark:text-slate-100">{user?.full_name}</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400">{roleLabels[user?.role]} • {user?.department_name}</p>
               </div>
               <div className="w-10 h-10 bg-primary-500 text-white rounded-full flex items-center justify-center font-bold">
                 {user?.full_name?.charAt(0)}
@@ -336,13 +360,13 @@ export default function Layout({ children }) {
             </div>
             <button 
               onClick={() => setShowChangePasswordModal(true)}
-              className="text-xs text-blue-500 hover:text-blue-700 font-medium ml-3 flex items-center gap-1"
+              className="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium ml-3 flex items-center gap-1"
             >
               🔑 تغییر رمز
             </button>
             <button 
               onClick={() => { logout(); navigate('/login'); }}
-              className="text-xs text-red-500 hover:text-red-700 font-medium"
+              className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium"
             >
               خروج
             </button>
@@ -358,40 +382,40 @@ export default function Layout({ children }) {
 
       {/* Forced Password Change Modal (must_change_password === 1) */}
       {user?.must_change_password === 1 && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-fade-in text-right">
-            <h3 className="text-lg font-bold text-red-600 mb-2">⚠️ تغییر رمز عبور اجباری</h3>
-            <p className="text-sm text-gray-500 mb-6 leading-6">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border dark:border-slate-800/80 rounded-2xl p-8 w-full max-w-md shadow-2xl animate-fade-in text-right">
+            <h3 className="text-lg font-bold text-red-600 dark:text-red-400 mb-2">⚠️ تغییر رمز عبور اجباری</h3>
+            <p className="text-sm text-gray-500 dark:text-slate-450 mb-6 leading-6">
               به دلیل استفاده از رمز عبور پیش‌فرض (کد پرسنلی)، جهت حفظ امنیت حساب کاربری خود، لطفاً ابتدا رمز عبور جدیدی تعیین نمایید.
             </p>
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور فعلی (کد پرسنلی)</label>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-slate-300">رمز عبور فعلی (کد پرسنلی)</label>
                 <input
                   type="password"
                   value={changePasswordForm.oldPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, oldPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border dark:border-slate-800 dark:bg-slate-950 dark:text-white rounded-xl text-center focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور جدید</label>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-slate-300">رمز عبور جدید</label>
                 <input
                   type="password"
                   value={changePasswordForm.newPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, newPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border dark:border-slate-800 dark:bg-slate-950 dark:text-white rounded-xl text-center focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700">تکرار رمز عبور جدید</label>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-slate-300">تکرار رمز عبور جدید</label>
                 <input
                   type="password"
                   value={changePasswordForm.confirmNewPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, confirmNewPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border dark:border-slate-800 dark:bg-slate-950 dark:text-white rounded-xl text-center focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                   required
                 />
               </div>
@@ -406,7 +430,7 @@ export default function Layout({ children }) {
                 <button
                   type="button"
                   onClick={() => { logout(); navigate('/login'); }}
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-3 rounded-xl font-bold transition-colors"
+                  className="bg-gray-200 dark:bg-slate-800 hover:bg-gray-300 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 px-4 py-3 rounded-xl font-bold transition-colors"
                 >
                   خروج
                 </button>
@@ -418,37 +442,37 @@ export default function Layout({ children }) {
 
       {/* Optional Password Change Modal */}
       {showChangePasswordModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[5000] p-4">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-fade-in text-right">
-            <h3 className="text-lg font-bold text-gray-800 mb-6">🔑 تغییر رمز عبور</h3>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[5000] p-4 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border dark:border-slate-800/80 rounded-2xl p-8 w-full max-w-md shadow-2xl animate-fade-in text-right">
+            <h3 className="text-lg font-bold text-gray-800 dark:text-slate-100 mb-6">🔑 تغییر رمز عبور</h3>
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور فعلی</label>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-slate-300">رمز عبور فعلی</label>
                 <input
                   type="password"
                   value={changePasswordForm.oldPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, oldPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border dark:border-slate-800 dark:bg-slate-950 dark:text-white rounded-xl text-center focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور جدید</label>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-slate-300">رمز عبور جدید</label>
                 <input
                   type="password"
                   value={changePasswordForm.newPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, newPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border dark:border-slate-800 dark:bg-slate-950 dark:text-white rounded-xl text-center focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700">تکرار رمز عبور جدید</label>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-slate-300">تکرار رمز عبور جدید</label>
                 <input
                   type="password"
                   value={changePasswordForm.confirmNewPassword}
                   onChange={(e) => setChangePasswordForm({ ...changePasswordForm, confirmNewPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center"
+                  className="w-full px-4 py-2.5 border dark:border-slate-800 dark:bg-slate-950 dark:text-white rounded-xl text-center focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                   required
                 />
               </div>
@@ -463,7 +487,7 @@ export default function Layout({ children }) {
                 <button
                   type="button"
                   onClick={() => { setShowChangePasswordModal(false); setChangePasswordForm({ oldPassword: '', newPassword: '', confirmNewPassword: '' }); }}
-                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-xl font-bold transition-colors"
+                  className="flex-1 bg-gray-200 dark:bg-slate-800 hover:bg-gray-300 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 py-3 rounded-xl font-bold transition-colors"
                 >
                   انصراف
                 </button>
