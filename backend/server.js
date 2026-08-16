@@ -25,17 +25,20 @@ async function startServer() {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
         imgSrc: ["'self'", "data:", "blob:"],
         connectSrc: ["'self'", "ws:", "wss:"],
-        fontSrc: ["'self'"],
+        fontSrc: ["'self'", "https://cdn.jsdelivr.net"],
         objectSrc: ["'none'"],
         mediaSrc: ["'self'"],
         frameSrc: ["'none'"],
+        upgradeInsecureRequests: null,
       },
     },
     crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: false,
+    crossOriginOpenerPolicy: false,
   }));
   const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:2833').split(',').map(s => s.trim());
   app.use(cors({
