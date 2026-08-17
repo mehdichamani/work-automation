@@ -25,15 +25,23 @@ if '%errorlevel%' NEQ '0' (
     CD /D "%~dp0"
 :--------------------------------------
 
+set APP_PORT=2833
+if "%~1" NEQ "" (
+    set APP_PORT=%~1
+) else if exist ".env" (
+    for /f "usebackq tokens=1,2 delims==" %%A in (".env") do (
+        if /i "%%A"=="PORT" set APP_PORT=%%B
+    )
+)
+
 echo ==============================================
-echo  Opening Windows Firewall for Port 2833...
+echo  Opening Windows Firewall for Port %APP_PORT%...
 echo ==============================================
-netsh advfirewall firewall delete rule name="UromSachi Port 2833" >nul 2>&1
-netsh advfirewall firewall add rule name="UromSachi Port 2833" dir=in action=allow protocol=TCP localport=2833
+netsh advfirewall firewall delete rule name="UromSachi Port %APP_PORT%" >nul 2>&1
+netsh advfirewall firewall add rule name="UromSachi Port %APP_PORT%" dir=in action=allow protocol=TCP localport=%APP_PORT%
 echo.
 if %ERRORLEVEL% EQU 0 (
-    echo [SUCCESS] Firewall rule added successfully for port 2833!
-    echo Now other devices on the network can access http://172.30.39.126:2833
+    echo [SUCCESS] Firewall rule added successfully for port %APP_PORT%!
 ) else (
     echo [ERROR] Failed to add firewall rule.
 )

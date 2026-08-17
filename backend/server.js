@@ -58,6 +58,19 @@ async function startServer() {
       const url = new URL(origin);
       const hostname = url.hostname;
 
+      // Check if hostname matches any domain or wildcard listed in CORS_ORIGIN
+      for (const item of envOrigins) {
+        if (item === hostname) return true;
+        if (item.startsWith('*.')) {
+          const domain = item.slice(2);
+          if (hostname === domain || hostname.endsWith('.' + domain)) return true;
+        }
+        if (item.startsWith('.')) {
+          const domain = item.slice(1);
+          if (hostname === domain || hostname.endsWith('.' + domain)) return true;
+        }
+      }
+
       // Allow localhost and local loopback
       if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
         return true;
@@ -260,7 +273,7 @@ async function startServer() {
     socket.on('disconnect', () => {});
   });
 
-  const bindHost = process.env.BIND_HOST || '127.0.0.1';
+  const bindHost = process.env.BIND_HOST || '0.0.0.0';
   server = httpServer.listen(PORT, bindHost, () => {
     console.log(`\n========================================`);
     console.log(`  ط³غŒط³طھظ… ط§طھظˆظ…ط§ط³غŒظˆظ† ط§ط¯ط§ط±غŒ ط§ط±ظˆظ… ط´غŒط´ظ‡ ط³ط§ع†غŒ`);
