@@ -14,8 +14,8 @@ backend/
 │   └── educational.js        # API های مدیریت آموزشی (180 خط)
 ├── uploads/
 │   └── educational/          # پوشه ذخیره‌سازی فایل‌های آپلود شده
-└── database/
-    └── init.js              # تعریف جدول آموزشی و 6 ایندکس
+└── prisma/
+    └── schema.prisma         # تعریف مدل آموزشی و ایندکس‌ها
 
 frontend/
 └── src/
