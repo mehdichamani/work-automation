@@ -12,7 +12,7 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 2833,
         BIND_HOST: '0.0.0.0',
-        CORS_ORIGIN: 'http://localhost:2833,http://192.168.1.9:2833,http://172.20.2.212:2833,http://172.30.39.198:2833'
+        CORS_ORIGIN: 'http://uromsachi.ir,https://uromsachi.ir,http://uromsachi.ir:2833,https://uromsachi.ir:2833,http://localhost:2833,http://127.0.0.1:2833,http://172.30.39.126:2833,http://172.20.2.200:2833'
       },
       max_memory_restart: '500M'
     }

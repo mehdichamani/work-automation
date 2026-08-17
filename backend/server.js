@@ -1,4 +1,4 @@
-﻿require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 const express = require('express');
 const cors = require('cors');
@@ -40,10 +40,55 @@ async function startServer() {
     crossOriginResourcePolicy: false,
     crossOriginOpenerPolicy: false,
   }));
-  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:2833').split(',').map(s => s.trim());
+  const isOriginAllowed = (origin) => {
+    if (!origin) return true;
+
+    if (process.env.CORS_ORIGIN === '*') return true;
+
+    const envOrigins = (process.env.CORS_ORIGIN || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    if (envOrigins.includes(origin) || envOrigins.includes('*')) {
+      return true;
+    }
+
+    try {
+      const url = new URL(origin);
+      const hostname = url.hostname;
+
+      // Allow localhost and local loopback
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+        return true;
+      }
+
+      // Allow uromsachi.ir and all subdomains
+      if (hostname === 'uromsachi.ir' || hostname.endsWith('.uromsachi.ir')) {
+        return true;
+      }
+
+      // Allow private IP address ranges (LAN)
+      const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+      if (ipv4Match) {
+        const a = Number(ipv4Match[1]);
+        const b = Number(ipv4Match[2]);
+        if (a === 10) return true;
+        if (a === 172 && b >= 16 && b <= 31) return true;
+        if (a === 192 && b === 168) return true;
+        if (a === 169 && b === 254) return true;
+        if (a === 127) return true;
+      }
+    } catch (e) {
+      return false;
+    }
+
+    return false;
+  };
+
   app.use(cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isOriginAllowed(origin)) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
@@ -197,8 +242,15 @@ async function startServer() {
   const { Server } = require('socket.io');
   const io = new Server(httpServer, {
     cors: {
-      origin: allowedOrigins,
-      methods: ['GET', 'POST']
+      origin: (origin, callback) => {
+        if (isOriginAllowed(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
+      methods: ['GET', 'POST'],
+      credentials: true
     }
   });
 
