@@ -13,7 +13,7 @@ export default function PermissionCentricView({ matrix, onRefresh }) {
 
   const groups = useMemo(() => {
     const g = {};
-    (matrix.modules || []).forEach(m => {
+    (matrix?.modules || []).forEach(m => {
       if (!g[m.group]) g[m.group] = [];
       g[m.group].push(m);
     });
@@ -23,7 +23,7 @@ export default function PermissionCentricView({ matrix, onRefresh }) {
   const filteredModules = useMemo(() => {
     if (!permSearch) return null;
     const q = permSearch.toLowerCase();
-    return (matrix.modules || []).filter(m =>
+    return (matrix?.modules || []).filter(m =>
       m.label.toLowerCase().includes(q) || m.key.toLowerCase().includes(q) || m.group.toLowerCase().includes(q)
     );
   }, [matrix, permSearch]);
@@ -42,19 +42,19 @@ export default function PermissionCentricView({ matrix, onRefresh }) {
   const filteredDepartments = useMemo(() => {
     if (!deptSearch) return null;
     const q = deptSearch.toLowerCase();
-    return (matrix.departments || []).filter(d =>
+    return (matrix?.departments || []).filter(d =>
       d.name.toLowerCase().includes(q)
     );
   }, [matrix, deptSearch]);
 
   const getUserPermState = (userId, moduleKey) => {
-    const userPerms = matrix.userPermMap?.[userId] || {};
+    const userPerms = matrix?.userPermMap?.[userId] || {};
     if (moduleKey in userPerms) return userPerms[moduleKey] ? 'on' : 'off';
-    const dept = (matrix.departments || []).find(d =>
-      (matrix.deptUsers?.[d.id] || []).some(u => u.id === userId)
+    const dept = (matrix?.departments || []).find(d =>
+      (matrix?.deptUsers?.[d.id] || []).some(u => u.id === userId)
     );
     if (!dept) return 'off';
-    const deptPerm = matrix.deptPermMap?.[dept.id]?.[moduleKey];
+    const deptPerm = matrix?.deptPermMap?.[dept.id]?.[moduleKey];
     return deptPerm ? 'on' : 'off';
   };
 

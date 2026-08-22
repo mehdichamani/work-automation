@@ -89,6 +89,7 @@ export default function AdminPanel() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [checkedUserIds, setCheckedUserIds] = useState(new Set());
   const [pendingSaveCount, setPendingSaveCount] = useState(0);
+  const [matrix, setMatrix] = useState({ departments: [], deptUsers: {}, deptPermMap: {}, userPermMap: {}, modules: [] });
 
   useEffect(() => {
     const handleLoad = () => {
