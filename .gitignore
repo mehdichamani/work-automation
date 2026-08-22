@@ -55,3 +55,6 @@ Thumbs.db
 
 # Autostart scripts
 auto-start.vbs
+
+
+.playwright-mcp
