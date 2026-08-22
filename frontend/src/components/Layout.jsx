@@ -7,37 +7,72 @@ import toast from 'react-hot-toast';
 import PWAInstall from './PWAInstall';
 import ErrorBoundary from './ErrorBoundary';
 
-const menuItems = [
-  { path: '/', label: 'داشبورد', icon: '📊', permission: 'dashboard_view' },
-  { path: '/leave', label: 'مرخصی', icon: '🏖️', permission: 'leave_request' },
-  { path: '/overtime', label: 'اضافه کار', icon: '⏰', permission: 'overtime_request' },
-  { path: '/purchase', label: 'درخواست خرید', icon: '🛒', permission: 'purchase_request' },
-  { path: '/mission', label: 'ماموریت', icon: '🚗', permission: 'mission_request' },
-  { path: '/work-order', label: 'کار داخلی', icon: '🔧', permission: 'work_order_request' },
-  { path: '/payment', label: 'درخواست وجه', icon: '💰', permission: 'payment_request' },
-  { path: '/repair', label: 'تعمیرات', icon: '🛠️', permission: 'repair_request' },
-  { path: '/repair-external', label: 'تعمیرات خارج از کارخانه', icon: '🏭', permission: 'repair_external_create' },
-  { path: '/it', label: 'ثبت تیکت', icon: '🎫', permission: 'it_ticket' },
-  { path: '/conference', label: 'سالن کنفرانس', icon: '🏛️', permission: 'conference_booking' },
-  { path: '/security', label: 'گزارش حراست', icon: '🛡️', permission: 'security_report' },
-  { path: '/daily-output', label: 'آمار تولید', icon: '📈', permission: 'daily_output_view' },
-  { path: '/project-supply', label: 'تامین کالای پروژه', icon: '🏗️', permission: 'project_supply' },
-  { path: '/inspection', label: 'بازرسی فنی', icon: '🔍', permission: 'inspection_request' },
-  { path: '/daily-work-report', label: 'گزارش کار روزانه', icon: '📝', permission: 'daily_work_report' },
-  { path: '/letters', label: 'نامه‌ها', icon: '📨', permission: 'letters_send' },
-  { path: '/inventory', label: 'کارتکس انبار', icon: '📦', permission: 'inventory_view' },
-  { path: '/restaurant', label: 'رستوران', icon: '🍽️', permission: 'restaurant_view' },
-  { path: '/shifts', label: 'شیفت‌های کاری', icon: '🕒', permission: 'shifts_manage' },
-  { path: '/job-application', label: 'پرسشنامه استخدامی', icon: '📋', permission: 'job_application_fill' },
-  { path: '/reports', label: 'گزارش‌گیری', icon: '📈', permission: 'reports_view' },
-  { path: '/audit-log', label: 'لاگ فعالیت‌ها', icon: '📜', permission: 'audit_log_view' },
-  { path: '/admin/import-users', label: 'ورود گروهی کاربران', icon: '👥', permission: 'user_import_csv' },
-  { path: '/profile', label: 'پروفایل', icon: '👤', permission: 'profile_view' },
-  { path: '/admin', label: 'پنل مدیریت', icon: '⚙️', permission: 'admin_panel' },
-  { path: '/workflow', label: 'گردش کار', icon: '🔄', permission: 'workflow_view' },
-  { path: '/signature', label: 'امضای دیجیتال', icon: '✍️', permission: 'signature_view' },
-  { path: '/chat', label: 'چت داخلی', icon: '💬', permission: 'chat_view' },
-  { path: '/learning', label: 'آموزش', icon: '📚', permission: 'learning_view' },
+const menuGroups = [
+  {
+    id: 'workspace',
+    title: 'میز کار و ارتباطات',
+    icon: '📊',
+    items: [
+      { path: '/', label: 'داشبورد', icon: '📊', permission: 'dashboard_view' },
+      { path: '/chat', label: 'چت داخلی', icon: '💬', permission: 'chat_view' },
+      { path: '/learning', label: 'آموزش', icon: '📚', permission: 'learning_view' },
+      { path: '/letters', label: 'نامه‌ها', icon: '📨', permission: 'letters_send' },
+      { path: '/conference', label: 'سالن کنفرانس', icon: '🏛️', permission: 'conference_booking' },
+      { path: '/profile', label: 'پروفایل', icon: '👤', permission: 'profile_view' },
+    ]
+  },
+  {
+    id: 'hr_services',
+    title: 'خدمات پرسنلی و رفاهی',
+    icon: '📝',
+    items: [
+      { path: '/leave', label: 'مرخصی', icon: '🏖️', permission: 'leave_request' },
+      { path: '/overtime', label: 'اضافه کار', icon: '⏰', permission: 'overtime_request' },
+      { path: '/mission', label: 'ماموریت', icon: '🚗', permission: 'mission_request' },
+      { path: '/payment', label: 'درخواست وجه', icon: '💰', permission: 'payment_request' },
+      { path: '/restaurant', label: 'رستوران', icon: '🍽️', permission: 'restaurant_view' },
+      { path: '/shifts', label: 'شیفت‌های کاری', icon: '🕒', permission: 'shifts_manage' },
+      { path: '/job-application', label: 'پرسشنامه استخدامی', icon: '📋', permission: 'job_application_fill' },
+    ]
+  },
+  {
+    id: 'operations_technical',
+    title: 'عملیات، تولید و فنی',
+    icon: '🔧',
+    items: [
+      { path: '/work-order', label: 'کار داخلی', icon: '🔧', permission: 'work_order_request' },
+      { path: '/purchase', label: 'درخواست خرید', icon: '🛒', permission: 'purchase_request' },
+      { path: '/repair', label: 'تعمیرات', icon: '🛠️', permission: 'repair_request' },
+      { path: '/repair-external', label: 'تعمیرات خارج از کارخانه', icon: '🏭', permission: 'repair_external_create' },
+      { path: '/inspection', label: 'بازرسی فنی', icon: '🔍', permission: 'inspection_request' },
+      { path: '/project-supply', label: 'تامین کالای پروژه', icon: '🏗️', permission: 'project_supply' },
+      { path: '/daily-output', label: 'آمار تولید', icon: '📈', permission: 'daily_output_view' },
+      { path: '/inventory', label: 'کارتکس انبار', icon: '📦', permission: 'inventory_view' },
+    ]
+  },
+  {
+    id: 'office_security',
+    title: 'اداری، گزارش‌ها و امنیت',
+    icon: '🏢',
+    items: [
+      { path: '/it', label: 'ثبت تیکت IT', icon: '🎫', permission: 'it_ticket' },
+      { path: '/daily-work-report', label: 'گزارش کار روزانه', icon: '📝', permission: 'daily_work_report' },
+      { path: '/security', label: 'گزارش حراست', icon: '🛡️', permission: 'security_report' },
+    ]
+  },
+  {
+    id: 'admin_management',
+    title: 'مدیریت و نظارت',
+    icon: '⚙️',
+    items: [
+      { path: '/admin', label: 'پنل مدیریت', icon: '⚙️', permission: 'admin_panel' },
+      { path: '/reports', label: 'گزارش‌گیری جامع', icon: '📈', permission: 'reports_view' },
+      { path: '/workflow', label: 'گردش کار', icon: '🔄', permission: 'workflow_view' },
+      { path: '/signature', label: 'امضای دیجیتال', icon: '✍️', permission: 'signature_view' },
+      { path: '/audit-log', label: 'لاگ فعالیت‌ها', icon: '📜', permission: 'audit_log_view' },
+      { path: '/admin/import-users', label: 'ورود گروهی کاربران', icon: '👥', permission: 'user_import_csv' },
+    ]
+  }
 ];
 
 const roleLabels = {
@@ -55,6 +90,39 @@ export default function Layout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     return typeof window !== 'undefined' ? window.innerWidth > 768 : false;
   });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [openGroups, setOpenGroups] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_open_groups');
+      return saved ? JSON.parse(saved) : { workspace: true, hr_services: true, operations_technical: true, office_security: true, admin_management: true };
+    } catch {
+      return { workspace: true, hr_services: true, operations_technical: true, office_security: true, admin_management: true };
+    }
+  });
+
+  const toggleGroup = (groupId) => {
+    setOpenGroups(prev => {
+      const next = { ...prev, [groupId]: !prev[groupId] };
+      try {
+        localStorage.setItem('sidebar_open_groups', JSON.stringify(next));
+      } catch { /* empty */ }
+      return next;
+    });
+  };
+
+  // Automatically expand group containing active path
+  useEffect(() => {
+    const currentGroup = menuGroups.find(g => g.items.some(item => item.path === location.pathname));
+    if (currentGroup && !openGroups[currentGroup.id]) {
+      setOpenGroups(prev => {
+        const next = { ...prev, [currentGroup.id]: true };
+        try {
+          localStorage.setItem('sidebar_open_groups', JSON.stringify(next));
+        } catch { /* empty */ }
+        return next;
+      });
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -186,22 +254,39 @@ export default function Layout({ children }) {
     fetchNotifications();
   };
 
-  const filteredMenu = menuItems.filter(item => {
-    if (item.permission && !hasPermission(item.permission)) return false;
-    return true;
-  }).map(item => {
-    let count = 0;
-    if (item.path === '/leave') count = pendingCounts.leave;
-    if (item.path === '/overtime') count = pendingCounts.overtime;
-    if (item.path === '/letters') count = pendingCounts.letters;
-    if (item.path === '/inventory') count = pendingCounts.inventory;
-    if (item.path === '/job-application') count = pendingCounts.jobApplication;
+  const processedGroups = menuGroups.map(group => {
+    const visibleItems = group.items.filter(item => {
+      if (item.permission && !hasPermission(item.permission)) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        const matchesLabel = item.label.toLowerCase().includes(q);
+        const matchesGroup = group.title.toLowerCase().includes(q);
+        return matchesLabel || matchesGroup;
+      }
+      return true;
+    }).map(item => {
+      let count = 0;
+      if (item.path === '/leave') count = pendingCounts.leave;
+      if (item.path === '/overtime') count = pendingCounts.overtime;
+      if (item.path === '/letters') count = pendingCounts.letters;
+      if (item.path === '/inventory') count = pendingCounts.inventory;
+      if (item.path === '/job-application') count = pendingCounts.jobApplication;
+
+      return {
+        ...item,
+        pendingCount: count,
+        labelWithBadge: count > 0 ? `${item.label} (${count})` : item.label
+      };
+    });
+
+    const totalGroupPending = visibleItems.reduce((acc, curr) => acc + (curr.pendingCount || 0), 0);
 
     return {
-      ...item,
-      label: count > 0 ? `${item.label} (${count})` : item.label
+      ...group,
+      visibleItems,
+      totalPending: totalGroupPending
     };
-  });
+  }).filter(group => group.visibleItems.length > 0);
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -221,45 +306,122 @@ export default function Layout({ children }) {
         <div className="p-4 border-b border-primary-500">
           {sidebarOpen ? (
             <div className="flex flex-col items-center">
-              <img src="/logo.webp" alt="لوگو" className="w-28 h-28 object-contain mb-2 rotate-3d" />
-              <h1 className="text-lg font-bold">اروم شیشه ساچی</h1>
-              <p className="text-xs text-primary-200 mt-1">سیستم اتوماسیون اداری</p>
+              <img src="/logo.webp" alt="لوگو" className="w-24 h-24 object-contain mb-2 rotate-3d" />
+              <h1 className="text-base font-bold">اروم شیشه ساچی</h1>
+              <p className="text-xs text-primary-200 mt-0.5">سیستم اتوماسیون اداری</p>
             </div>
           ) : (
             <div className="flex justify-center">
-              <img src="/logo.webp" alt="لوگو" className="w-12 h-12 object-contain" />
+              <img src="/logo.webp" alt="لوگو" className="w-10 h-10 object-contain" />
             </div>
           )}
         </div>
+
+        {/* Quick Search in Sidebar (when open) */}
+        {sidebarOpen && (
+          <div className="px-3 pt-3 pb-1">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="جستجوی منو..."
+                className="w-full bg-primary-700/60 border border-primary-400/40 rounded-xl px-3 py-1.5 pr-8 text-xs text-white placeholder-primary-300 focus:outline-none focus:bg-primary-700 focus:border-white transition-colors"
+              />
+              <span className="absolute right-2.5 top-2 text-xs text-primary-300">🔍</span>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute left-2.5 top-1.5 text-xs text-primary-300 hover:text-white"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         
-        <nav className="flex-1 py-4 overflow-y-auto">
-          {filteredMenu.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              onClick={() => {
-                if (window.innerWidth <= 768) {
-                  setSidebarOpen(false);
-                }
-              }}
-              className={`flex items-center gap-3 px-4 py-3 mx-2 rounded-lg transition-all ${
-                location.pathname === item.path 
-                  ? 'bg-white/20 shadow-lg' 
-                  : 'hover:bg-white/10'
-              }`}
-            >
-              <span className="text-xl">{item.icon}</span>
-              {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
-            </Link>
-          ))}
+        <nav className="flex-1 py-2 px-2 overflow-y-auto space-y-1.5 custom-scrollbar">
+          {processedGroups.map((group) => {
+            const isExpanded = searchQuery.trim() ? true : !!openGroups[group.id];
+            const hasActiveChild = group.visibleItems.some(i => location.pathname === i.path);
+
+            return (
+              <div key={group.id} className="rounded-xl overflow-hidden bg-white/[0.04] border border-white/[0.06]">
+                {/* Group Header Button */}
+                <button
+                  type="button"
+                  onClick={() => sidebarOpen ? toggleGroup(group.id) : setSidebarOpen(true)}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-xs font-semibold transition-colors ${
+                    hasActiveChild ? 'text-white bg-white/10' : 'text-primary-200 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{group.icon}</span>
+                    {sidebarOpen && <span>{group.title}</span>}
+                  </div>
+                  {sidebarOpen && (
+                    <div className="flex items-center gap-1.5">
+                      {group.totalPending > 0 && (
+                        <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">
+                          {group.totalPending}
+                        </span>
+                      )}
+                      <span className={`text-[10px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+                        ▼
+                      </span>
+                    </div>
+                  )}
+                </button>
+
+                {/* Submenu Items */}
+                {(isExpanded || !sidebarOpen) && (
+                  <div className={`space-y-0.5 pb-1 ${sidebarOpen ? 'pt-0.5 px-1' : ''}`}>
+                    {group.visibleItems.map((item) => {
+                      const isActive = location.pathname === item.path;
+                      return (
+                        <Link
+                          key={item.path}
+                          to={item.path}
+                          onClick={() => {
+                            if (window.innerWidth <= 768) {
+                              setSidebarOpen(false);
+                            }
+                          }}
+                          className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-all ${
+                            isActive
+                              ? 'bg-white text-primary-800 font-bold shadow-md'
+                              : 'text-primary-100 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 truncate">
+                            <span className="text-sm">{item.icon}</span>
+                            {sidebarOpen && <span className="truncate">{item.label}</span>}
+                          </div>
+                          {sidebarOpen && item.pendingCount > 0 && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                              isActive ? 'bg-red-500 text-white' : 'bg-red-500/90 text-white'
+                            }`}>
+                              {item.pendingCount}
+                            </span>
+                          )}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
-        <div className="p-4 border-t border-primary-500 md:block hidden">
+        <div className="p-3 border-t border-primary-500 md:block hidden">
           <button 
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="w-full py-2 text-xs bg-primary-500/50 rounded-lg hover:bg-primary-500 transition-colors"
+            className="w-full py-1.5 text-xs bg-primary-500/50 rounded-lg hover:bg-primary-500 transition-colors flex items-center justify-center gap-1 text-primary-100 hover:text-white"
           >
-            {sidebarOpen ? '◀' : '▶'}
+            <span>{sidebarOpen ? 'بستن سایدبار' : ''}</span>
+            <span>{sidebarOpen ? '◀' : '▶'}</span>
           </button>
         </div>
       </aside>
@@ -274,7 +436,7 @@ export default function Layout({ children }) {
               ☰
             </button>
             <h2 className="text-lg font-bold text-gray-800">
-              {filteredMenu.find(m => m.path === location.pathname)?.label || 'داشبورد'}
+              {menuGroups.flatMap(g => g.items).find(m => m.path === location.pathname)?.label || 'داشبورد'}
             </h2>
           </div>
           <div className="flex items-center gap-4">
