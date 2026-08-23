@@ -1366,7 +1366,10 @@ export default function Leave() {
             {/* Modal Header */}
             <div className="p-6 border-b flex justify-between items-center bg-gray-50/50 sticky top-0 backdrop-blur-md z-10">
               <div>
-                <h3 className="text-lg font-bold text-gray-800">جزئیات کامل درخواست مرخصی</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-gray-800">جزئیات کامل درخواست مرخصی</h3>
+                  <span className="text-[10px] text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200 select-all" title="شناسه سیستمی">#{selectedLeave.id}</span>
+                </div>
                 <p className="text-xs text-gray-500 mt-1">پرسنل: {selectedLeave.user_name} ({selectedLeave.user_dept})</p>
               </div>
               <button 
@@ -1377,8 +1380,8 @@ export default function Leave() {
               </button>
             </div>
 
-             {/* Modal Content */}
-             <div className="p-6 space-y-6 flex-1">
+            {/* Modal Content */}
+            <div className="p-6 space-y-6 flex-1">
               {/* Beautiful Summary Card */}
               <div className="bg-gradient-to-br from-gray-50 to-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b border-gray-100">
@@ -1419,279 +1422,312 @@ export default function Leave() {
                   مراحل تایید و چرخه درخواست
                 </h4>
                 
-                <div className="relative border-r-2 border-gray-100 mr-4 pr-6 space-y-6">
-                  {/* Step 1: Request Submission */}
-                  <div className="relative group">
-                    <div className="absolute right-[-32px] top-1 w-4 h-4 rounded-full bg-blue-500 border-4 border-white shadow transition-all group-hover:scale-110"></div>
-                    <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-blue-200 transition-all">
-                      <div className="flex justify-between items-center">
-                        <p className="text-sm font-bold text-gray-800">۱. ثبت درخواست</p>
-                        <span className="bg-blue-50 text-blue-700 text-[10px] px-2 py-0.5 rounded-lg font-bold">انجام شده</span>
-                      </div>
-                      <p className="text-xs text-gray-500">درخواست توسط کاربر در سیستم ثبت گردید.</p>
-                      {selectedLeave.created_at && (
-                        <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mt-2 font-mono bg-gray-50 px-2 py-1 rounded-lg border w-fit" dir="ltr">
-                          <span>📅</span> {toJalaliDateTime(selectedLeave.created_at)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                {(() => {
+                  const isRejected = selectedLeave.status === 'rejected';
+                  const rejectedByManager = isRejected && Boolean(selectedLeave.manager_id || selectedLeave.manager_comment || selectedLeave.manager_date);
+                  const rejectedByAdmin = isRejected && !rejectedByManager && Boolean(selectedLeave.is_daily && (selectedLeave.admin_id || selectedLeave.admin_comment || selectedLeave.admin_date));
+                  const rejectedBySupervisor = isRejected && !rejectedByManager && !rejectedByAdmin;
 
-                  {/* Step 2: Supervisor Approval */}
-                  <div className="relative group">
-                    {(() => {
-                      const hasComment = selectedLeave.supervisor_comment;
-                      const hasDate = selectedLeave.supervisor_date;
-                      let statusText = 'در انتظار بررسی سرپرست';
-                      let statusColor = 'bg-gray-300';
-                      let badgeColor = 'bg-gray-50 text-gray-500';
-                      let badgeText = 'در انتظار اقدام';
-                      let showDetail = false;
-
-                      if (selectedLeave.status === 'pending_supervisor') {
-                        statusText = 'در انتظار بررسی سرپرست واحد';
-                        statusColor = 'bg-yellow-500';
-                        badgeColor = 'bg-yellow-50 text-yellow-700';
-                        badgeText = 'در حال بررسی';
-                      } else {
-                        if (selectedLeave.supervisor_id || hasDate || hasComment) {
-                          statusText = 'بررسی و تایید شده توسط سرپرست واحد';
-                          statusColor = 'bg-green-500';
-                          badgeColor = 'bg-green-50 text-green-700';
-                          badgeText = 'تایید شده';
-                          showDetail = true;
-                        } else if (selectedLeave.status === 'rejected' && !selectedLeave.manager_id) {
-                          statusText = 'رد شده توسط سرپرست واحد';
-                          statusColor = 'bg-red-500';
-                          badgeColor = 'bg-red-50 text-red-700';
-                          badgeText = 'رد شده';
-                          showDetail = true;
-                        } else {
-                          statusText = 'عبور از مرحله سرپرست (ثبت مستقیم توسط مدیریت)';
-                          statusColor = 'bg-blue-400';
-                          badgeColor = 'bg-blue-50 text-blue-700';
-                          badgeText = 'تایید مستقیم';
-                        }
-                      }
-
-                      return (
-                        <>
-                          <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
-                          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
-                            <div className="flex justify-between items-center">
-                              <p className="text-sm font-bold text-gray-800">۲. بررسی سرپرست واحد</p>
-                              <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
-                            </div>
-                            <p className="text-xs text-gray-500">{statusText} {selectedLeave.is_daily ? '(روزانه → اداری)' : '(ساعتی → مدیر)'}</p>
-                            {showDetail && (
-                              <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
-                                <p><span className="text-gray-400">نام سرپرست:</span> <span className="font-semibold text-gray-700">{selectedLeave.supervisor_name || 'نامشخص'}</span></p>
-                                {hasComment && <p><span className="text-gray-400">علت/توضیح:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
-                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(hasDate)}</span></p>}
-                              </div>
-                            )}
+                  return (
+                    <div className="relative border-r-2 border-gray-100 mr-4 pr-6 space-y-6">
+                      {/* Step 1: Request Submission */}
+                      <div className="relative group">
+                        <div className="absolute right-[-32px] top-1 w-4 h-4 rounded-full bg-blue-500 border-4 border-white shadow transition-all group-hover:scale-110"></div>
+                        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-blue-200 transition-all">
+                          <div className="flex justify-between items-center">
+                            <p className="text-sm font-bold text-gray-800">۱. ثبت درخواست</p>
+                            <span className="bg-blue-50 text-blue-700 text-[10px] px-2 py-0.5 rounded-lg font-bold">انجام شده</span>
                           </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Step 3: Admin Review (only for daily leave) */}
-                  {selectedLeave.is_daily && (
-                  <div className="relative group">
-                    {(() => {
-                      const hasComment = selectedLeave.admin_comment;
-                      const hasDate = selectedLeave.admin_date;
-                      let statusText = 'در انتظار بررسی اداری';
-                      let statusColor = 'bg-gray-300';
-                      let badgeColor = 'bg-gray-50 text-gray-500';
-                      let badgeText = 'در انتظار اقدام';
-                      let showDetail = false;
-
-                      if (selectedLeave.status === 'pending_supervisor') {
-                        statusText = 'در انتظار تایید سرپرست (پیش‌نیاز)';
-                        statusColor = 'bg-gray-200';
-                        badgeColor = 'bg-gray-50 text-gray-400';
-                        badgeText = 'غیرفعال';
-                      } else if (selectedLeave.status === 'pending_admin') {
-                        statusText = 'در انتظار بررسی اداری - ثبت مانده مرخصی';
-                        statusColor = 'bg-orange-500';
-                        badgeColor = 'bg-orange-50 text-orange-700';
-                        badgeText = 'در حال بررسی';
-                      } else if (selectedLeave.admin_id || hasDate || hasComment) {
-                        statusText = 'بررسی و تایید شده توسط اداری';
-                        statusColor = 'bg-green-500';
-                        badgeColor = 'bg-green-50 text-green-700';
-                        badgeText = 'تایید شده';
-                        showDetail = true;
-                      } else if (selectedLeave.status === 'rejected' && !selectedLeave.manager_id) {
-                        statusText = 'رد شده توسط اداری';
-                        statusColor = 'bg-red-500';
-                        badgeColor = 'bg-red-50 text-red-700';
-                        badgeText = 'رد شده';
-                        showDetail = true;
-                      } else {
-                        statusText = 'عبور از مرحله اداری';
-                        statusColor = 'bg-blue-400';
-                        badgeColor = 'bg-blue-50 text-blue-700';
-                        badgeText = 'غیرفعال';
-                      }
-
-                      return (
-                        <>
-                          <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
-                          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
-                            <div className="flex justify-between items-center">
-                              <p className="text-sm font-bold text-gray-800">۳. بررسی اداری (مرخصی روزانه)</p>
-                              <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
+                          <p className="text-xs text-gray-500">درخواست توسط کاربر در سیستم ثبت گردید.</p>
+                          {selectedLeave.created_at && (
+                            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mt-2 font-mono bg-gray-50 px-2 py-1 rounded-lg border w-fit" dir="ltr">
+                              <span>📅</span> {toJalaliDateTime(selectedLeave.created_at)}
                             </div>
-                            <p className="text-xs text-gray-500">{statusText}</p>
-                            {showDetail && (
-                              <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
-                                <p><span className="text-gray-400">نام اداری:</span> <span className="font-semibold text-gray-700">{selectedLeave.admin_name || 'نامشخص'}</span></p>
-                                {hasComment && <p><span className="text-gray-400">توضیح:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
-                                {selectedLeave.remaining_leave_days != null && <p><span className="text-gray-400">مانده مرخصی:</span> <span className="font-semibold text-gray-700">{selectedLeave.remaining_leave_days} روز</span></p>}
-                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(hasDate)}</span></p>}
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                  )}
-
-                  {/* Step 4: Manager Approval */}
-                  <div className="relative group">
-                    {(() => {
-                      const hasComment = selectedLeave.manager_comment;
-                      const hasDate = selectedLeave.manager_date;
-                      let statusText = 'در انتظار بررسی مدیر';
-                      let statusColor = 'bg-gray-300';
-                      let badgeColor = 'bg-gray-50 text-gray-500';
-                      let badgeText = 'در انتظار اقدام';
-                      let showDetail = false;
-
-                      if (selectedLeave.status === 'pending_supervisor') {
-                        statusText = 'در انتظار تایید سرپرست (پیش‌نیاز)';
-                        statusColor = 'bg-gray-200';
-                        badgeColor = 'bg-gray-50 text-gray-400';
-                        badgeText = 'غیرفعال';
-                      } else if (selectedLeave.status === 'pending_manager') {
-                        statusText = 'در انتظار بررسی مدیر نهایی';
-                        statusColor = 'bg-yellow-500';
-                        badgeColor = 'bg-yellow-50 text-yellow-700';
-                        badgeText = 'در حال بررسی';
-                      } else if (selectedLeave.status === 'approved' || selectedLeave.status === 'seen_security') {
-                        statusText = 'تایید شده نهایی توسط مدیر';
-                        statusColor = 'bg-green-500';
-                        badgeColor = 'bg-green-50 text-green-700';
-                        badgeText = 'تایید شده';
-                        showDetail = true;
-                      } else if (selectedLeave.status === 'rejected' && (selectedLeave.manager_id || hasComment)) {
-                        statusText = 'رد شده نهایی توسط مدیر';
-                        statusColor = 'bg-red-500';
-                        badgeColor = 'bg-red-50 text-red-700';
-                        badgeText = 'رد شده';
-                        showDetail = true;
-                      }
-
-                      return (
-                        <>
-                          <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
-                          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
-                            <div className="flex justify-between items-center">
-                              <p className="text-sm font-bold text-gray-800">۴. بررسی مدیریت</p>
-                              <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
-                            </div>
-                            <p className="text-xs text-gray-500">{statusText}</p>
-                            {showDetail && (
-                              <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
-                                <p><span className="text-gray-400">نام مدیر:</span> <span className="font-semibold text-gray-700">{selectedLeave.manager_name || 'نامشخص'}</span></p>
-                                {hasComment && <p><span className="text-gray-400">توضیح/علت:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
-                                {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(hasDate)}</span></p>}
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Step 5: Security View */}
-                  <div className="relative group">
-                    {(() => {
-                      let statusText = 'در انتظار رویت انتظامات';
-                      let statusColor = 'bg-gray-300';
-                      let badgeColor = 'bg-gray-50 text-gray-500';
-                      let badgeText = 'در انتظار اقدام';
-                      let showDetail = false;
-
-                      if (selectedLeave.status === 'seen_security') {
-                        statusText = 'رویت و تایید شده توسط انتظامات (ثبت خروج)';
-                        statusColor = 'bg-purple-500';
-                        badgeColor = 'bg-purple-50 text-purple-700';
-                        badgeText = 'رویت شده';
-                        showDetail = true;
-                      } else if (selectedLeave.status === 'approved') {
-                        statusText = 'در انتظار رویت انتظامات (گیت خروجی)';
-                        statusColor = 'bg-yellow-500';
-                        badgeColor = 'bg-yellow-50 text-yellow-700';
-                        badgeText = 'در انتظار خروج';
-                      } else {
-                        statusText = 'در انتظار تایید نهایی مرخصی (پیش‌نیاز)';
-                        statusColor = 'bg-gray-200';
-                        badgeColor = 'bg-gray-50 text-gray-400';
-                        badgeText = 'غیرفعال';
-                      }
-
-                      return (
-                        <>
-                          <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
-                          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
-                            <div className="flex justify-between items-center">
-                              <p className="text-sm font-bold text-gray-800">۵. رویت انتظامات / گیت خروج</p>
-                              <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
-                            </div>
-                            <p className="text-xs text-gray-500">{statusText}</p>
-                            {showDetail && (
-                              <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
-                                <p><span className="text-gray-400">مامور انتظامات:</span> <span className="font-semibold text-gray-700">{selectedLeave.security_name || 'انتظامات'}</span></p>
-                                {selectedLeave.security_date && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ رویت:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(selectedLeave.security_date)}</span></p>}
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Step 5: Leave Correction (Optional) */}
-                  {selectedLeave.edited_by && (
-                    <div className="relative group">
-                      <div className="absolute right-[-32px] top-1 w-4 h-4 rounded-full bg-amber-500 border-4 border-white shadow transition-all group-hover:scale-110"></div>
-                      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-amber-200 transition-all">
-                        <div className="flex justify-between items-center">
-                          <p className="text-sm font-bold text-gray-800">۵. اصلاح و کاهش مدت مرخصی</p>
-                          <span className="bg-amber-50 text-amber-700 text-[10px] px-2 py-0.5 rounded-lg font-bold">اصلاح شده</span>
-                        </div>
-                        <p className="text-xs text-gray-500">کارکرد مرخصی پس از رویت انتظامات اصلاح گردید.</p>
-                        <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-200 mt-2 text-xs space-y-1.5">
-                          <p><span className="text-gray-400">اصلاح‌کننده:</span> <span className="font-semibold text-gray-700">{selectedLeave.editor_name || 'نامشخص'}</span></p>
-                          <p><span className="text-gray-400">علت اصلاح:</span> <span className="font-semibold text-gray-700">{selectedLeave.edit_reason}</span></p>
-                          {selectedLeave.edited_at && (
-                            <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اصلاح:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(selectedLeave.edited_at)}</span></p>
                           )}
                         </div>
                       </div>
+
+                      {/* Step 2: Supervisor Approval */}
+                      <div className="relative group">
+                        {(() => {
+                          const hasComment = selectedLeave.supervisor_comment;
+                          const hasDate = selectedLeave.supervisor_date;
+                          let statusText = 'در انتظار بررسی سرپرست';
+                          let statusColor = 'bg-gray-300';
+                          let badgeColor = 'bg-gray-50 text-gray-500';
+                          let badgeText = 'در انتظار اقدام';
+                          let showDetail = false;
+
+                          if (selectedLeave.status === 'pending_supervisor') {
+                            statusText = 'در انتظار بررسی سرپرست واحد';
+                            statusColor = 'bg-yellow-500';
+                            badgeColor = 'bg-yellow-50 text-yellow-700';
+                            badgeText = 'در حال بررسی';
+                          } else if (rejectedBySupervisor) {
+                            statusText = 'رد شده توسط سرپرست واحد';
+                            statusColor = 'bg-red-500';
+                            badgeColor = 'bg-red-50 text-red-700';
+                            badgeText = 'رد شده';
+                            showDetail = true;
+                          } else if (selectedLeave.supervisor_id || hasDate || hasComment) {
+                            statusText = 'بررسی و تایید شده توسط سرپرست واحد';
+                            statusColor = 'bg-green-500';
+                            badgeColor = 'bg-green-50 text-green-700';
+                            badgeText = 'تایید شده';
+                            showDetail = true;
+                          } else {
+                            statusText = 'عبور از مرحله سرپرست (ثبت مستقیم توسط مدیریت)';
+                            statusColor = 'bg-blue-400';
+                            badgeColor = 'bg-blue-50 text-blue-700';
+                            badgeText = 'تایید مستقیم';
+                          }
+
+                          return (
+                            <>
+                              <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
+                              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
+                                <div className="flex justify-between items-center">
+                                  <p className="text-sm font-bold text-gray-800">۲. بررسی سرپرست واحد</p>
+                                  <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
+                                </div>
+                                <p className="text-xs text-gray-500">{statusText} {selectedLeave.is_daily ? '(روزانه → اداری)' : '(ساعتی → مدیر)'}</p>
+                                {showDetail && (
+                                  <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
+                                    <p><span className="text-gray-400">نام سرپرست:</span> <span className="font-semibold text-gray-700">{selectedLeave.supervisor_name || 'نامشخص'}</span></p>
+                                    {hasComment && <p><span className="text-gray-400">علت/توضیح:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
+                                    {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(hasDate)}</span></p>}
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Step 3: Admin Review (only for daily leave) */}
+                      {selectedLeave.is_daily && (
+                      <div className="relative group">
+                        {(() => {
+                          const hasComment = selectedLeave.admin_comment;
+                          const hasDate = selectedLeave.admin_date;
+                          let statusText = 'در انتظار بررسی اداری';
+                          let statusColor = 'bg-gray-300';
+                          let badgeColor = 'bg-gray-50 text-gray-500';
+                          let badgeText = 'در انتظار اقدام';
+                          let showDetail = false;
+
+                          if (selectedLeave.status === 'pending_supervisor') {
+                            statusText = 'در انتظار تایید سرپرست (پیش‌نیاز)';
+                            statusColor = 'bg-gray-200';
+                            badgeColor = 'bg-gray-50 text-gray-400';
+                            badgeText = 'غیرفعال';
+                          } else if (rejectedBySupervisor) {
+                            statusText = 'متوقف شده (رد درخواست توسط سرپرست واحد)';
+                            statusColor = 'bg-gray-200';
+                            badgeColor = 'bg-gray-50 text-gray-400';
+                            badgeText = 'غیرفعال';
+                          } else if (selectedLeave.status === 'pending_admin') {
+                            statusText = 'در انتظار بررسی اداری - ثبت مانده مرخصی';
+                            statusColor = 'bg-orange-500';
+                            badgeColor = 'bg-orange-50 text-orange-700';
+                            badgeText = 'در حال بررسی';
+                          } else if (rejectedByAdmin) {
+                            statusText = 'رد شده توسط اداری';
+                            statusColor = 'bg-red-500';
+                            badgeColor = 'bg-red-50 text-red-700';
+                            badgeText = 'رد شده';
+                            showDetail = true;
+                          } else if (selectedLeave.admin_id || hasDate || hasComment || selectedLeave.status === 'pending_manager' || selectedLeave.status === 'approved' || selectedLeave.status === 'seen_security' || rejectedByManager) {
+                            statusText = 'بررسی و تایید شده توسط اداری';
+                            statusColor = 'bg-green-500';
+                            badgeColor = 'bg-green-50 text-green-700';
+                            badgeText = 'تایید شده';
+                            showDetail = Boolean(selectedLeave.admin_id || hasDate || hasComment || selectedLeave.remaining_leave_days != null);
+                          } else {
+                            statusText = 'عبور از مرحله اداری';
+                            statusColor = 'bg-blue-400';
+                            badgeColor = 'bg-blue-50 text-blue-700';
+                            badgeText = 'غیرفعال';
+                          }
+
+                          return (
+                            <>
+                              <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
+                              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
+                                <div className="flex justify-between items-center">
+                                  <p className="text-sm font-bold text-gray-800">۳. بررسی اداری (مرخصی روزانه)</p>
+                                  <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
+                                </div>
+                                <p className="text-xs text-gray-500">{statusText}</p>
+                                {showDetail && (
+                                  <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
+                                    <p><span className="text-gray-400">نام اداری:</span> <span className="font-semibold text-gray-700">{selectedLeave.admin_name || 'نامشخص'}</span></p>
+                                    {hasComment && <p><span className="text-gray-400">توضیح:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
+                                    {selectedLeave.remaining_leave_days != null && <p><span className="text-gray-400">مانده مرخصی:</span> <span className="font-semibold text-gray-700">{selectedLeave.remaining_leave_days} روز</span></p>}
+                                    {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(hasDate)}</span></p>}
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                      )}
+
+                      {/* Step 4: Manager Approval */}
+                      <div className="relative group">
+                        {(() => {
+                          const hasComment = selectedLeave.manager_comment;
+                          const hasDate = selectedLeave.manager_date;
+                          let statusText = 'در انتظار بررسی مدیر';
+                          let statusColor = 'bg-gray-300';
+                          let badgeColor = 'bg-gray-50 text-gray-500';
+                          let badgeText = 'در انتظار اقدام';
+                          let showDetail = false;
+
+                          if (selectedLeave.status === 'pending_supervisor') {
+                            statusText = 'در انتظار تایید سرپرست (پیش‌نیاز)';
+                            statusColor = 'bg-gray-200';
+                            badgeColor = 'bg-gray-50 text-gray-400';
+                            badgeText = 'غیرفعال';
+                          } else if (selectedLeave.status === 'pending_admin') {
+                            statusText = 'در انتظار تایید اداری (پیش‌نیاز)';
+                            statusColor = 'bg-gray-200';
+                            badgeColor = 'bg-gray-50 text-gray-400';
+                            badgeText = 'غیرفعال';
+                          } else if (rejectedBySupervisor) {
+                            statusText = 'متوقف شده (رد درخواست توسط سرپرست واحد)';
+                            statusColor = 'bg-gray-200';
+                            badgeColor = 'bg-gray-50 text-gray-400';
+                            badgeText = 'غیرفعال';
+                          } else if (rejectedByAdmin) {
+                            statusText = 'متوقف شده (رد درخواست توسط اداری)';
+                            statusColor = 'bg-gray-200';
+                            badgeColor = 'bg-gray-50 text-gray-400';
+                            badgeText = 'غیرفعال';
+                          } else if (selectedLeave.status === 'pending_manager') {
+                            statusText = 'در انتظار بررسی مدیر نهایی';
+                            statusColor = 'bg-yellow-500';
+                            badgeColor = 'bg-yellow-50 text-yellow-700';
+                            badgeText = 'در حال بررسی';
+                          } else if (selectedLeave.status === 'approved' || selectedLeave.status === 'seen_security') {
+                            statusText = 'تایید شده نهایی توسط مدیر';
+                            statusColor = 'bg-green-500';
+                            badgeColor = 'bg-green-50 text-green-700';
+                            badgeText = 'تایید شده';
+                            showDetail = true;
+                          } else if (rejectedByManager) {
+                            statusText = 'رد شده نهایی توسط مدیر';
+                            statusColor = 'bg-red-500';
+                            badgeColor = 'bg-red-50 text-red-700';
+                            badgeText = 'رد شده';
+                            showDetail = true;
+                          }
+
+                          return (
+                            <>
+                              <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
+                              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
+                                <div className="flex justify-between items-center">
+                                  <p className="text-sm font-bold text-gray-800">۴. بررسی مدیریت</p>
+                                  <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
+                                </div>
+                                <p className="text-xs text-gray-500">{statusText}</p>
+                                {showDetail && (
+                                  <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
+                                    <p><span className="text-gray-400">نام مدیر:</span> <span className="font-semibold text-gray-700">{selectedLeave.manager_name || 'نامشخص'}</span></p>
+                                    {hasComment && <p><span className="text-gray-400">توضیح/علت:</span> <span className="font-semibold text-gray-700">{hasComment}</span></p>}
+                                    {hasDate && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اقدام:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(hasDate)}</span></p>}
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Step 5: Security View */}
+                      <div className="relative group">
+                        {(() => {
+                          let statusText = 'در انتظار رویت انتظامات';
+                          let statusColor = 'bg-gray-300';
+                          let badgeColor = 'bg-gray-50 text-gray-500';
+                          let badgeText = 'در انتظار اقدام';
+                          let showDetail = false;
+
+                          if (selectedLeave.status === 'seen_security') {
+                            statusText = 'رویت و ثبت خروج توسط انتظامات';
+                            statusColor = 'bg-purple-500';
+                            badgeColor = 'bg-purple-50 text-purple-700';
+                            badgeText = 'رویت شده';
+                            showDetail = true;
+                          } else if (selectedLeave.status === 'approved') {
+                            statusText = 'در انتظار رویت انتظامات (گیت خروجی)';
+                            statusColor = 'bg-yellow-500';
+                            badgeColor = 'bg-yellow-50 text-yellow-700';
+                            badgeText = 'در انتظار خروج';
+                          } else if (isRejected) {
+                            statusText = 'لغو شده به دلیل عدم تایید مرخصی';
+                            statusColor = 'bg-gray-200';
+                            badgeColor = 'bg-gray-50 text-gray-400';
+                            badgeText = 'غیرفعال';
+                          } else {
+                            statusText = 'در انتظار تایید نهایی مرخصی (پیش‌نیاز)';
+                            statusColor = 'bg-gray-200';
+                            badgeColor = 'bg-gray-50 text-gray-400';
+                            badgeText = 'غیرفعال';
+                          }
+
+                          return (
+                            <>
+                              <div className={`absolute right-[-32px] top-1 w-4 h-4 rounded-full ${statusColor} border-4 border-white shadow transition-all group-hover:scale-110`}></div>
+                              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-gray-200 transition-all">
+                                <div className="flex justify-between items-center">
+                                  <p className="text-sm font-bold text-gray-800">۵. رویت انتظامات / گیت خروج</p>
+                                  <span className={`${badgeColor} text-[10px] px-2 py-0.5 rounded-lg font-bold`}>{badgeText}</span>
+                                </div>
+                                <p className="text-xs text-gray-500">{statusText}</p>
+                                {showDetail && (
+                                  <div className="bg-gray-50/50 p-3 rounded-xl border mt-2 text-xs space-y-1.5">
+                                    <p><span className="text-gray-400">مامور انتظامات:</span> <span className="font-semibold text-gray-700">{selectedLeave.security_name || 'انتظامات'}</span></p>
+                                    {selectedLeave.security_date && <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ رویت:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(selectedLeave.security_date)}</span></p>}
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Step 6: Leave Correction (Optional) */}
+                      {selectedLeave.edited_by && (
+                        <div className="relative group">
+                          <div className="absolute right-[-32px] top-1 w-4 h-4 rounded-full bg-amber-500 border-4 border-white shadow transition-all group-hover:scale-110"></div>
+                          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-1.5 hover:border-amber-200 transition-all">
+                            <div className="flex justify-between items-center">
+                              <p className="text-sm font-bold text-gray-800">۶. اصلاح و کاهش مدت مرخصی</p>
+                              <span className="bg-amber-50 text-amber-700 text-[10px] px-2 py-0.5 rounded-lg font-bold">اصلاح شده</span>
+                            </div>
+                            <p className="text-xs text-gray-500">کارکرد مرخصی پس از رویت انتظامات اصلاح گردید.</p>
+                            <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-200 mt-2 text-xs space-y-1.5">
+                              <p><span className="text-gray-400">اصلاح‌کننده:</span> <span className="font-semibold text-gray-700">{selectedLeave.editor_name || 'نامشخص'}</span></p>
+                              <p><span className="text-gray-400">علت اصلاح:</span> <span className="font-semibold text-gray-700">{selectedLeave.edit_reason}</span></p>
+                              {selectedLeave.edited_at && (
+                                <p className="flex items-center gap-1"><span className="text-gray-400">تاریخ اصلاح:</span> <span className="font-semibold text-gray-700 font-mono" dir="ltr">{toJalaliDateTime(selectedLeave.edited_at)}</span></p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
               </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t bg-gray-50 flex justify-end">
+            <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
+              <span className="text-[11px] text-gray-400 font-mono select-all" title="شناسه رکورد در دیتابیس">ID: #{selectedLeave.id}</span>
               <button 
                 onClick={() => setSelectedLeave(null)}
                 className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-6 py-2 rounded-xl text-sm font-bold transition-colors"
