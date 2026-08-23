@@ -91,36 +91,22 @@ export default function Layout({ children }) {
     return typeof window !== 'undefined' ? window.innerWidth > 768 : false;
   });
   const [searchQuery, setSearchQuery] = useState('');
-  const [openGroups, setOpenGroups] = useState(() => {
-    try {
-      const saved = localStorage.getItem('sidebar_open_groups');
-      return saved ? JSON.parse(saved) : { workspace: true, hr_services: true, operations_technical: true, office_security: true, admin_management: true };
-    } catch {
-      return { workspace: true, hr_services: true, operations_technical: true, office_security: true, admin_management: true };
-    }
-  });
-
-  const toggleGroup = (groupId) => {
-    setOpenGroups(prev => {
-      const next = { ...prev, [groupId]: !prev[groupId] };
-      try {
-        localStorage.setItem('sidebar_open_groups', JSON.stringify(next));
-      } catch { /* empty */ }
-      return next;
-    });
+  const getActiveGroupId = (pathname) => {
+    const currentGroup = menuGroups.find(g => g.items.some(item => item.path === pathname));
+    return currentGroup ? currentGroup.id : null;
   };
 
-  // Automatically expand group containing active path
+  const [openGroupId, setOpenGroupId] = useState(() => getActiveGroupId(location.pathname));
+
+  const toggleGroup = (groupId) => {
+    setOpenGroupId(prev => (prev === groupId ? null : groupId));
+  };
+
+  // Automatically expand group containing active path on route change
   useEffect(() => {
-    const currentGroup = menuGroups.find(g => g.items.some(item => item.path === location.pathname));
-    if (currentGroup && !openGroups[currentGroup.id]) {
-      setOpenGroups(prev => {
-        const next = { ...prev, [currentGroup.id]: true };
-        try {
-          localStorage.setItem('sidebar_open_groups', JSON.stringify(next));
-        } catch { /* empty */ }
-        return next;
-      });
+    const currentId = getActiveGroupId(location.pathname);
+    if (currentId) {
+      setOpenGroupId(currentId);
     }
   }, [location.pathname]);
 
@@ -343,7 +329,7 @@ export default function Layout({ children }) {
         
         <nav className="flex-1 py-2 px-2 overflow-y-auto space-y-1.5 custom-scrollbar">
           {processedGroups.map((group) => {
-            const isExpanded = searchQuery.trim() ? true : !!openGroups[group.id];
+            const isExpanded = searchQuery.trim() ? true : openGroupId === group.id;
             const hasActiveChild = group.visibleItems.some(i => location.pathname === i.path);
 
             return (
