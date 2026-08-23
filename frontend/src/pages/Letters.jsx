@@ -5,6 +5,8 @@ import toast from 'react-hot-toast';
 import Pagination from '../components/Pagination';
 import { printTable, printLetter } from '../utils/printUtils';
 import { toJalaliDateTime } from '../utils/dateUtils';
+import RichTextEditor from '../components/RichTextEditor';
+import HtmlContent from '../components/HtmlContent';
 
 const statusMap = {
   pending_central: { text: 'در انتظار سانترال', color: 'bg-blue-100 text-blue-700' },
@@ -302,8 +304,8 @@ export default function Letters() {
       <h2 className="text-xl font-bold">مدیریت نامه‌ها</h2>
 
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-lg animate-fade-in max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 sm:p-8 w-full max-w-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-6">نامه جدید</h3>
             <form onSubmit={submitLetter} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -326,7 +328,11 @@ export default function Letters() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">متن نامه</label>
-                <textarea value={form.body} onChange={(e) => setForm({...form, body: e.target.value})} className="w-full px-4 py-3 border rounded-xl" rows="6" />
+                <RichTextEditor
+                  value={form.body}
+                  onChange={(val) => setForm({ ...form, body: val })}
+                  placeholder="متن نامه را همراه با امکان قالب‌بندی (تیتر، پررنگ، خط زیر، فهرست و تراز) اینجا وارد کنید..."
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">فایل‌های پیوست (حداکثر ۱۰ فایل، تا ۲۰ مگابایت)</label>
@@ -517,6 +523,7 @@ export default function Letters() {
                     </div>
                     <h4 className="font-bold text-sm">{l.subject}</h4>
                     <p className="text-xs text-gray-500 mt-1">شماره: {l.letter_number || '-'} | {toJalaliDateTime(l.created_at)}</p>
+                    {l.body && <HtmlContent html={l.body} className="text-xs text-gray-500 mt-1.5 line-clamp-2" />}
                     {l.manager_name && <p className="text-xs text-gray-400 mt-0.5">مدیر: {l.manager_name}</p>}
                     {l.manager_comment && (
                       <p className={`text-xs mt-1 p-2 rounded-lg ${l.status === 'rejected' ? 'bg-red-50 text-red-700 font-medium border border-red-100' : 'bg-blue-50 text-blue-700'}`}>
@@ -575,7 +582,7 @@ export default function Letters() {
                     </div>
                     <h4 className="font-bold text-sm">{lu.subject}</h4>
                     <p className="text-xs text-gray-500 mt-1">شماره: {lu.letter_number || '-'} | از: {lu.sender_unit_name}</p>
-                    <p className="text-xs text-gray-400 mt-1">{lu.body?.substring(0, 150)}...</p>
+                    {lu.body && <HtmlContent html={lu.body} className="text-xs text-gray-500 mt-1.5 line-clamp-2" />}
                     {lu.attachments && lu.attachments.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {lu.attachments.map((att, idx) => (
@@ -610,7 +617,7 @@ export default function Letters() {
                     </div>
                     <h4 className="font-bold text-sm">{l.subject}</h4>
                     <p className="text-xs text-gray-500 mt-1">فرستنده: {l.sender_name} ({l.sender_unit_name})</p>
-                    <p className="text-xs text-gray-400 mt-1">{l.body?.substring(0, 100)}...</p>
+                    {l.body && <HtmlContent html={l.body} className="text-xs text-gray-500 mt-1.5 line-clamp-2" />}
                     {l.attachments && l.attachments.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {l.attachments.map((att, idx) => (
@@ -678,7 +685,11 @@ export default function Letters() {
                     </div>
                     <h4 className="font-bold text-sm">{l.subject}</h4>
                     <p className="text-xs text-gray-500 mt-1">شماره: {l.letter_number || '-'} | فرستنده: {l.sender_name} ({l.sender_unit_name})</p>
-                    <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap">{l.body?.substring(0, 300)}</p>
+                    {l.body && (
+                      <div className="mt-3 p-3 bg-white/80 rounded-xl border border-yellow-100/80">
+                        <HtmlContent html={l.body} className="text-sm" />
+                      </div>
+                    )}
                     {l.central_comment && (
                       <p className="text-xs text-amber-800 mt-2 bg-amber-50 p-2 rounded-lg border border-amber-100 font-medium">
                         توضیحات دبیرخانه: {l.central_comment}
@@ -729,7 +740,11 @@ export default function Letters() {
                     </div>
                     <h4 className="font-bold text-sm">{l.subject}</h4>
                     <p className="text-xs text-gray-500 mt-1">شماره: {l.letter_number || '-'} | فرستنده: {l.sender_name} ({l.sender_unit_name})</p>
-                    <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap">{l.body}</p>
+                    {l.body && (
+                      <div className="mt-3 p-3 bg-white/80 rounded-xl border border-gray-100">
+                        <HtmlContent html={l.body} className="text-sm" />
+                      </div>
+                    )}
                     {l.central_comment && (
                       <p className="text-xs text-amber-800 mt-2 bg-amber-50 p-2 rounded-lg border border-amber-100 font-medium">
                         توضیحات دبیرخانه: {l.central_comment}
@@ -803,7 +818,7 @@ export default function Letters() {
                     <h4 className="font-bold text-sm">{l.subject}</h4>
                     <p className="text-xs text-gray-500 mt-1">شماره: {l.letter_number || '-'} | فرستنده: {l.sender_name} ({l.sender_unit_name})</p>
                     {l.manager_name && <p className="text-xs text-gray-400 mt-0.5">مدیر: {l.manager_name} | {l.manager_comment || ''}</p>}
-                    {l.body && <p className="text-xs text-gray-400 mt-1 whitespace-pre-wrap">{l.body.substring(0, 150)}{l.body.length > 150 ? '...' : ''}</p>}
+                    {l.body && <HtmlContent html={l.body} className="text-xs text-gray-500 mt-1.5 line-clamp-2" />}
                     {l.attachments && l.attachments.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {l.attachments.map((att, idx) => (

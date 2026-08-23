@@ -132,7 +132,13 @@ export function printLetter(letter, history = []) {
         
         .subject { font-size: 16px; font-weight: 700; margin-bottom: 15px; padding: 10px; background: #f3f4f6; border-radius: 8px; }
         
-        .body { font-size: 13px; line-height: 2; white-space: pre-wrap; margin-bottom: 25px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; }
+        .body { font-size: 13px; line-height: 2; margin-bottom: 25px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; }
+        .body h2 { font-size: 15px; font-weight: 800; margin: 10px 0 5px 0; color: #111827; }
+        .body h3 { font-size: 14px; font-weight: 700; margin: 8px 0 4px 0; color: #1f2937; }
+        .body p { margin-bottom: 8px; }
+        .body ul { list-style-type: disc; margin-right: 20px; margin-bottom: 8px; }
+        .body ol { list-style-type: decimal; margin-right: 20px; margin-bottom: 8px; }
+        .body hr { border: 0; border-top: 1px solid #e5e7eb; margin: 10px 0; }
         
         .priority { display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
         .priority-normal { background: #f3f4f6; color: #374151; }
@@ -170,7 +176,7 @@ export function printLetter(letter, history = []) {
         <div class="meta-item"><span class="meta-label">تاریخ ثبت:</span><span class="meta-value">${jalaliDate(letter.created_at) || '-'}</span></div>
         <div class="meta-item">
           <span class="meta-label">اولویت:</span>
-          <span class="priority priority-${letter.priority}">${{normal:'عادی',important:'مهم',very_important:'خیلی مهم'}[letter.priority] || letter.priority}</span>
+          <span class="priority priority-${letter.priority}">${{normal:'عادی',important:'مهم',very_important:'خیلی مهم',priority_1:'اولویت ۱',priority_2:'اولویت ۲',priority_3:'اولویت ۳'}[letter.priority] || letter.priority}</span>
         </div>
         <div class="meta-item">
           <span class="meta-label">وضعیت:</span>
@@ -185,7 +191,7 @@ export function printLetter(letter, history = []) {
       
       <div class="subject">موضوع: ${escapeHtml(letter.subject) || '-'}</div>
       
-      ${letter.body ? `<div class="body">${escapeHtml(letter.body)}</div>` : ''}
+      ${letter.body ? `<div class="body">${/<[a-z][\s\S]*>/i.test(letter.body) ? letter.body : `<p style="white-space:pre-wrap;">${escapeHtml(letter.body)}</p>`}</div>` : ''}
       
       ${letter.attachment_name ? `<div class="attachment">فایل پیوست: ${escapeHtml(letter.attachment_name)}</div>` : ''}
       

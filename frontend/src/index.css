@@ -158,3 +158,56 @@
     max-height: none !important;
   }
 }
+
+/* Rich Text Editor Content & Output Styles */
+.rich-editor-content:empty:before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+.rich-editor-content h2,
+.rich-text-rendered h2 {
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+  color: #111827;
+}
+
+.rich-editor-content h3,
+.rich-text-rendered h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-top: 0.5rem;
+  margin-bottom: 0.35rem;
+  color: #1f2937;
+}
+
+.rich-editor-content p,
+.rich-text-rendered p {
+  margin-bottom: 0.5rem;
+  line-height: 1.8;
+}
+
+.rich-editor-content ul,
+.rich-text-rendered ul {
+  list-style-type: disc;
+  margin-right: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.rich-editor-content ol,
+.rich-text-rendered ol {
+  list-style-type: decimal;
+  margin-right: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.rich-editor-content hr,
+.rich-text-rendered hr {
+  border: 0;
+  border-top: 1px solid #e5e7eb;
+  margin: 0.75rem 0;
+}
+
