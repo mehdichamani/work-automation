@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import moment from 'moment-jalaali';
@@ -52,6 +52,11 @@ export default function Leave() {
   const [allLeavesSearch, setAllLeavesSearch] = useState('');
   const [allLeavesDebounce, setAllLeavesDebounce] = useState('');
 
+  // فیلترها و جستجوی مانده مرخصی و مدیریت سهمیه
+  const [balanceSearch, setBalanceSearch] = useState('');
+  const [balanceDeptFilter, setBalanceDeptFilter] = useState('all');
+  const [balanceQuickFilter, setBalanceQuickFilter] = useState('all'); // 'all', 'positive', 'negative', 'zero', 'unused'
+
   useEffect(() => {
     const timer = setTimeout(() => setAllLeavesDebounce(allLeavesSearch), 400);
     return () => clearTimeout(timer);
@@ -88,6 +93,242 @@ export default function Leave() {
   const [showEndCal, setShowEndCal] = useState(false);
   const [editShowStartCal, setEditShowStartCal] = useState(false);
   const [editShowEndCal, setEditShowEndCal] = useState(false);
+
+  const balanceDepartments = useMemo(() => {
+    const depts = new Set();
+    balanceAll.forEach(b => {
+      if (b.department_name) depts.add(b.department_name);
+    });
+    return Array.from(depts).sort();
+  }, [balanceAll]);
+
+  const balanceCounts = useMemo(() => {
+    let positive = 0, negative = 0, zero = 0, unused = 0;
+    balanceAll.forEach(b => {
+      const isNeg = b.is_negative === 1 || b.remaining_days < 0;
+      const isZero = !isNeg && b.remaining_days === 0 && b.remaining_hours_only === 0;
+      if (isNeg) {
+        negative++;
+      } else if (isZero) {
+        zero++;
+      } else {
+        positive++;
+      }
+      if (b.used_hours === 0) {
+        unused++;
+      }
+    });
+    return { all: balanceAll.length, positive, negative, zero, unused };
+  }, [balanceAll]);
+
+  const filteredBalanceAll = useMemo(() => {
+    return balanceAll.filter(b => {
+      // جستجو در نام و نام واحد
+      if (balanceSearch.trim()) {
+        const q = balanceSearch.trim().toLowerCase();
+        const matchName = b.full_name && b.full_name.toLowerCase().includes(q);
+        const matchDept = b.department_name && b.department_name.toLowerCase().includes(q);
+        if (!matchName && !matchDept) return false;
+      }
+
+      // فیلتر واحد سازمانی
+      if (balanceDeptFilter && balanceDeptFilter !== 'all') {
+        if (b.department_name !== balanceDeptFilter) return false;
+      }
+
+      // فیلتر سریع مانده
+      const isNeg = b.is_negative === 1 || b.remaining_days < 0;
+      const isZero = !isNeg && b.remaining_days === 0 && b.remaining_hours_only === 0;
+      if (balanceQuickFilter === 'positive') {
+        if (isNeg || isZero) return false;
+      } else if (balanceQuickFilter === 'negative') {
+        if (!isNeg) return false;
+      } else if (balanceQuickFilter === 'zero') {
+        if (!isZero) return false;
+      } else if (balanceQuickFilter === 'unused') {
+        if (b.used_hours > 0) return false;
+      }
+
+      return true;
+    });
+  }, [balanceAll, balanceSearch, balanceDeptFilter, balanceQuickFilter]);
+
+  const renderBalanceFilterBar = (showPrint = false) => (
+    <div className="mb-6 space-y-4 bg-gray-50/80 border border-gray-200/80 p-4 rounded-2xl">
+      <div className="flex flex-wrap gap-3 items-center justify-between">
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+          {/* اینپوت جستجو */}
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-gray-400">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              placeholder="جستجوی نام یا واحد..."
+              value={balanceSearch}
+              onChange={(e) => setBalanceSearch(e.target.value)}
+              className="w-full pr-10 pl-8 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all shadow-sm"
+            />
+            {balanceSearch && (
+              <button
+                onClick={() => setBalanceSearch('')}
+                className="absolute inset-y-0 left-0 pl-2.5 flex items-center text-gray-400 hover:text-gray-600"
+                title="پاک کردن جستجو"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* فیلتر واحد سازمانی */}
+          {balanceDepartments.length > 0 && (
+            <div className="min-w-[160px]">
+              <select
+                value={balanceDeptFilter}
+                onChange={(e) => setBalanceDeptFilter(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all shadow-sm cursor-pointer"
+              >
+                <option value="all">همه واحدها</option>
+                {balanceDepartments.map((dept) => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* دکمه پاک کردن فیلترها در صورت فعال بودن */}
+          {(balanceSearch || balanceDeptFilter !== 'all' || balanceQuickFilter !== 'all') && (
+            <button
+              onClick={() => {
+                setBalanceSearch('');
+                setBalanceDeptFilter('all');
+                setBalanceQuickFilter('all');
+              }}
+              className="text-xs text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-2 rounded-xl font-medium transition-colors flex items-center gap-1.5 shadow-sm"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              حذف فیلترها
+            </button>
+          )}
+        </div>
+
+        {/* اطلاعات تعداد و دکمه چاپ */}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-500 font-medium">
+            نمایش <strong className="text-gray-800">{filteredBalanceAll.length}</strong> از <strong className="text-gray-800">{balanceAll.length}</strong> نفر
+          </span>
+          {showPrint && (
+            <button
+              onClick={() => printTable('مانده مرخصی کارکنان', [
+                { key: 'full_name', label: 'نام' },
+                { key: 'department_name', label: 'واحد' },
+                { key: 'total_days', label: 'کل روزها' },
+                { key: 'used_days', label: 'استفاده شده' },
+                { key: 'remaining_days', label: 'مانده' },
+              ], filteredBalanceAll.map(b => ({
+                ...b,
+                used_days: `${b.used_days_display} روز و ${b.used_hours_display} ساعت`,
+                remaining_days: `${b.is_negative ? 'منفی ' : ''}${Math.abs(b.remaining_days)} روز و ${b.remaining_hours_only} ساعت`
+              })))}
+              className="bg-white hover:bg-gray-100 border border-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+              چاپ لیست
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* فیلترهای سریع وضعیت مانده */}
+      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-200/60">
+        <span className="text-xs text-gray-500 font-medium ml-1">فیلتر سریع:</span>
+        <button
+          type="button"
+          onClick={() => setBalanceQuickFilter('all')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            balanceQuickFilter === 'all'
+              ? 'bg-primary-600 text-white shadow-sm'
+              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+          }`}
+        >
+          <span>همه</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${balanceQuickFilter === 'all' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'}`}>
+            {balanceCounts.all}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setBalanceQuickFilter('positive')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            balanceQuickFilter === 'positive'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'bg-white text-emerald-700 hover:bg-emerald-50 border border-emerald-200'
+          }`}
+        >
+          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span>دارای مانده</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${balanceQuickFilter === 'positive' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
+            {balanceCounts.positive}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setBalanceQuickFilter('negative')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            balanceQuickFilter === 'negative'
+              ? 'bg-rose-600 text-white shadow-sm'
+              : 'bg-white text-rose-700 hover:bg-rose-50 border border-rose-200'
+          }`}
+        >
+          <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+          <span>مانده منفی (بدهکار)</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${balanceQuickFilter === 'negative' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-700'}`}>
+            {balanceCounts.negative}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setBalanceQuickFilter('zero')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            balanceQuickFilter === 'zero'
+              ? 'bg-amber-600 text-white shadow-sm'
+              : 'bg-white text-amber-700 hover:bg-amber-50 border border-amber-200'
+          }`}
+        >
+          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+          <span>اتمام سهمیه (صفر)</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${balanceQuickFilter === 'zero' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700'}`}>
+            {balanceCounts.zero}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setBalanceQuickFilter('unused')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            balanceQuickFilter === 'unused'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'bg-white text-indigo-700 hover:bg-indigo-50 border border-indigo-200'
+          }`}
+        >
+          <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+          <span>بدون استفاده (سهمیه کامل)</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${balanceQuickFilter === 'unused' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+            {balanceCounts.unused}
+          </span>
+        </button>
+      </div>
+    </div>
+  );
 
   useEffect(() => {
     if (user && ['admin', 'manager', 'supervisor'].includes(user.role)) {
@@ -1137,150 +1378,170 @@ export default function Leave() {
 
         {tab === 'balance' && (
           <div className="p-6">
-            <div className="flex justify-between items-center mb-4">
-              <p className="text-sm text-gray-500">{balanceAll.length} نفر</p>
-              <button onClick={() => printTable('مانده مرخصی کارکنان', [
-                { key: 'full_name', label: 'نام' },
-                { key: 'department_name', label: 'واحد' },
-                { key: 'total_days', label: 'کل روزها' },
-                { key: 'used_days', label: 'استفاده شده' },
-                { key: 'remaining_days', label: 'مانده' },
-              ], balanceAll.map(b => ({
-                ...b,
-                used_days: `${b.used_days_display} روز و ${b.used_hours_display} ساعت`,
-                remaining_days: `${b.is_negative ? 'منفی ' : ''}${Math.abs(b.remaining_days)} روز و ${b.remaining_hours_only} ساعت`
-              })))} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                چاپ
-              </button>
-            </div>
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="p-3 text-right">نام</th>
-                  <th className="p-3 text-right">واحد</th>
-                  <th className="p-3 text-right">کل روزها</th>
-                  <th className="p-3 text-right">استفاده شده</th>
-                  <th className="p-3 text-right">مانده</th>
-                </tr>
-              </thead>
-              <tbody>
-                {balanceAll.map(b => (
-                  <tr key={b.user_id} className="border-t hover:bg-gray-50">
-                    <td className="p-3 font-bold">{b.full_name}</td>
-                    <td className="p-3">{b.department_name}</td>
-                    <td className="p-3">{b.total_days}</td>
-                    <td className="p-3 text-red-500">{b.used_days_display} روز و {b.used_hours_display} ساعت</td>
-                    <td className={`p-3 font-bold ${b.is_negative ? 'text-red-500' : 'text-green-600'}`}>
-                      {b.is_negative ? 'منفی ' : ''}
-                      {Math.abs(b.remaining_days)} روز و {b.remaining_hours_only} ساعت
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {tab === 'quota_manage' && (
-          <div className="p-6">
-            <div className="flex justify-between items-center mb-4">
-              <p className="text-sm text-gray-500">{balanceAll.length} نفر</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="p-3 text-right">نام</th>
-                    <th className="p-3 text-right">واحد</th>
-                    <th className="p-3 text-right">کل سهمیه (روز)</th>
-                    <th className="p-3 text-right">استفاده شده</th>
-                    <th className="p-3 text-right">مانده</th>
-                    <th className="p-3 text-right">عملیات</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {balanceAll.map(b => {
-                    const isEditing = Number(b.user_id) == Number(editingQuotaUserId);
-                    const totalDaysOnly = Math.floor(b.total_days || 0);
-                    const totalHoursOnly = Math.round(((b.total_days || 0) % 1) * 8 * 10) / 10;
-                    return (
-                      <tr key={b.user_id} className="border-t hover:bg-gray-50">
+            {renderBalanceFilterBar(true)}
+            {filteredBalanceAll.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200 text-gray-500 space-y-3">
+                <p className="text-sm font-medium">هیچ پرسنلی مطابق با فیلترهای انتخابی یافت نشد</p>
+                {(balanceSearch || balanceDeptFilter !== 'all' || balanceQuickFilter !== 'all') && (
+                  <button
+                    onClick={() => {
+                      setBalanceSearch('');
+                      setBalanceDeptFilter('all');
+                      setBalanceQuickFilter('all');
+                    }}
+                    className="text-xs text-primary-600 hover:text-primary-700 bg-primary-50 px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                  >
+                    پاک کردن فیلترها و مشاهده همه
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="p-3 text-right">نام</th>
+                      <th className="p-3 text-right">واحد</th>
+                      <th className="p-3 text-right">کل روزها</th>
+                      <th className="p-3 text-right">استفاده شده</th>
+                      <th className="p-3 text-right">مانده</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredBalanceAll.map(b => (
+                      <tr key={b.user_id} className="border-t hover:bg-gray-50 transition-colors">
                         <td className="p-3 font-bold">{b.full_name}</td>
                         <td className="p-3">{b.department_name || 'بدون واحد'}</td>
-                        <td className="p-3">
-                          {isEditing ? (
-                            <div className="flex gap-2 items-center">
-                              <input
-                                type="number"
-                                min="0"
-                                placeholder="روز"
-                                value={editQuotaDaysVal}
-                                onChange={(e) => setEditQuotaDaysVal(Number(e.target.value))}
-                                className="w-16 px-2 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-                                required
-                              />
-                              <span className="text-xs text-gray-500">روز و</span>
-                              <input
-                                type="number"
-                                min="0"
-                                max="7.5"
-                                step="0.5"
-                                placeholder="ساعت"
-                                value={editQuotaHoursVal}
-                                onChange={(e) => setEditQuotaHoursVal(Number(e.target.value))}
-                                className="w-20 px-2 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-                                required
-                              />
-                              <span className="text-xs text-gray-500">ساعت</span>
-                            </div>
-                          ) : (
-                            <span className="font-semibold">
-                              {totalDaysOnly} روز{totalHoursOnly > 0 ? ` و ${totalHoursOnly} ساعت` : ''}
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3 text-red-500 font-medium">
-                          {b.used_days_display} روز و {b.used_hours_display} ساعت
-                        </td>
+                        <td className="p-3">{b.total_days}</td>
+                        <td className="p-3 text-red-500 font-medium">{b.used_days_display} روز و {b.used_hours_display} ساعت</td>
                         <td className={`p-3 font-bold ${b.is_negative ? 'text-red-500' : 'text-green-600'}`}>
                           {b.is_negative ? 'منفی ' : ''}
                           {Math.abs(b.remaining_days)} روز و {b.remaining_hours_only} ساعت
                         </td>
-                        <td className="p-3">
-                          {isEditing ? (
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => saveQuotaInline(b.user_id)}
-                                className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
-                              >
-                                ✓ ذخیره
-                              </button>
-                              <button
-                                onClick={() => setEditingQuotaUserId(null)}
-                                className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
-                              >
-                                انصراف
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                setEditingQuotaUserId(b.user_id);
-                                setEditQuotaDaysVal(Math.floor(b.total_days || 0));
-                                setEditQuotaHoursVal(Math.round(((b.total_days || 0) % 1) * 8 * 10) / 10);
-                              }}
-                              className="bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
-                            >
-                              ✏️ ویرایش سهمیه
-                            </button>
-                          )}
-                        </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+        {tab === 'quota_manage' && (
+          <div className="p-6">
+            {renderBalanceFilterBar(false)}
+            {filteredBalanceAll.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200 text-gray-500 space-y-3">
+                <p className="text-sm font-medium">هیچ پرسنلی مطابق با فیلترهای انتخابی یافت نشد</p>
+                {(balanceSearch || balanceDeptFilter !== 'all' || balanceQuickFilter !== 'all') && (
+                  <button
+                    onClick={() => {
+                      setBalanceSearch('');
+                      setBalanceDeptFilter('all');
+                      setBalanceQuickFilter('all');
+                    }}
+                    className="text-xs text-primary-600 hover:text-primary-700 bg-primary-50 px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                  >
+                    پاک کردن فیلترها و مشاهده همه
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="p-3 text-right">نام</th>
+                      <th className="p-3 text-right">واحد</th>
+                      <th className="p-3 text-right">کل سهمیه (روز)</th>
+                      <th className="p-3 text-right">استفاده شده</th>
+                      <th className="p-3 text-right">مانده</th>
+                      <th className="p-3 text-right">عملیات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredBalanceAll.map(b => {
+                      const isEditing = Number(b.user_id) == Number(editingQuotaUserId);
+                      const totalDaysOnly = Math.floor(b.total_days || 0);
+                      const totalHoursOnly = Math.round(((b.total_days || 0) % 1) * 8 * 10) / 10;
+                      return (
+                        <tr key={b.user_id} className="border-t hover:bg-gray-50 transition-colors">
+                          <td className="p-3 font-bold">{b.full_name}</td>
+                          <td className="p-3">{b.department_name || 'بدون واحد'}</td>
+                          <td className="p-3">
+                            {isEditing ? (
+                              <div className="flex gap-2 items-center">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  placeholder="روز"
+                                  value={editQuotaDaysVal}
+                                  onChange={(e) => setEditQuotaDaysVal(Number(e.target.value))}
+                                  className="w-16 px-2 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                                  required
+                                />
+                                <span className="text-xs text-gray-500">روز و</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="7.5"
+                                  step="0.5"
+                                  placeholder="ساعت"
+                                  value={editQuotaHoursVal}
+                                  onChange={(e) => setEditQuotaHoursVal(Number(e.target.value))}
+                                  className="w-20 px-2 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                                  required
+                                />
+                                <span className="text-xs text-gray-500">ساعت</span>
+                              </div>
+                            ) : (
+                              <span className="font-semibold">
+                                {totalDaysOnly} روز{totalHoursOnly > 0 ? ` و ${totalHoursOnly} ساعت` : ''}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-red-500 font-medium">
+                            {b.used_days_display} روز و {b.used_hours_display} ساعت
+                          </td>
+                          <td className={`p-3 font-bold ${b.is_negative ? 'text-red-500' : 'text-green-600'}`}>
+                            {b.is_negative ? 'منفی ' : ''}
+                            {Math.abs(b.remaining_days)} روز و {b.remaining_hours_only} ساعت
+                          </td>
+                          <td className="p-3">
+                            {isEditing ? (
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => saveQuotaInline(b.user_id)}
+                                  className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
+                                >
+                                  ✓ ذخیره
+                                </button>
+                                <button
+                                  onClick={() => setEditingQuotaUserId(null)}
+                                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
+                                >
+                                  انصراف
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setEditingQuotaUserId(b.user_id);
+                                  setEditQuotaDaysVal(Math.floor(b.total_days || 0));
+                                  setEditQuotaHoursVal(Math.round(((b.total_days || 0) % 1) * 8 * 10) / 10);
+                                }}
+                                className="bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm"
+                              >
+                                ✏️ ویرایش سهمیه
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
