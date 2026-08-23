@@ -18,7 +18,7 @@ const menuGroups = [
       { path: '/learning', label: 'آموزش', icon: '📚', permission: 'learning_view' },
       { path: '/letters', label: 'نامه‌ها', icon: '📨', permission: 'letters_send' },
       { path: '/conference', label: 'سالن کنفرانس', icon: '🏛️', permission: 'conference_booking' },
-      { path: '/profile', label: 'پروفایل', icon: '👤', permission: 'profile_view' },
+      { path: '/profile', label: 'پروفایل', icon: '👤' },
     ]
   },
   {
