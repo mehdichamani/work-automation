@@ -202,7 +202,18 @@ export default function EntityCentricView({ matrix, onRefresh }) {
                           }`}>
                             {user.full_name?.charAt(0)}
                           </div>
-                          <span className="truncate">{user.full_name}</span>
+                          <span className="truncate flex-1">{user.full_name}</span>
+                          <span className={`text-[9px] px-1 py-0.2 rounded font-mono ${
+                            isUserActive
+                              ? 'bg-white/20 text-white'
+                              : user.role === 'manager'
+                              ? 'bg-indigo-100 text-indigo-700'
+                              : user.role === 'supervisor'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {user.role === 'manager' ? '👑 مدیر' : user.role === 'supervisor' ? '👔 سرپرست' : '👤'}
+                          </span>
                         </div>
                       );
                     })}

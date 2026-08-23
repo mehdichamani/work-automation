@@ -66,16 +66,7 @@ export default function AdminPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [backups, setBackups] = useState([]);
   const [creatingBackup, setCreatingBackup] = useState(false);
-  const [modules, setModules] = useState([]);
-  const [allPerms, setAllPerms] = useState([]);
-  const [permLoading, setPermLoading] = useState(false);
-  const [selectedDeptId, setSelectedDeptId] = useState(null);
-  const [permSearch, setPermSearch] = useState('');
-  const [showCopyModal, setShowCopyModal] = useState(false);
-  const [copySourceDeptId, setCopySourceDeptId] = useState('');
-  const [userPerms, setUserPerms] = useState([]);
-  const [selectedPermUserId, setSelectedPermUserId] = useState('');
-  const [userPermForm, setUserPermForm] = useState([]);
+
   const [announcements, setAnnouncements] = useState([]);
   const [showAnnouncementForm, setShowAnnouncementForm] = useState(false);
   const [editingAnnouncement, setEditingAnnouncement] = useState(null);
@@ -86,17 +77,12 @@ export default function AdminPanel() {
   const [cameraConfig, setCameraConfig] = useState({ ip: '172.20.2.26', port: 80, username: 'admin', password: 'admin123', channel: 1, rtsp_port: 554 });
   const [cameraTestResult, setCameraTestResult] = useState(null);
   const [viewPhoto, setViewPhoto] = useState(null);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [checkedUserIds, setCheckedUserIds] = useState(new Set());
-  const [pendingSaveCount, setPendingSaveCount] = useState(0);
   const [matrix, setMatrix] = useState({ departments: [], deptUsers: {}, deptPermMap: {}, userPermMap: {}, modules: [] });
 
   useEffect(() => {
     const handleLoad = () => {
       loadData();
       if (tab === 'backup') loadBackups();
-      if (tab === 'permissions') loadPermissions();
-      if (tab === 'user-permissions') loadUserPermissions();
       if (tab === 'perm-matrix') loadMatrix();
       if (tab === 'toast-central') loadAnnouncements();
       if (tab === 'job-applications') loadJobApplications();
@@ -175,85 +161,14 @@ export default function AdminPanel() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  const loadPermissions = async () => {
-    setPermLoading(true);
-    try {
-      const [modsRes, permsRes, deptsRes, usersRes] = await Promise.all([
-        api.get('/permissions/modules'),
-        api.get('/permissions'),
-        api.get('/admin/departments'),
-        api.get('/admin/users'),
-      ]);
-      setModules(modsRes.data);
-      setAllPerms(permsRes.data);
-      setDepartments(deptsRes.data);
-      setUsers(usersRes.data.data || usersRes.data);
-      if (deptsRes.data.length > 0) {
-        setSelectedDeptId(deptsRes.data[0].id);
-      }
-    } catch (err) {
-      toast.error('خطا در بارگذاری دسترسی‌ها');
-    } finally {
-      setPermLoading(false);
-    }
-  };
 
-  const togglePermission = (moduleKey, deptId) => {
-    const existing = allPerms.find(p => p.module_key === moduleKey && p.department_id === deptId);
-    if (existing) {
-      setAllPerms(allPerms.map(p =>
-        p.module_key === moduleKey && p.department_id === deptId
-          ? { ...p, is_enabled: p.is_enabled ? 0 : 1 }
-          : p
-      ));
-    } else {
-      setAllPerms([...allPerms, { module_key: moduleKey, department_id: deptId, is_enabled: 1 }]);
-    }
-  };
-
-  const savePermissions = async () => {
-    try {
-      await api.put('/permissions', { permissions: allPerms.filter(p => p.is_enabled) });
-      await refreshPermissions();
-      toast.success('دسترسی‌ها ذخیره شد');
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'خطا در ذخیره');
-    }
-  };
-
-  const handleCopyPermissions = (sourceDeptId) => {
-    if (!sourceDeptId || !selectedDeptId) return;
-    const sourceIdNum = Number(sourceDeptId);
-    const sourcePerms = allPerms.filter(p => p.department_id === sourceIdNum && p.is_enabled);
-    const otherPerms = allPerms.filter(p => p.department_id !== selectedDeptId);
-    const newPerms = sourcePerms.map(p => ({
-      module_key: p.module_key,
-      department_id: selectedDeptId,
-      is_enabled: 1
-    }));
-    setAllPerms([...otherPerms, ...newPerms]);
-    toast.success('دسترسی‌ها کپی شدند. برای ثبت نهایی روی ذخیره کلیک کنید.');
-    setShowCopyModal(false);
-  };
-
-  const hasPerm = (moduleKey, deptId) => {
-    const p = allPerms.find(x => x.module_key === moduleKey && x.department_id === deptId);
-    return p ? !!p.is_enabled : false;
-  };
-
-  const loadUserPermissions = async () => {
-    try {
-      const res = await api.get('/permissions/user-permissions');
-      setUserPerms(res.data);
-    } catch (err) {}
-  };
 
   const loadMatrix = async () => {
     try {
       const res = await api.get('/permissions/matrix');
       setMatrix(res.data);
     } catch (err) {
-      toast.error('خطا در بارگذاری ماتریکس دسترسی‌ها');
+      toast.error('خطا در بارگذاری دسترسی‌ها');
     }
   };
 
@@ -580,8 +495,7 @@ export default function AdminPanel() {
     { id: 'departments', label: 'واحدها و چارت سازمانی' },
     { id: 'stats', label: 'آمار و گزارشات' },
     { id: 'backup', label: 'بکاپ و بازیابی' },
-    { id: 'permissions', label: 'مدیریت دسترسی کاربران' },
-    { id: 'perm-matrix', label: 'مدیریت دسترسی‌ها (ماتریکس)' },
+    { id: 'perm-matrix', label: 'مدیریت دسترسی‌ها' },
     { id: 'toast-central', label: 'سانترال اطلاعیه' },
     { id: 'job-applications', label: 'پرسشنامه‌های استخدامی', permission: 'job_application_review' },
     { id: 'camera-settings', label: 'تنظیمات دوربین' },
@@ -1053,124 +967,13 @@ export default function AdminPanel() {
         </div>
       )}
 
-      {tab === 'permissions' && (
-        <div className="space-y-6">
-          <div className="bg-gradient-to-l from-green-500 to-emerald-700 rounded-2xl p-5 text-white">
-            <h3 className="font-bold text-lg">مدیریت دسترسی کاربران</h3>
-            <p className="text-green-200 text-sm mt-1">کاربران را انتخاب کنید و دسترسی‌ها را تخصیص دهید</p>
-          </div>
 
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <p className="text-sm text-gray-500">{users.filter(u => u.is_active).length} کاربر فعال</p>
-                <p className="text-xs text-gray-400 mt-0.5">{checkedUserIds.size} کاربر انتخاب شده</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const allActive = users.filter(u => u.is_active);
-                    const allIds = new Set(allActive.map(u => u.id));
-                    setCheckedUserIds(allIds);
-                  }}
-                  className="bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-xl text-xs font-medium transition-colors"
-                >
-                  انتخاب همه
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCheckedUserIds(new Set())}
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-xs font-medium transition-colors"
-                >
-                  از انتخاب خارج کن
-                </button>
-              </div>
-            </div>
-
-            <div className="border rounded-xl overflow-hidden">
-              <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-gray-50 border-b text-xs font-bold text-gray-600">
-                <div className="col-span-1">
-                  <input
-                    type="checkbox"
-                    checked={users.filter(u => u.is_active).length > 0 && checkedUserIds.size === users.filter(u => u.is_active).length}
-                    onChange={(e) => {
-                      const allActive = users.filter(u => u.is_active);
-                      if (e.target.checked) {
-                        setCheckedUserIds(new Set(allActive.map(u => u.id)));
-                      } else {
-                        setCheckedUserIds(new Set());
-                      }
-                    }}
-                    className="rounded"
-                  />
-                </div>
-                <div className="col-span-5">نام کاربر</div>
-                <div className="col-span-3">واحد</div>
-                <div className="col-span-3">سمت</div>
-              </div>
-              <div className="max-h-[50vh] overflow-y-auto">
-                {users.filter(u => u.is_active).map(u => (
-                  <div
-                    key={u.id}
-                    className={`grid grid-cols-12 gap-2 px-4 py-2.5 border-b last:border-b-0 text-sm items-center transition-colors ${
-                      checkedUserIds.has(u.id) ? 'bg-primary-50' : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="col-span-1">
-                      <input
-                        type="checkbox"
-                        checked={checkedUserIds.has(u.id)}
-                        onChange={(e) => {
-                          const next = new Set(checkedUserIds);
-                          if (e.target.checked) {
-                            next.add(u.id);
-                          } else {
-                            next.delete(u.id);
-                          }
-                          setCheckedUserIds(next);
-                        }}
-                        className="rounded"
-                      />
-                    </div>
-                    <div className="col-span-5 font-medium">{u.full_name}</div>
-                    <div className="col-span-3 text-gray-600">{u.department_name || '-'}</div>
-                    <div className="col-span-3">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${roleColors[u.role]}`}>
-                        {roleLabels[u.role]}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  if (checkedUserIds.size === 0) {
-                    toast.error('حداقل یک کاربر را انتخاب کنید');
-                    return;
-                  }
-                  setPendingSaveCount(checkedUserIds.size);
-                  setShowConfirmModal(true);
-                }}
-                className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-bold text-sm transition-colors flex items-center gap-2"
-              >
-                <span>💾</span>
-                ثبت نهایی
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {tab === 'perm-matrix' && (
         <div className="space-y-6">
           <div className="bg-gradient-to-l from-primary-500 to-primary-700 rounded-2xl p-5 text-white">
-            <h3 className="font-bold text-lg">مدیریت دسترسی‌ها (ماتریکس)</h3>
-            <p className="text-primary-200 text-sm mt-1">دسترسی‌ها را بر اساس واحد/شخص یا بر اساس دسترسی مدیریت کنید</p>
+            <h3 className="font-bold text-lg">مدیریت دسترسی‌ها</h3>
+            <p className="text-primary-200 text-sm mt-1">مدیریت و پیکربندی سطح دسترسی‌ها بر اساس دسترسی، سمت‌های سازمانی، واحدها و پرسنل</p>
           </div>
 
           <PermMatrixMode matrix={matrix} loadMatrix={loadMatrix} />
@@ -1520,62 +1323,7 @@ export default function AdminPanel() {
         </div>
       )}
 
-      {showConfirmModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" dir="rtl">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-fade-in overflow-hidden">
-            <div className="bg-yellow-50 px-6 py-4 border-b border-yellow-200">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
-                </div>
-                <h3 className="font-bold text-gray-800 text-base">تایید ذخیره دسترسی‌ها</h3>
-              </div>
-            </div>
-            <div className="px-6 py-5">
-              <p className="text-sm text-gray-700 leading-relaxed">
-                شما در حال تخصیص دسترسی به <span className="font-bold text-primary-600">{pendingSaveCount}</span> کاربر هستید.
-                <br />
-                آیا از ذخیره این تغییرات اطمینان دارید؟
-              </p>
-            </div>
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-3 justify-end">
-              <button
-                type="button"
-                onClick={() => setShowConfirmModal(false)}
-                className="px-5 py-2.5 rounded-xl text-sm font-bold text-gray-700 bg-white border border-gray-300 hover:bg-gray-100 transition-colors"
-              >
-                انصراف
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  setShowConfirmModal(false);
-                  try {
-                    const token = localStorage.getItem('token');
-                    const response = await fetch('/api/permissions/bulk-set-users', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                      body: JSON.stringify({ userIds: Array.from(checkedUserIds) }),
-                    });
-                    const data = await response.json();
-                    if (response.ok) {
-                      toast.success('دسترسی‌ها با موفقیت ثبت شد');
-                      setCheckedUserIds(new Set());
-                    } else {
-                      toast.error(data.error || 'خطا در ذخیره دسترسی‌ها');
-                    }
-                  } catch (err) {
-                    toast.error('خطا در ارتباط با سرور');
-                  }
-                }}
-                className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-green-600 hover:bg-green-700 transition-colors"
-              >
-                بله، اعمال شود
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 }

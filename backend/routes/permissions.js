@@ -94,6 +94,7 @@ module.exports = function() {
       if (!Array.isArray(permissions)) {
         return res.status(400).json({ error: 'داده نامعتبر' });
       }
+      const now = new Date();
       await prisma.$transaction(async (tx) => {
         await tx.permission.deleteMany({ where: { userId: null } });
         const rows = permissions
@@ -103,6 +104,7 @@ module.exports = function() {
             departmentId: Number(p.department_id),
             userId: null,
             isEnabled: !!p.is_enabled,
+            updatedAt: now,
           }));
         if (rows.length > 0) {
           await tx.permission.createMany({ data: rows });
@@ -110,6 +112,7 @@ module.exports = function() {
       });
       res.json({ message: 'دسترسی‌ها ذخیره شد' });
     } catch (err) {
+      console.error('Error saving dept permissions:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -121,6 +124,7 @@ module.exports = function() {
         return res.status(400).json({ error: 'داده نامعتبر' });
       }
       const uid = Number(user_id);
+      const now = new Date();
       await prisma.$transaction(async (tx) => {
         await tx.permission.deleteMany({ where: { userId: uid } });
         const rows = permissions
@@ -129,6 +133,7 @@ module.exports = function() {
             moduleKey: p.module_key,
             userId: uid,
             isEnabled: !!p.is_enabled,
+            updatedAt: now,
           }));
         if (rows.length > 0) {
           await tx.permission.createMany({ data: rows });
@@ -136,6 +141,7 @@ module.exports = function() {
       });
       res.json({ message: 'دسترسی‌های کاربر ذخیره شد' });
     } catch (err) {
+      console.error('Error saving user permissions:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -247,6 +253,159 @@ module.exports = function() {
     }
   });
 
+  // PUT /permissions/bulk-toggle-role - toggle permission for all members with a specific role
+  router.put('/bulk-toggle-role', roleGuard('admin'), async (req, res) => {
+    try {
+      const { role, module_key, is_enabled } = req.body;
+      if (!role || !module_key) {
+        return res.status(400).json({ error: 'داده نامعتبر' });
+      }
+
+      const members = await prisma.user.findMany({
+        where: { role: role, isActive: true },
+        select: { id: true },
+      });
+
+      if (members.length === 0) {
+        return res.json({ message: 'کاربری با این سمت یافت نشد', affected: 0 });
+      }
+
+      const memberIds = members.map(m => m.id);
+
+      await prisma.$transaction(async (tx) => {
+        await tx.permission.deleteMany({
+          where: {
+            userId: { in: memberIds },
+            moduleKey: module_key,
+          },
+        });
+
+        if (is_enabled) {
+          const now = new Date();
+          const rows = memberIds.map(uid => ({
+            moduleKey: module_key,
+            userId: uid,
+            isEnabled: true,
+            updatedAt: now,
+          }));
+          await tx.permission.createMany({ data: rows });
+        }
+      });
+
+      res.json({ message: `دسترسی برای سمت ${role} با موفقیت اعمال شد`, affected: members.length });
+    } catch (err) {
+      console.error('Error in bulk-toggle-role:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PUT /permissions/bulk-set-role-modules - set all active module permissions for all members of a role
+  router.put('/bulk-set-role-modules', roleGuard('admin'), async (req, res) => {
+    try {
+      const { role, module_keys } = req.body;
+      if (!role || !Array.isArray(module_keys)) {
+        return res.status(400).json({ error: 'داده نامعتبر' });
+      }
+
+      const members = await prisma.user.findMany({
+        where: { role: role, isActive: true },
+        select: { id: true },
+      });
+
+      if (members.length === 0) {
+        return res.json({ message: 'کاربری با این سمت یافت نشد', affected: 0 });
+      }
+
+      const memberIds = members.map(m => m.id);
+
+      await prisma.$transaction(async (tx) => {
+        // Delete all permissions for these users
+        await tx.permission.deleteMany({
+          where: {
+            userId: { in: memberIds },
+          },
+        });
+
+        if (module_keys.length > 0) {
+          const now = new Date();
+          const rows = [];
+          for (const uid of memberIds) {
+            for (const modKey of module_keys) {
+              rows.push({
+                moduleKey: modKey,
+                userId: uid,
+                isEnabled: true,
+                updatedAt: now,
+              });
+            }
+          }
+          if (rows.length > 0) {
+            await tx.permission.createMany({ data: rows });
+          }
+        }
+      });
+
+      res.json({ message: 'دسترسی‌های سمت با موفقیت ذخیره شدند', affected: members.length });
+    } catch (err) {
+      console.error('Error in bulk-set-role-modules:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.put('/bulk-set-module-users', roleGuard('admin'), async (req, res) => {
+    try {
+      const { module_key, user_ids } = req.body;
+      if (!module_key || !Array.isArray(user_ids)) {
+        return res.status(400).json({ error: 'داده‌های ارسالی نامعتبر است' });
+      }
+
+      const selectedIds = new Set(user_ids.map(Number));
+
+      await prisma.$transaction(async (tx) => {
+        // Find all active users
+        const activeUsers = await tx.user.findMany({
+          where: { isActive: true },
+          select: { id: true }
+        });
+
+        const activeUserIds = activeUsers.map(u => u.id);
+
+        // Delete existing module permissions for all active users
+        await tx.permission.deleteMany({
+          where: {
+            userId: { in: activeUserIds },
+            moduleKey: module_key
+          }
+        });
+
+        // Insert new records for the ones selected
+        const recordsToInsert = [];
+        const now = new Date();
+        for (const uid of activeUserIds) {
+          if (selectedIds.has(uid)) {
+            recordsToInsert.push({
+              moduleKey: module_key,
+              userId: uid,
+              isEnabled: true,
+              updatedAt: now,
+            });
+          }
+        }
+
+        if (recordsToInsert.length > 0) {
+          await tx.permission.createMany({
+            data: recordsToInsert
+          });
+        }
+      });
+
+      res.json({ message: 'دسترسی‌های ماژول با موفقیت ذخیره شدند', count: selectedIds.size });
+    } catch (err) {
+      console.error('Error in bulk-set-module-users:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.post('/bulk-set-users', roleGuard('admin'), async (req, res) => {
     try {
       const { userIds } = req.body;
@@ -257,6 +416,7 @@ module.exports = function() {
       const activeModules = MODULES.map(m => m.key);
 
       await prisma.$transaction(async (tx) => {
+        const now = new Date();
         for (const userId of userIds) {
           const user = await tx.user.findFirst({
             where: { id: Number(userId), isActive: true },
@@ -266,7 +426,7 @@ module.exports = function() {
           await tx.permission.deleteMany({ where: { userId: user.id } });
           if (activeModules.length > 0) {
             await tx.permission.createMany({
-              data: activeModules.map(moduleKey => ({ moduleKey, userId: user.id, isEnabled: true })),
+              data: activeModules.map(moduleKey => ({ moduleKey, userId: user.id, isEnabled: true, updatedAt: now })),
             });
           }
         }
@@ -274,6 +434,7 @@ module.exports = function() {
 
       res.json({ message: 'دسترسی‌ها با موفقیت برای کاربران انتخاب‌شده ثبت شد', affected: userIds.length });
     } catch (err) {
+      console.error('Error in bulk-set-users:', err);
       res.status(500).json({ error: err.message });
     }
   });

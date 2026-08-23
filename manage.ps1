@@ -730,7 +730,7 @@ function Show-TuiMenu {
                 Read-Host "`nPress Enter to return | جهت بازگشت کلید Enter را بزنید..."
             }
             "0" {
-                Write-Host "`nGoodbye! | به امید دیدار!" -ForegroundColor Green
+                Write-Host "`nGoodbye! | خدا قوت مهندس!" -ForegroundColor Green
                 return
             }
             default {
