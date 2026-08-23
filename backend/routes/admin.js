@@ -400,92 +400,165 @@ module.exports = function() {
         return res.status(400).json({ error: 'لیست کاربران برای ثبت نامعتبر است' });
       }
 
+      // Preprocess and hash passwords before starting the database transaction to prevent transaction timeout
+      const preparedUsers = [];
+      const roleMap = {
+        'admin': 'admin',
+        'manager': 'manager',
+        'supervisor': 'supervisor',
+        'user': 'user',
+        'مدیر سیستم': 'admin',
+        'مدیرسیستم': 'admin',
+        'مدیر': 'manager',
+        'سرپرست': 'supervisor',
+        'کاربر': 'user',
+        'عادی': 'user',
+        'کاربر عادی': 'user'
+      };
+
+      for (const u of users) {
+        const userId = parseInt(u.id || u.personal_code, 10);
+        if (!userId || !u.full_name || !u.role) continue;
+
+        let role = u.role;
+        if (roleMap[role]) {
+          role = roleMap[role];
+        }
+
+        if (role === 'admin') {
+          return res.status(400).json({
+            error: `امکان ثبت نقش مدیر سیستم برای کاربر ${u.full_name} (${userId}) از طریق فایل گروهی وجود ندارد`
+          });
+        }
+
+        let totalDays = 0;
+        if (u.total_hours !== undefined) {
+          totalDays = Number(u.total_hours) / 8;
+        } else if (u.total_days !== undefined) {
+          totalDays = Number(u.total_days);
+        }
+
+        const pass = u.password || String(userId);
+        const mustChange = !u.password;
+
+        preparedUsers.push({
+          userId,
+          fullName: u.full_name,
+          role,
+          departmentName: u.department_name ? u.department_name.trim() : null,
+          departmentId: u.department_id ? Number(u.department_id) : null,
+          workType: u.work_type || 'normal',
+          totalDays,
+          pass,
+          mustChange
+        });
+      }
+
+      if (preparedUsers.length === 0) {
+        return res.status(400).json({ error: 'هیچ کاربری با اطلاعات معتبر برای ثبت یافت نشد' });
+      }
+
+      // Hash passwords with caching for identical/default passwords
+      const hashCache = new Map();
+      const hashedUsers = [];
+      for (const u of preparedUsers) {
+        let hash = hashCache.get(u.pass);
+        if (!hash) {
+          hash = await bcrypt.hash(u.pass, 10);
+          hashCache.set(u.pass, hash);
+        }
+        hashedUsers.push({
+          ...u,
+          passwordHash: hash
+        });
+      }
+
+      // Execute database operations within transaction with increased timeout
       await prisma.$transaction(async (tx) => {
-        for (const u of users) {
-          const userId = parseInt(u.id || u.personal_code, 10);
-          if (!userId || !u.full_name || !u.role) continue;
-
-          let role = u.role;
-          const roleMap = {
-            'admin': 'admin',
-            'manager': 'manager',
-            'supervisor': 'supervisor',
-            'user': 'user',
-            'مدیر سیستم': 'admin',
-            'مدیرسیستم': 'admin',
-            'مدیر': 'manager',
-            'سرپرست': 'supervisor',
-            'کاربر': 'user',
-            'عادی': 'user',
-            'کاربر عادی': 'user'
-          };
-          if (roleMap[role]) {
-            role = roleMap[role];
-          }
-
-          if (['admin', 'manager'].includes(role)) {
-            throw new Error(`امکان ثبت نقش مدیر یا مدیر سیستم برای کاربر ${u.full_name} (${userId}) از طریق فایل گروهی وجود ندارد`);
-          }
-
-          let departmentId = null;
-          if (u.department_name && u.department_name.trim()) {
-            const deptName = u.department_name.trim();
-            const dept = await tx.department.findFirst({ where: { name: { equals: deptName, mode: 'insensitive' }, isActive: true } });
+        for (const u of hashedUsers) {
+          let departmentId = u.departmentId;
+          if (u.departmentName) {
+            const dept = await tx.department.findFirst({
+              where: { name: { equals: u.departmentName, mode: 'insensitive' }, isActive: true }
+            });
             if (dept) {
               departmentId = dept.id;
             } else {
-              const created = await tx.department.create({ data: { name: deptName } });
+              const created = await tx.department.create({ data: { name: u.departmentName } });
               departmentId = created.id;
             }
-          } else if (u.department_id) {
-            departmentId = Number(u.department_id);
           }
 
-          let totalDays = 0;
-          if (u.total_hours !== undefined) {
-            totalDays = Number(u.total_hours) / 8;
-          } else if (u.total_days !== undefined) {
-            totalDays = Number(u.total_days);
-          }
-
-          const pass = u.password || String(userId);
-          const mustChange = u.password ? false : true;
-          const hash = await bcrypt.hash(pass, 10);
-
-          const existing = await tx.user.findUnique({ where: { id: userId } });
+          const existing = await tx.user.findUnique({ where: { id: u.userId } });
           if (existing) {
             await tx.user.update({
-              where: { id: userId },
-              data: { password: hash, fullName: u.full_name, role, departmentId, workType: u.work_type || 'normal', isActive: true, mustChangePassword: mustChange },
+              where: { id: u.userId },
+              data: {
+                password: u.passwordHash,
+                fullName: u.fullName,
+                role: u.role,
+                departmentId,
+                workType: u.workType,
+                isActive: true,
+                mustChangePassword: u.mustChange
+              },
             });
 
-            const balanceExists = await tx.leaveBalance.findUnique({ where: { userId } });
+            const balanceExists = await tx.leaveBalance.findUnique({ where: { userId: u.userId } });
             if (balanceExists) {
-              await tx.leaveBalance.update({ where: { userId }, data: { totalDays } });
+              await tx.leaveBalance.update({
+                where: { userId: u.userId },
+                data: { totalDays: u.totalDays }
+              });
             } else {
-              await tx.leaveBalance.create({ data: { userId, totalDays, usedHours: 0 } });
+              await tx.leaveBalance.create({
+                data: { userId: u.userId, totalDays: u.totalDays, usedHours: 0 }
+              });
             }
           } else {
             await tx.user.create({
-              data: { id: userId, password: hash, fullName: u.full_name, role, departmentId, workType: u.work_type || 'normal', mustChangePassword: mustChange },
+              data: {
+                id: u.userId,
+                password: u.passwordHash,
+                fullName: u.fullName,
+                role: u.role,
+                departmentId,
+                workType: u.workType,
+                mustChangePassword: u.mustChange
+              },
             });
-            await tx.leaveBalance.create({ data: { userId, totalDays, usedHours: 0 } });
+            await tx.leaveBalance.create({
+              data: { userId: u.userId, totalDays: u.totalDays, usedHours: 0 }
+            });
           }
         }
+      }, {
+        maxWait: 10000,
+        timeout: 60000
       });
 
-      // Save raw CSV file to disk for audit logs
-      const safeName = file_name ? file_name.replace(/[^a-zA-Z0-9.\-_]/g, '_') : 'import.csv';
-      const fileBase = `import_${req.user.id}_${Date.now()}_${safeName}`;
-      const filePath = path.join(uploadDir, fileBase);
-      fs.writeFileSync(filePath, csv_text || '', 'utf8');
+      // Save raw CSV file to disk for audit logs (if not skipped in chunked requests)
+      if (!req.body.skip_log && (csv_text || file_name)) {
+        const safeName = file_name ? file_name.replace(/[^a-zA-Z0-9.\-_]/g, '_') : 'import.csv';
+        const fileBase = `import_${req.user.id}_${Date.now()}_${safeName}`;
+        const filePath = path.join(uploadDir, fileBase);
+        fs.writeFileSync(filePath, csv_text || '', 'utf8');
 
-      // Record in logs table
-      await prisma.csvImportLog.create({
-        data: { fileName: safeName, filePath, importedBy: req.user.id, rowCount: users.length },
+        // Record in logs table
+        await prisma.csvImportLog.create({
+          data: {
+            fileName: safeName,
+            filePath,
+            importedBy: req.user.id,
+            rowCount: Number(req.body.total_rows) || users.length
+          },
+        });
+      }
+
+      res.json({
+        message: 'کاربران با موفقیت وارد و ثبت شدند',
+        importedCount: hashedUsers.length
       });
-
-      res.json({ message: 'کاربران با موفقیت وارد و ثبت شدند' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

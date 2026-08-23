@@ -74,7 +74,7 @@ function processError(error) {
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 10000,
+  timeout: 30000,
 });
 
 api.interceptors.request.use((config) => {
