@@ -202,15 +202,10 @@ const pushSubscribe = [
 ];
 
 const letters = [
-  body('letter_type').notEmpty().withMessage('نوع نامه الزامی است')
-    .isIn(['internal', 'external', 'incoming', 'outgoing']).withMessage('نوع نامه نامعتبر است'),
-  body('title').notEmpty().withMessage('عنوان نامه الزامی است')
-    .isLength({ max: 200 }).withMessage('عنوان حداکثر ۲۰۰ کاراکتر'),
-  body('content').notEmpty().withMessage('متن نامه الزامی است')
-    .isLength({ max: 10000 }).withMessage('متن نامه حداکثر ۱۰۰۰۰ کاراکتر'),
-  body('receiver_id').optional().isInt({ min: 1 }).withMessage('شناسه دریافت‌کننده نامعتبر'),
-  body('severity').optional().isIn(['normal', 'immediate', 'critical']).withMessage('فوریت نامعتبر'),
-  body('security_level').optional().isIn(['normal', 'confidential', 'secret']).withMessage('سطح محرمانگی نامعتبر'),
+  body('subject').notEmpty().withMessage('موضوع نامه الزامی است')
+    .isLength({ max: 200 }).withMessage('موضوع حداکثر ۲۰۰ کاراکتر'),
+  body('body').notEmpty().withMessage('متن نامه الزامی است'),
+  body('priority').optional().isIn(['priority_1', 'priority_2', 'priority_3', 'normal', 'immediate', 'critical']).withMessage('اولویت نامعتبر است'),
   handleErrors,
 ];
 
