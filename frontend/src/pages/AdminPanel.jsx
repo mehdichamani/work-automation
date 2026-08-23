@@ -614,7 +614,7 @@ export default function AdminPanel() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">کد پرسنلی</label>
-                  <input type="number" placeholder="مثال: 1001" value={userForm.username} onChange={(e) => setUserForm({...userForm, username: e.target.value})} className="w-full px-4 py-3 border rounded-xl text-center" required disabled={!!editingUser} />
+                  <input type="number" min="10000" max="2147483647" placeholder="مثال: 10001" value={userForm.username} onChange={(e) => setUserForm({...userForm, username: e.target.value})} className="w-full px-4 py-3 border rounded-xl text-center" required disabled={!!editingUser} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">{editingUser ? 'رمز جدید' : 'رمز عبور'}</label>

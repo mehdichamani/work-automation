@@ -94,10 +94,7 @@ function auditLog() {
 }
 
 function validatePassword(pw) {
-  if (!pw || pw.length < 8) return 'رمز عبور باید حداقل ۸ کاراکتر باشد';
-  if (!/[A-Z]/.test(pw)) return 'رمز عبور باید حداقل یک حرف بزرگ داشته باشد';
-  if (!/[a-z]/.test(pw)) return 'رمز عبور باید حداقل یک حرف کوچک داشته باشد';
-  if (!/[0-9]/.test(pw)) return 'رمز عبور باید حداقل یک عدد داشته باشد';
+  if (!pw || pw.length < 5) return 'رمز عبور باید حداقل ۵ کاراکتر باشد';
   return null;
 }
 

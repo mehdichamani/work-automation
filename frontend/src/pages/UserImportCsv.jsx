@@ -231,6 +231,10 @@ export default function UserImportCsv() {
         errors.push('کد پرسنلی خالی است');
       } else if (isNaN(id) || id <= 0) {
         errors.push('کد پرسنلی باید یک عدد معتبر باشد');
+      } else if (id < 10000) {
+        errors.push('کد پرسنلی باید حداقل ۵ رقم باشد');
+      } else if (id > 2147483647) {
+        errors.push('کد پرسنلی خارج از محدوده مجاز دیتابیس است');
       } else {
         if (csvIds.has(id)) {
           errors.push('کد پرسنلی تکراری در فایل انتخابی');
@@ -253,6 +257,10 @@ export default function UserImportCsv() {
         errors.push(`نقش نامعتبر است (${rawRole}) - باید یکی از مقادیر «مدیر»، «سرپرست» یا «کاربر عادی» باشد`);
       } else if (role === 'admin') {
         errors.push('به دلیل مسائل امنیتی، امکان ثبت نقش مدیر سیستم از طریق فایل گروهی وجود ندارد');
+      }
+
+      if (password && password.length < 5) {
+        errors.push('رمز عبور اختصاصی باید حداقل ۵ کاراکتر باشد');
       }
 
       let deptMessage = '';

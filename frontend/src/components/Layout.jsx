@@ -159,8 +159,8 @@ export default function Layout({ children }) {
       toast.error('رمز جدید و تکرار آن یکسان نیستند');
       return;
     }
-    if (changePasswordForm.newPassword.length < 8) {
-      toast.error('رمز عبور جدید باید حداقل ۸ کاراکتر باشد');
+    if (changePasswordForm.newPassword.length < 5) {
+      toast.error('رمز عبور جدید باید حداقل ۵ کاراکتر باشد');
       return;
     }
     setChangePasswordLoading(true);

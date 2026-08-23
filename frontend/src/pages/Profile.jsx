@@ -54,7 +54,7 @@ export default function Profile() {
   const changePassword = async () => {
     if (!oldPw || !newPw) return toast.error('تمام فیلدها را پر کنید');
     if (newPw !== confirmPw) return toast.error('رمز جدید و تکرار آن مطابقت ندارند');
-    if (newPw.length < 6) return toast.error('رمز عبور باید حداقل ۶ کاراکتر باشد');
+    if (newPw.length < 5) return toast.error('رمز عبور باید حداقل ۵ کاراکتر باشد');
     setSubmitLoading(true);
     try {
       await api.put('/profile/change-password', { oldPassword: oldPw, newPassword: newPw });
@@ -107,7 +107,7 @@ export default function Profile() {
           <h3 className="font-bold text-sm mb-3">تغییر رمز عبور</h3>
           <div className="space-y-3">
             <input type="password" value={oldPw} onChange={e => setOldPw(e.target.value)} placeholder="رمز عبور فعلی" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm" />
-            <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="رمز عبور جدید (حداقل ۶ کاراکتر)" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm" />
+            <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="رمز عبور جدید (حداقل ۵ کاراکتر)" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm" />
             <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} placeholder="تکرار رمز عبور جدید" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm" />
             <button onClick={changePassword} disabled={submitLoading} className="bg-orange-500 text-white px-6 py-2.5 rounded-xl text-sm font-medium hover:bg-orange-600 transition-all disabled:opacity-50">{submitLoading ? 'در حال تغییر...' : 'تغییر رمز'}</button>
           </div>

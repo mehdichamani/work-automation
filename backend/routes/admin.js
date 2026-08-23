@@ -86,11 +86,20 @@ module.exports = function() {
       if (!targetId || !full_name || !role) {
         return res.status(400).json({ error: 'کد پرسنلی، نام کامل و نقش الزامی هستند' });
       }
+      if (targetId < 10000) {
+        return res.status(400).json({ error: 'کد پرسنلی باید حداقل ۵ رقم باشد' });
+      }
+      if (targetId > 2147483647) {
+        return res.status(400).json({ error: 'کد پرسنلی نامعتبر است (خارج از محدوده مجاز دیتابیس)' });
+      }
       const existing = await prisma.user.findUnique({ where: { id: targetId } });
       if (existing && existing.isActive) {
         return res.status(400).json({ error: 'کد پرسنلی تکراری است' });
       }
-      const pass = password || require('crypto').randomBytes(8).toString('hex');
+      if (password && password.length < 5) {
+        return res.status(400).json({ error: 'رمز عبور باید حداقل ۵ کاراکتر باشد' });
+      }
+      const pass = password || String(targetId);
       const mustChange = password ? false : true;
       const hash = await bcrypt.hash(pass, 10);
       if (existing && !existing.isActive) {
@@ -121,6 +130,9 @@ module.exports = function() {
       const userId = Number(req.params.id);
 
       if (password) {
+        if (password.length < 5) {
+          return res.status(400).json({ error: 'رمز عبور باید حداقل ۵ کاراکتر باشد' });
+        }
         const hash = await bcrypt.hash(password, 10);
         await prisma.user.update({ where: { id: userId }, data: { password: hash } });
       }
@@ -419,6 +431,17 @@ module.exports = function() {
       for (const u of users) {
         const userId = parseInt(u.id || u.personal_code, 10);
         if (!userId || !u.full_name || !u.role) continue;
+
+        if (userId < 10000) {
+          return res.status(400).json({
+            error: `کد پرسنلی برای کاربر ${u.full_name} (${userId}) باید حداقل ۵ رقم باشد`
+          });
+        }
+        if (userId > 2147483647) {
+          return res.status(400).json({
+            error: `کد پرسنلی برای کاربر ${u.full_name} (${userId}) نامعتبر است (خارج از محدوده مجاز)`
+          });
+        }
 
         let role = u.role;
         if (roleMap[role]) {
