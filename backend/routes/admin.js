@@ -83,6 +83,7 @@ module.exports = function() {
     try {
       const { id, username, password, full_name, role, department_id } = req.body;
       const targetId = parseInt(id || username, 10);
+      const parsedDeptId = department_id ? parseInt(department_id, 10) || null : null;
       if (!targetId || !full_name || !role) {
         return res.status(400).json({ error: 'کد پرسنلی، نام کامل و نقش الزامی هستند' });
       }
@@ -105,11 +106,11 @@ module.exports = function() {
       if (existing && !existing.isActive) {
         await prisma.user.update({
           where: { id: targetId },
-          data: { password: hash, fullName: full_name, role, departmentId: department_id || null, isActive: true, mustChangePassword: mustChange },
+          data: { password: hash, fullName: full_name, role, departmentId: parsedDeptId, isActive: true, mustChangePassword: mustChange },
         });
       } else {
         await prisma.user.create({
-          data: { id: targetId, password: hash, fullName: full_name, role, departmentId: department_id || null, mustChangePassword: mustChange },
+          data: { id: targetId, password: hash, fullName: full_name, role, departmentId: parsedDeptId, mustChangePassword: mustChange },
         });
       }
 
@@ -128,6 +129,7 @@ module.exports = function() {
     try {
       const { full_name, role, department_id, is_active, password } = req.body;
       const userId = Number(req.params.id);
+      const parsedDeptId = department_id ? parseInt(department_id, 10) || null : null;
 
       if (password) {
         if (password.length < 5) {
@@ -142,7 +144,7 @@ module.exports = function() {
         data: {
           fullName: full_name,
           role,
-          departmentId: department_id || null,
+          departmentId: parsedDeptId,
           isActive: is_active !== undefined ? (is_active === true || is_active === 1 || is_active === '1') : true,
         },
       });
@@ -203,7 +205,7 @@ module.exports = function() {
         return res.status(400).json({ error: 'نام واحد الزامی است' });
       }
       const result = await prisma.department.create({
-        data: { name, parentId: parent_id || null },
+        data: { name, parentId: parent_id ? parseInt(parent_id, 10) || null : null },
       });
       res.json({ id: result.id, message: 'واحد با موفقیت ایجاد شد' });
     } catch (err) {
@@ -219,7 +221,7 @@ module.exports = function() {
       }
       await prisma.department.update({
         where: { id: Number(req.params.id) },
-        data: { name, parentId: parent_id || null },
+        data: { name, parentId: parent_id ? parseInt(parent_id, 10) || null : null },
       });
       res.json({ message: 'واحد با موفقیت ویرایش شد' });
     } catch (err) {
