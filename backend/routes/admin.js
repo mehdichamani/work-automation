@@ -34,15 +34,32 @@ module.exports = function() {
       const page = Math.max(1, parseInt(req.query.page) || 1);
       const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
       const offset = (page - 1) * limit;
-      const search = req.query.search || '';
+      const search = (req.query.search || '').trim();
       const activeOnly = req.query.active_only === '1';
 
       const where = {};
 
       if (search) {
         const numSearch = parseInt(search, 10);
-        const or = [{ fullName: { contains: search, mode: 'insensitive' } }];
-        if (!isNaN(numSearch)) or.push({ id: numSearch });
+        const or = [
+          { fullName: { contains: search, mode: 'insensitive' } },
+          { department: { name: { contains: search, mode: 'insensitive' } } },
+        ];
+        if (!isNaN(numSearch)) {
+          or.push({ id: numSearch });
+        }
+
+        const sLower = search.toLowerCase();
+        const roleMatches = [];
+        if ('مدیر سیستم'.includes(sLower) || 'ادمین'.includes(sLower) || 'admin'.includes(sLower)) roleMatches.push('admin');
+        if ('مدیر'.includes(sLower) || 'مدیریت'.includes(sLower) || 'manager'.includes(sLower)) roleMatches.push('manager');
+        if ('سرپرست'.includes(sLower) || 'سرپرستی'.includes(sLower) || 'supervisor'.includes(sLower)) roleMatches.push('supervisor');
+        if ('کاربر'.includes(sLower) || 'پرسنل'.includes(sLower) || 'کارمندان'.includes(sLower) || 'user'.includes(sLower)) roleMatches.push('user');
+
+        if (roleMatches.length > 0) {
+          or.push({ role: { in: roleMatches } });
+        }
+
         where.OR = or;
       }
       if (activeOnly) {
@@ -73,7 +90,8 @@ module.exports = function() {
         return mapRow(flat);
       });
 
-      res.json({ data: mapped, total, page, limit });
+      const hasMore = offset + users.length < total;
+      res.json({ data: mapped, total, page, limit, hasMore });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

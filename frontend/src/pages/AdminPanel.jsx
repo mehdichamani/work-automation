@@ -67,6 +67,89 @@ export default function AdminPanel() {
   const [backups, setBackups] = useState([]);
   const [creatingBackup, setCreatingBackup] = useState(false);
 
+  // Omni Search & Load on Scroll States for User Management
+  const [userList, setUserList] = useState([]);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userPage, setUserPage] = useState(1);
+  const [userLimit] = useState(25);
+  const [hasMoreUsers, setHasMoreUsers] = useState(false);
+  const [userLoading, setUserLoading] = useState(false);
+  const [userLoadingMore, setUserLoadingMore] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
+  const [debouncedUserSearch, setDebouncedUserSearch] = useState('');
+  const observerTarget = useRef(null);
+
+  // Debounce for filter-on-type (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedUserSearch(userSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [userSearch]);
+
+  const fetchUsersFirstPage = async (search = debouncedUserSearch) => {
+    setUserLoading(true);
+    try {
+      const res = await api.get('/admin/users', {
+        params: { page: 1, limit: userLimit, search: search.trim(), active_only: '1' }
+      });
+      setUserList(res.data.data || []);
+      setUserTotal(res.data.total || 0);
+      setUserPage(1);
+      setHasMoreUsers(!!res.data.hasMore);
+    } catch (err) {
+      toast.error('خطا در جستجوی کاربران');
+    } finally {
+      setUserLoading(false);
+    }
+  };
+
+  const loadMoreUsers = async () => {
+    if (userLoadingMore || !hasMoreUsers || userLoading) return;
+    setUserLoadingMore(true);
+    const nextPage = userPage + 1;
+    try {
+      const res = await api.get('/admin/users', {
+        params: { page: nextPage, limit: userLimit, search: debouncedUserSearch.trim(), active_only: '1' }
+      });
+      const newUsers = res.data.data || [];
+      setUserList(prev => [...prev, ...newUsers]);
+      setUserPage(nextPage);
+      setHasMoreUsers(!!res.data.hasMore);
+      setUserTotal(res.data.total || 0);
+    } catch (err) {
+      toast.error('خطا در بارگذاری کاربران بیشتر');
+    } finally {
+      setUserLoadingMore(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === 'users') {
+      fetchUsersFirstPage(debouncedUserSearch);
+    }
+  }, [debouncedUserSearch, tab]);
+
+  useEffect(() => {
+    if (tab !== 'users') return;
+    const target = observerTarget.current;
+    if (!target) return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && hasMoreUsers && !userLoadingMore && !userLoading) {
+          loadMoreUsers();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+
+    observer.observe(target);
+    return () => {
+      if (target) observer.unobserve(target);
+    };
+  }, [tab, hasMoreUsers, userLoadingMore, userLoading, userPage, debouncedUserSearch]);
+
   const [announcements, setAnnouncements] = useState([]);
   const [showAnnouncementForm, setShowAnnouncementForm] = useState(false);
   const [editingAnnouncement, setEditingAnnouncement] = useState(null);
@@ -369,7 +452,7 @@ export default function AdminPanel() {
   const loadData = async () => {
     try {
       const [usersRes, deptRes, statsRes] = await Promise.all([
-        api.get('/admin/users'),
+        api.get('/admin/users', { params: { limit: 500 } }),
         api.get('/admin/departments'),
         api.get('/admin/stats')
       ]);
@@ -395,6 +478,7 @@ export default function AdminPanel() {
       setEditingUser(null);
       setUserForm({ username: '', password: '', full_name: '', role: 'user', department_id: '' });
       loadData();
+      fetchUsersFirstPage();
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا');
     }
@@ -412,6 +496,7 @@ export default function AdminPanel() {
       await api.delete(`/admin/users/${id}`);
       toast.success('کاربر حذف شد');
       loadData();
+      fetchUsersFirstPage();
     } catch (err) { toast.error(err.response?.data?.error || 'خطا'); }
   };
 
@@ -662,16 +747,57 @@ export default function AdminPanel() {
       </div>
 
       {tab === 'users' && (
-        <div className="bg-white rounded-2xl shadow-sm p-6">
-          <div className="flex justify-between items-center mb-4">
-            <p className="text-sm text-gray-500">{users.filter(u => u.is_active).length} کاربر فعال</p>
-            <button onClick={() => { setEditingUser(null); setUserForm({ username: '', password: '', full_name: '', role: 'user', department_id: '' }); setShowUserForm(true); }} className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2 rounded-xl font-medium transition-colors">
-              + کاربر جدید
-            </button>
+        <div className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-3 justify-between items-stretch sm:items-center">
+            {/* Omni Search Box */}
+            <div className="relative flex-1 max-w-md">
+              <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </span>
+              <input
+                type="text"
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                placeholder="جستجوی همه‌جانبه (نام، واحد، کد پرسنلی، سمت)..."
+                className="w-full pl-9 pr-10 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all placeholder:text-gray-400"
+              />
+              {userSearch && (
+                <button
+                  onClick={() => setUserSearch('')}
+                  className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 hover:text-gray-600 transition-colors"
+                  title="پاک کردن جستجو"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between sm:justify-end gap-3">
+              <span className="text-xs font-medium text-gray-500 bg-gray-100 px-3 py-2 rounded-xl whitespace-nowrap">
+                {userLoading ? 'در حال بارگذاری...' : `نمایش ${userList.length} از ${userTotal} کاربر`}
+              </span>
+              <button
+                onClick={() => {
+                  setEditingUser(null);
+                  setUserForm({ username: '', password: '', full_name: '', role: 'user', department_id: '' });
+                  setShowUserForm(true);
+                }}
+                className="bg-primary-500 hover:bg-primary-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-colors flex items-center gap-1.5 shadow-sm hover:shadow whitespace-nowrap"
+              >
+                <span>+</span>
+                <span>کاربر جدید</span>
+              </button>
+            </div>
           </div>
-          <div className="overflow-x-auto">
+
+          {/* Table with load on scroll */}
+          <div className="overflow-x-auto border border-gray-100 rounded-xl">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-50 text-gray-600 border-b border-gray-100">
                 <tr>
                   <th className="p-3 text-right">نام</th>
                   <th className="p-3 text-right">کد پرسنلی</th>
@@ -681,24 +807,66 @@ export default function AdminPanel() {
                   <th className="p-3 text-right">عملیات</th>
                 </tr>
               </thead>
-              <tbody>
-                {users.filter(u => u.is_active).map(u => (
-                  <tr key={u.id} className="border-t hover:bg-gray-50">
-                    <td className="p-3 font-medium">{u.full_name}</td>
+              <tbody className="divide-y divide-gray-100">
+                {userList.map(u => (
+                  <tr key={u.id} className="hover:bg-gray-50/80 transition-colors">
+                    <td className="p-3 font-medium text-gray-800">{u.full_name}</td>
                     <td className="p-3 text-gray-500 font-mono">{u.id}</td>
-                    <td className="p-3">{u.department_name || '-'}</td>
-                    <td className="p-3"><span className={`px-3 py-1 rounded-full text-xs font-medium ${roleColors[u.role]}`}>{roleLabels[u.role]}</span></td>
-                    <td className="p-3"><span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">فعال</span></td>
+                    <td className="p-3 text-gray-600">{u.department_name || '-'}</td>
+                    <td className="p-3">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${roleColors[u.role] || 'bg-gray-100 text-gray-700'}`}>
+                        {roleLabels[u.role] || u.role}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 font-medium">فعال</span>
+                    </td>
                     <td className="p-3">
                       <div className="flex gap-2">
-                        <button onClick={() => editUser(u)} className="text-blue-500 hover:text-blue-700 text-xs font-medium">ویرایش</button>
-                        {u.role !== 'admin' && <button onClick={() => deleteUser(u.id, u.full_name)} className="text-red-500 hover:text-red-700 text-xs font-medium">حذف</button>}
+                        <button onClick={() => editUser(u)} className="text-blue-500 hover:text-blue-700 text-xs font-medium px-2 py-1 hover:bg-blue-50 rounded transition-colors">
+                          ویرایش
+                        </button>
+                        {u.role !== 'admin' && (
+                          <button onClick={() => deleteUser(u.id, u.full_name)} className="text-red-500 hover:text-red-700 text-xs font-medium px-2 py-1 hover:bg-red-50 rounded transition-colors">
+                            حذف
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+
+            {/* Empty State */}
+            {!userLoading && userList.length === 0 && (
+              <div className="text-center py-12 text-gray-400">
+                <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                <p className="font-medium text-gray-600">کاربری یافت نشد</p>
+                {userSearch && <p className="text-xs text-gray-400 mt-1">هیچ نتیجه‌ای با عبارت «{userSearch}» همخوانی ندارد</p>}
+              </div>
+            )}
+
+            {/* Loading / Sentinel element for Infinite Scroll */}
+            <div ref={observerTarget} className="py-4 text-center">
+              {userLoading && (
+                <div className="flex items-center justify-center gap-2 text-primary-500 text-xs font-medium py-2">
+                  <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span>در حال جستجو و بارگذاری...</span>
+                </div>
+              )}
+              {userLoadingMore && (
+                <div className="flex items-center justify-center gap-2 text-primary-500 text-xs font-medium py-2">
+                  <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span>در حال دریافت کاربران بیشتر...</span>
+                </div>
+              )}
+              {!hasMoreUsers && userList.length > 0 && !userLoading && (
+                <p className="text-xs text-gray-400">تمام کاربران نمایش داده شدند ({userTotal} کاربر)</p>
+              )}
+            </div>
           </div>
         </div>
       )}
