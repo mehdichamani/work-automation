@@ -205,6 +205,7 @@ module.exports = function() {
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
       const skip = (page - 1) * limit;
       const search = req.query.search || '';
+      const scope = req.query.scope || ''; // 'department' or 'all'
 
       const where = {};
 
@@ -215,10 +216,16 @@ module.exports = function() {
         ];
       }
 
-      if (req.user.role === 'supervisor') {
-        where.user = { is: { departmentId: req.user.department_id, role: { not: 'admin' } } };
-      } else if (!(req.user.role === 'admin' || req.user.role === 'manager' || await hasLeavePerm(req.user, 'leave_edit_after_seen'))) {
-        return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+      if (scope === 'department' || (req.user.role === 'supervisor' && !(req.user.role === 'admin' || req.user.role === 'manager' || await hasLeavePerm(req.user, 'leave_edit_after_seen')))) {
+        if (req.user.role === 'supervisor') {
+          where.user = { is: { departmentId: req.user.department_id, role: { not: 'admin' } } };
+        } else if (req.user.role !== 'admin') {
+          return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+        }
+      } else {
+        if (!(req.user.role === 'admin' || req.user.role === 'manager' || await hasLeavePerm(req.user, 'leave_edit_after_seen'))) {
+          return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+        }
       }
 
       const total = await prisma.leaveRequest.count({ where });

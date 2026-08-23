@@ -58,7 +58,7 @@ export default function Leave() {
   }, [allLeavesSearch]);
 
   useEffect(() => {
-    if (tab === 'all') {
+    if (tab === 'all' || tab === 'dept_leaves') {
       setAllLeavesPage(1);
     }
   }, [allLeavesDebounce, tab]);
@@ -159,8 +159,12 @@ export default function Leave() {
       } else if (tab === 'security') {
         const secRes = await api.get('/leave/security');
         setSecurityList(secRes.data);
+      } else if (tab === 'dept_leaves') {
+        const deptRes = await api.get('/leave/all', { params: { scope: 'department', page: allLeavesPage, limit: 50, search: allLeavesDebounce } });
+        setAllLeaves(deptRes.data.data);
+        setAllLeavesTotal(deptRes.data.total);
       } else if (tab === 'all') {
-        const allRes = await api.get('/leave/all', { params: { page: allLeavesPage, limit: 50, search: allLeavesDebounce } });
+        const allRes = await api.get('/leave/all', { params: { scope: 'all', page: allLeavesPage, limit: 50, search: allLeavesDebounce } });
         setAllLeaves(allRes.data.data);
         setAllLeavesTotal(allRes.data.total);
       } else if (tab === 'balance' || tab === 'quota_manage') {
@@ -508,8 +512,13 @@ export default function Leave() {
     ...(isSecurityUser ? [
       { id: 'security', label: `رویت انتظامات (${securityList.length})` },
     ] : []),
+    ...(user.role === 'supervisor' ? [
+      { id: 'dept_leaves', label: 'مرخصی‌های پرسنل واحد' },
+    ] : []),
+    ...((user.role === 'manager' || user.role === 'admin' || hasPermission('leave_edit_after_seen')) ? [
+      { id: 'all', label: 'همه مرخصی‌های سازمان' },
+    ] : []),
     ...((user.role === 'supervisor' || user.role === 'manager' || user.role === 'admin' || hasPermission('leave_edit_after_seen')) ? [
-      { id: 'all', label: (user.role === 'supervisor' && !hasPermission('leave_edit_after_seen')) ? 'وضعیت مرخصی پرسنل واحد' : 'همه درخواست‌ها' },
       { id: 'balance', label: (user.role === 'supervisor' && !hasPermission('leave_edit_after_seen')) ? 'مانده مرخصی پرسنل واحد' : 'مانده مرخصی کارکنان' },
     ] : []),
     ...((user.role === 'admin' || hasPermission('leave_quota_manage')) ? [
@@ -1044,7 +1053,7 @@ export default function Leave() {
           </div>
         )}
 
-        {tab === 'all' && (
+        {(tab === 'all' || tab === 'dept_leaves') && (
           <div className="p-6">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-3">
