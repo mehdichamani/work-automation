@@ -221,6 +221,7 @@ model OfficialHoliday {
 
 model OvertimeRequest {
   id                Int      @id @default(autoincrement())
+  groupId           String?  @map("group_id")
   userId            Int      @map("user_id")
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   startDate         String   @map("start_date")

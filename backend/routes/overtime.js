@@ -232,67 +232,9 @@ module.exports = function() {
 
   router.post('/', async (req, res) => {
     try {
-      const { user_id, start_date, start_time, end_date, end_time, reason } = req.body;
+      const { user_id, user_ids, include_self, start_date, start_time, end_date, end_time, reason } = req.body;
       if (!start_date || !start_time || !end_date || !end_time) {
         return res.status(400).json({ error: 'تمام فیلدهای تاریخ و ساعت شروع و پایان الزامی هستند' });
-      }
-
-      let targetUserId = req.user.id;
-      let targetUser = req.user;
-      let initialStatus = 'pending_supervisor';
-      let supervisorId = null;
-      let supervisorDate = null;
-      let managerId = null;
-      let managerDate = null;
-
-      const userTypeCheck = await prisma.user.findUnique({ where: { id: req.user.id }, select: { workType: true } });
-      if (userTypeCheck && userTypeCheck.workType === 'shift' && (!user_id || parseInt(user_id) === req.user.id)) {
-        return res.status(400).json({ error: 'کاربران شیفتی مجاز به ثبت درخواست اضافه کار نیستند' });
-      }
-
-      if (user_id && parseInt(user_id) !== req.user.id) {
-        if (!['admin', 'manager', 'supervisor'].includes(req.user.role)) {
-          return res.status(403).json({ error: 'شما مجاز به ثبت اضافه کار برای دیگران نیستید' });
-        }
-
-        const u = await prisma.user.findUnique({
-          where: { id: parseInt(user_id) },
-          select: { id: true, fullName: true, departmentId: true, isActive: true, role: true, workType: true },
-        });
-        if (!u || !u.isActive) {
-          return res.status(404).json({ error: 'کاربر مورد نظر یافت نشد یا غیرفعال است' });
-        }
-
-        if (u.workType === 'shift') {
-          return res.status(400).json({ error: 'کاربر مورد نظر شیفتی بوده و مجاز به ثبت درخواست اضافه کار نمی‌باشد' });
-        }
-
-        if (req.user.role === 'supervisor') {
-          if (u.departmentId !== req.user.department_id) {
-            return res.status(403).json({ error: 'شما فقط می‌توانید برای پرسنل واحد خودتان اضافه کار ثبت کنید' });
-          }
-          targetUserId = u.id;
-          targetUser = { ...u, full_name: u.fullName, department_id: u.departmentId };
-          initialStatus = 'pending_manager'; // Direct to manager if supervisor registers for subordinate
-          supervisorId = req.user.id;
-          supervisorDate = getNowString();
-        } else {
-          // admin or manager
-          targetUserId = u.id;
-          targetUser = { ...u, full_name: u.fullName, department_id: u.departmentId };
-          initialStatus = 'approved';
-          managerId = req.user.id;
-          managerDate = getNowString();
-        }
-      } else {
-        // Requesting for themselves
-        if (req.user.role === 'supervisor') {
-          initialStatus = 'pending_manager';
-        } else if (req.user.role === 'admin' || req.user.role === 'manager') {
-          initialStatus = 'approved';
-          managerId = req.user.id;
-          managerDate = getNowString();
-        }
       }
 
       const today = moment().format('jYYYY/jMM/jDD');
@@ -300,60 +242,142 @@ module.exports = function() {
         return res.status(400).json({ error: 'امکان ثبت اضافه کار برای تاریخ گذشته وجود ندارد' });
       }
 
-      // Check for overlapping/duplicate requests
-      const existingRequests = await prisma.overtimeRequest.findMany({
-        where: { userId: targetUserId, status: { not: 'rejected' } },
-        select: { id: true, startDate: true, startHour: true, endDate: true, endHour: true, status: true },
-      });
-
-      const newStart = moment(`${start_date} ${start_time}`, 'jYYYY/jMM/jDD HH:mm');
-      const newEnd = moment(`${end_date} ${end_time}`, 'jYYYY/jMM/jDD HH:mm');
-
-      for (const reqOfUser of existingRequests) {
-        const reqStart = moment(`${reqOfUser.startDate} ${reqOfUser.startHour}`, 'jYYYY/jMM/jDD HH:mm');
-        const reqEnd = moment(`${reqOfUser.endDate} ${reqOfUser.endHour}`, 'jYYYY/jMM/jDD HH:mm');
-
-        if (newStart.isBefore(reqEnd) && reqStart.isBefore(newEnd)) {
-          const userMsg = targetUserId === req.user.id ? 'قبلی شما' : 'قبلی این کاربر';
-          return res.status(400).json({ error: `این درخواست با یکی از درخواست‌های اضافه کار ${userMsg} همپوشانی دارد (${reqOfUser.startDate} تا ${reqOfUser.endDate})` });
-        }
-      }
-
       const overtimeHours = await calculateOvertimeHours(start_date, start_time, end_date, end_time);
       if (overtimeHours <= 0) {
         return res.status(400).json({ error: 'زمان انتخاب شده در ساعات اضافه کار معتبر یا روزهای تعطیل قرار ندارد' });
       }
 
-      const result = await prisma.overtimeRequest.create({
-        data: {
-          userId: targetUserId,
-          startDate: start_date,
-          endDate: end_date,
-          hoursCount: overtimeHours,
-          reason: reason || '',
-          status: initialStatus,
-          startHour: start_time,
-          endHour: end_time,
-          supervisorId,
-          supervisorDate,
-          managerId,
-          managerDate,
-        },
+      // Collect target user IDs
+      const rawUserIds = new Set();
+      if (Array.isArray(user_ids) && user_ids.length > 0) {
+        user_ids.forEach(id => {
+          if (id) rawUserIds.add(parseInt(id));
+        });
+      } else if (user_id) {
+        rawUserIds.add(parseInt(user_id));
+      }
+
+      if (include_self) {
+        rawUserIds.add(req.user.id);
+      }
+
+      if (rawUserIds.size === 0) {
+        rawUserIds.add(req.user.id);
+      }
+
+      const targetIdList = Array.from(rawUserIds);
+
+      // Validate targets
+      const targetUsers = await prisma.user.findMany({
+        where: { id: { in: targetIdList } },
+        select: { id: true, fullName: true, departmentId: true, isActive: true, role: true, workType: true }
       });
 
-      // Notifications
-      if (targetUserId !== req.user.id) {
-        if (req.user.role === 'supervisor') {
-          await notify(targetUserId, 'ثبت اضافه کار توسط سرپرست', `اضافه کار برای شما توسط سرپرست (${req.user.full_name}) ثبت گردید و برای تایید مدیر ارسال شد`, '/overtime');
+      if (targetUsers.length !== targetIdList.length) {
+        return res.status(404).json({ error: 'برخی از کاربران انتخاب شده یافت نشدند' });
+      }
 
-          const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true }, select: { id: true } });
-          for (const m of managers) {
-            await notify(m.id, 'درخواست اضافه کار جدید', `درخواست اضافه کار ثبت شده توسط سرپرست برای ${targetUser.full_name} نیاز به تایید مدیر دارد`, '/overtime');
+      for (const u of targetUsers) {
+        if (!u.isActive) {
+          return res.status(400).json({ error: `کاربر ${u.fullName} غیرفعال است` });
+        }
+        if (u.workType === 'shift') {
+          return res.status(400).json({ error: `کاربر ${u.fullName} شیفتی بوده و مجاز به اضافه کار نمی‌باشد` });
+        }
+        if (u.id !== req.user.id) {
+          if (!['admin', 'manager', 'supervisor'].includes(req.user.role)) {
+            return res.status(403).json({ error: 'شما مجاز به ثبت اضافه کار برای دیگران نیستید' });
           }
-        } else {
-          await notify(targetUserId, 'ثبت اضافه کار توسط مدیریت', `اضافه کار برای شما توسط مدیریت (${req.user.full_name}) ثبت و تایید گردید`, '/overtime');
+          if (req.user.role === 'supervisor' && u.departmentId !== req.user.department_id) {
+            return res.status(403).json({ error: `کاربر ${u.fullName} عضو واحد شما نمی‌باشد` });
+          }
+        }
+      }
+
+      // Check overlap for each target
+      const newStart = moment(`${start_date} ${start_time}`, 'jYYYY/jMM/jDD HH:mm');
+      const newEnd = moment(`${end_date} ${end_time}`, 'jYYYY/jMM/jDD HH:mm');
+
+      for (const u of targetUsers) {
+        const existing = await prisma.overtimeRequest.findMany({
+          where: { userId: u.id, status: { not: 'rejected' } },
+          select: { id: true, startDate: true, startHour: true, endDate: true, endHour: true }
+        });
+        for (const reqOfUser of existing) {
+          const reqStart = moment(`${reqOfUser.startDate} ${reqOfUser.startHour}`, 'jYYYY/jMM/jDD HH:mm');
+          const reqEnd = moment(`${reqOfUser.endDate} ${reqOfUser.endHour}`, 'jYYYY/jMM/jDD HH:mm');
+          if (newStart.isBefore(reqEnd) && reqStart.isBefore(newEnd)) {
+            return res.status(400).json({
+              error: `درخواست با یکی از اضافه کارهای قبلی ${u.fullName} همپوشانی دارد (${reqOfUser.startDate} تا ${reqOfUser.endDate})`
+            });
+          }
+        }
+      }
+
+      // Determine status and actors
+      // All requests registered by supervisor (whether for self or subordinates) directly go to manager
+      let initialStatus = 'pending_supervisor';
+      let supervisorId = null;
+      let supervisorDate = null;
+      let managerId = null;
+      let managerDate = null;
+
+      if (req.user.role === 'supervisor') {
+        initialStatus = 'pending_manager';
+        supervisorId = req.user.id;
+        supervisorDate = getNowString();
+      } else if (req.user.role === 'admin' || req.user.role === 'manager') {
+        initialStatus = 'approved';
+        managerId = req.user.id;
+        managerDate = getNowString();
+      }
+
+      const groupId = targetIdList.length > 1 ? `grp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}` : null;
+
+      const createdRecords = [];
+      await prisma.$transaction(async (tx) => {
+        for (const u of targetUsers) {
+          const r = await tx.overtimeRequest.create({
+            data: {
+              groupId,
+              userId: u.id,
+              startDate: start_date,
+              endDate: end_date,
+              hoursCount: overtimeHours,
+              reason: reason || '',
+              status: initialStatus,
+              startHour: start_time,
+              endHour: end_time,
+              supervisorId,
+              supervisorDate,
+              managerId,
+              managerDate,
+            }
+          });
+          createdRecords.push(r);
+        }
+      });
+
+      // Send notifications
+      if (req.user.role === 'supervisor') {
+        const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true }, select: { id: true } });
+        const namesList = targetUsers.map(u => u.fullName).join('، ');
+        for (const m of managers) {
+          await notify(m.id, 'درخواست اضافه کار جدید', `درخواست اضافه کار ثبت شده توسط سرپرست (${req.user.full_name}) برای (${namesList}) نیاز به تایید مدیر دارد`, '/overtime');
+        }
+        for (const u of targetUsers) {
+          if (u.id !== req.user.id) {
+            await notify(u.id, 'ثبت اضافه کار توسط سرپرست', `اضافه کار برای شما توسط سرپرست (${req.user.full_name}) ثبت و برای تایید مدیر ارسال شد`, '/overtime');
+          }
+        }
+      } else if (req.user.role === 'admin' || req.user.role === 'manager') {
+        for (const u of targetUsers) {
+          if (u.id !== req.user.id) {
+            await notify(u.id, 'ثبت اضافه کار توسط مدیریت', `اضافه کار برای شما توسط مدیریت (${req.user.full_name}) ثبت و تایید گردید`, '/overtime');
+          }
         }
       } else {
+        // Normal user requesting for themselves
         const supervisor = await prisma.user.findFirst({
           where: { role: 'supervisor', departmentId: req.user.department_id, isActive: true },
           select: { id: true },
@@ -363,7 +387,13 @@ module.exports = function() {
         }
       }
 
-      res.json({ id: result.id, message: 'درخواست اضافه کار ثبت شد' });
+      res.json({
+        message: targetIdList.length > 1 ? `درخواست اضافه کار برای ${targetIdList.length} نفر ثبت شد` : 'درخواست اضافه کار ثبت شد',
+        count: targetIdList.length,
+        groupId,
+        ids: createdRecords.map(r => r.id),
+        id: createdRecords[0]?.id
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -419,7 +449,13 @@ module.exports = function() {
 
   router.delete('/:id/delete', async (req, res) => {
     try {
-      const request = await prisma.overtimeRequest.findFirst({ where: { id: Number(req.params.id), userId: req.user.id, status: 'pending_supervisor' } });
+      const request = await prisma.overtimeRequest.findFirst({
+        where: {
+          id: Number(req.params.id),
+          userId: req.user.id,
+          status: { in: ['pending_supervisor', 'pending_manager'] }
+        }
+      });
       if (!request) return res.status(404).json({ error: 'درخواست یافت نشد یا قابل حذف نیست' });
 
       await prisma.overtimeRequest.deleteMany({ where: { id: Number(req.params.id) } });
@@ -491,6 +527,94 @@ module.exports = function() {
 
       await notify(request.userId, 'رد درخواست اضافه کار', `درخواست اضافه کار شما توسط سرپرست رد شد`, '/overtime');
       res.json({ message: 'درخواست رد شد' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.put('/bulk-approve-manager', async (req, res) => {
+    try {
+      if (req.user.role !== 'admin' && req.user.role !== 'manager' && !(await hasOvertimePerm(req.user, 'overtime_manager_approve'))) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز برای تایید مدیر' });
+      }
+
+      const { ids, group_id, comment } = req.body;
+      const where = { status: 'pending_manager' };
+
+      if (Array.isArray(ids) && ids.length > 0) {
+        where.id = { in: ids.map(Number) };
+      } else if (group_id) {
+        where.groupId = group_id;
+      } else {
+        return res.status(400).json({ error: 'شناسه درخواست یا شناسه گروه الزامی است' });
+      }
+
+      const requests = await prisma.overtimeRequest.findMany({ where, select: { id: true, userId: true } });
+      if (requests.length === 0) {
+        return res.status(404).json({ error: 'درخواستی برای تایید یافت نشد' });
+      }
+
+      const targetIds = requests.map(r => r.id);
+      const nowStr = getNowString();
+
+      await prisma.overtimeRequest.updateMany({
+        where: { id: { in: targetIds } },
+        data: { status: 'approved', managerId: req.user.id, managerComment: comment || '', managerDate: nowStr }
+      });
+
+      const securityUsers = await prisma.user.findMany({
+        where: { department: { is: { name: { contains: 'حراست' } } }, isActive: true },
+        select: { id: true },
+      });
+
+      for (const reqItem of requests) {
+        await notify(reqItem.userId, 'تایید نهایی اضافه کار', `اضافه کار شما توسط مدیر تایید شد`, '/overtime');
+        for (const s of securityUsers) {
+          await notify(s.id, 'اضافه کار تایید شده', `اضافه کار کاربر ${reqItem.userId} تایید شده - لطفاً مشاهده کنید`, '/overtime');
+        }
+      }
+
+      res.json({ message: `${targetIds.length} درخواست اضافه کار توسط مدیر تایید شد`, count: targetIds.length });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.put('/bulk-reject-manager', async (req, res) => {
+    try {
+      if (req.user.role !== 'admin' && req.user.role !== 'manager' && !(await hasOvertimePerm(req.user, 'overtime_manager_approve'))) {
+        return res.status(403).json({ error: 'دسترسی غیرمجاز برای رد مدیر' });
+      }
+
+      const { ids, group_id, comment } = req.body;
+      const where = { status: 'pending_manager' };
+
+      if (Array.isArray(ids) && ids.length > 0) {
+        where.id = { in: ids.map(Number) };
+      } else if (group_id) {
+        where.groupId = group_id;
+      } else {
+        return res.status(400).json({ error: 'شناسه درخواست یا شناسه گروه الزامی است' });
+      }
+
+      const requests = await prisma.overtimeRequest.findMany({ where, select: { id: true, userId: true } });
+      if (requests.length === 0) {
+        return res.status(404).json({ error: 'درخواستی برای رد یافت نشد' });
+      }
+
+      const targetIds = requests.map(r => r.id);
+      const nowStr = getNowString();
+
+      await prisma.overtimeRequest.updateMany({
+        where: { id: { in: targetIds } },
+        data: { status: 'rejected', managerId: req.user.id, managerComment: comment || 'رد شده توسط مدیر', managerDate: nowStr }
+      });
+
+      for (const reqItem of requests) {
+        await notify(reqItem.userId, 'رد درخواست اضافه کار', `درخواست اضافه کار شما توسط مدیر رد شد`, '/overtime');
+      }
+
+      res.json({ message: `${targetIds.length} درخواست اضافه کار توسط مدیر رد شد`, count: targetIds.length });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

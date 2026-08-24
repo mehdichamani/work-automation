@@ -156,17 +156,38 @@ export default function Overtime() {
     }
   };
 
+  const [selectedSubordinateIds, setSelectedSubordinateIds] = useState([]);
+  const [includeSelf, setIncludeSelf] = useState(false);
+  const [selectedPendingIds, setSelectedPendingIds] = useState([]);
+  const [bulkComment, setBulkComment] = useState('');
+
   const closeForm = () => {
     setShowForm(false);
     setRequestFor('self');
+    setSelectedSubordinateIds([]);
+    setIncludeSelf(false);
     setForm({ user_id: '', start_date: '', start_hour: '', end_date: '', end_hour: '', reason: '' });
+  };
+
+  const toggleSelectSubordinate = (id) => {
+    setSelectedSubordinateIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllSubordinates = () => {
+    if (selectedSubordinateIds.length === subordinates.length) {
+      setSelectedSubordinateIds([]);
+    } else {
+      setSelectedSubordinateIds(subordinates.map(s => s.id));
+    }
   };
 
   const submitRequest = async (e) => {
     e.preventDefault();
     try {
-      if (requestFor === 'subordinate' && !form.user_id) {
-        toast.error('لطفاً یکی از پرسنل زیرمجموعه را انتخاب کنید');
+      if (requestFor === 'subordinate' && selectedSubordinateIds.length === 0 && !includeSelf) {
+        toast.error('لطفاً حداقل یک نفر از پرسنل زیرمجموعه یا گزینه «به همراه خودم» را انتخاب کنید');
         return;
       }
       if (!form.start_date || !form.start_hour || !form.end_date || !form.end_hour) {
@@ -179,14 +200,15 @@ export default function Overtime() {
         return;
       }
       await api.post('/overtime', {
-        user_id: requestFor === 'subordinate' ? form.user_id : '',
+        user_ids: requestFor === 'subordinate' ? selectedSubordinateIds : [],
+        include_self: requestFor === 'subordinate' ? includeSelf : true,
         start_date: form.start_date,
         start_time: form.start_hour,
         end_date: form.end_date,
         end_time: form.end_hour,
         reason: form.reason
       });
-      toast.success('درخواست اضافه کار ثبت شد');
+      toast.success('درخواست اضافه کار با موفقیت ثبت شد');
       closeForm();
       loadData();
     } catch (err) {
@@ -358,6 +380,48 @@ export default function Overtime() {
     }
   };
 
+  const bulkApproveManager = async (ids = null, groupId = null) => {
+    try {
+      const targetIds = ids || selectedPendingIds;
+      if (!groupId && (!targetIds || targetIds.length === 0)) {
+        toast.error('هیچ درخواستی انتخاب نشده است');
+        return;
+      }
+      const res = await api.put('/overtime/bulk-approve-manager', {
+        ids: groupId ? undefined : targetIds,
+        group_id: groupId || undefined,
+        comment: bulkComment
+      });
+      toast.success(res.data.message || 'درخواست‌ها تایید شدند');
+      setSelectedPendingIds([]);
+      setBulkComment('');
+      loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'خطا در تایید گروهی');
+    }
+  };
+
+  const bulkRejectManager = async (ids = null, groupId = null) => {
+    try {
+      const targetIds = ids || selectedPendingIds;
+      if (!groupId && (!targetIds || targetIds.length === 0)) {
+        toast.error('هیچ درخواستی انتخاب نشده است');
+        return;
+      }
+      const res = await api.put('/overtime/bulk-reject-manager', {
+        ids: groupId ? undefined : targetIds,
+        group_id: groupId || undefined,
+        comment: bulkComment || 'رد شده توسط مدیر'
+      });
+      toast.success(res.data.message || 'درخواست‌ها رد شدند');
+      setSelectedPendingIds([]);
+      setBulkComment('');
+      loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'خطا در رد گروهی');
+    }
+  };
+
   const seenSecurity = async (id) => {
     try {
       await api.put(`/overtime/${id}/seen-security`);
@@ -373,7 +437,7 @@ export default function Overtime() {
   const tabs = [
     { id: 'my', label: 'درخواست‌های من' },
     ...((user.role === 'supervisor' || user.role === 'admin') ? [{ id: 'supervisor', label: `تایید سرپرست (${pendingSupervisor.length})` }] : []),
-    ...((user.role === 'manager' || user.role === 'admin') ? [
+    ...((user.role === 'manager' || user.role === 'admin' || hasPermission('overtime_manager_approve')) ? [
       { id: 'manager', label: `تایید مدیر (${pendingManager.length})` },
     ] : []),
     ...(isSecurityUser ? [
@@ -440,28 +504,81 @@ export default function Overtime() {
               {['admin', 'manager', 'supervisor'].includes(user.role) && (
                 <div>
                   <label className="block text-sm font-medium mb-1">ثبت برای</label>
-                  <div className="flex gap-4 mb-2">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="radio" checked={requestFor === 'self'} onChange={() => { setRequestFor('self'); setForm({ ...form, user_id: '' }); }} />
-                      خودم
+                  <div className="flex gap-4 mb-3">
+                    <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                      <input
+                        type="radio"
+                        name="requestForType"
+                        checked={requestFor === 'self'}
+                        onChange={() => { setRequestFor('self'); setSelectedSubordinateIds([]); setIncludeSelf(false); }}
+                      />
+                      فقط خودم
                     </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="radio" checked={requestFor === 'subordinate'} onChange={() => setRequestFor('subordinate')} />
-                      پرسنل زیرمجموعه
+                    <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                      <input
+                        type="radio"
+                        name="requestForType"
+                        checked={requestFor === 'subordinate'}
+                        onChange={() => setRequestFor('subordinate')}
+                      />
+                      پرسنل زیرمجموعه (تکی یا گروهی)
                     </label>
                   </div>
+
                   {requestFor === 'subordinate' && (
-                    <select
-                      value={form.user_id}
-                      onChange={(e) => setForm({ ...form, user_id: e.target.value })}
-                      className="w-full px-4 py-3 border rounded-xl"
-                      required
-                    >
-                      <option value="">انتخاب پرسنل...</option>
-                      {subordinates.map(sub => (
-                        <option key={sub.id} value={sub.id}>{sub.full_name} ({sub.role === 'supervisor' ? 'سرپرست' : 'کاربر'})</option>
-                      ))}
-                    </select>
+                    <div className="border border-gray-200 rounded-xl p-3 bg-gray-50/50 space-y-3">
+                      <div className="flex justify-between items-center pb-2 border-b">
+                        <label className="flex items-center gap-2 text-sm font-bold text-primary-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={includeSelf}
+                            onChange={(e) => setIncludeSelf(e.target.checked)}
+                            className="rounded text-primary-600 focus:ring-primary-500 w-4 h-4"
+                          />
+                          به همراه خودم ({user.full_name})
+                        </label>
+                        {subordinates.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={selectAllSubordinates}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            {selectedSubordinateIds.length === subordinates.length ? 'عدم انتخاب همه' : 'انتخاب همه اعضا'}
+                          </button>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-gray-500 font-medium">پرسنل مورد نظر را تیک بزنید:</p>
+                      <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                        {subordinates.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">پرسنل فعالی در زیرمجموعه یافت نشد</p>
+                        ) : (
+                          subordinates.map(sub => (
+                            <label
+                              key={sub.id}
+                              className={`flex items-center justify-between p-2 rounded-lg text-sm cursor-pointer transition-colors ${
+                                selectedSubordinateIds.includes(sub.id) ? 'bg-primary-50 text-primary-900 border border-primary-200' : 'bg-white hover:bg-gray-100 border border-gray-100'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSubordinateIds.includes(sub.id)}
+                                  onChange={() => toggleSelectSubordinate(sub.id)}
+                                  className="rounded text-primary-600 focus:ring-primary-500 w-4 h-4"
+                                />
+                                <span className="font-medium">{sub.full_name}</span>
+                              </div>
+                              <span className="text-xs text-gray-400">کد: {sub.id}</span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="text-xs text-primary-600 font-semibold pt-1">
+                        تعداد افراد انتخاب شده: {selectedSubordinateIds.length + (includeSelf ? 1 : 0)} نفر
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -522,7 +639,7 @@ export default function Overtime() {
 
               {calculation && (
                 <div className="bg-primary-50 p-4 rounded-xl text-primary-700 text-sm font-medium border border-primary-100">
-                  در صورت تائید، {calculation.days > 0 ? `${calculation.days} روز و ` : ''}{calculation.remaining_hours} ساعت کارکرد اضافه کار برای {requestFor === 'subordinate' ? 'پرسنل مورد نظر' : 'شما'} ثبت می‌شود.
+                  در صورت تائید، {calculation.days > 0 ? `${calculation.days} روز و ` : ''}{calculation.remaining_hours} ساعت کارکرد اضافه کار برای هر یک از افراد انتخاب شده ثبت می‌شود.
                 </div>
               )}
 
@@ -533,11 +650,12 @@ export default function Overtime() {
                   onChange={(e) => setForm({...form, reason: e.target.value})}
                   className="w-full px-4 py-3 border rounded-xl"
                   rows="3"
+                  placeholder="علت درخواست اضافه کار را شرح دهید..."
                 />
               </div>
               <div className="flex gap-4">
-                <button type="submit" className="flex-1 bg-primary-500 text-white py-3 rounded-xl font-bold">ثبت درخواست</button>
-                <button type="button" onClick={closeForm} className="flex-1 bg-gray-200 py-3 rounded-xl font-bold">انصراف</button>
+                <button type="submit" className="flex-1 bg-primary-500 hover:bg-primary-600 text-white py-3 rounded-xl font-bold transition-colors">ثبت درخواست</button>
+                <button type="button" onClick={closeForm} className="flex-1 bg-gray-200 hover:bg-gray-300 py-3 rounded-xl font-bold transition-colors">انصراف</button>
               </div>
             </form>
           </div>
@@ -751,9 +869,11 @@ export default function Overtime() {
                       )}
                     </td>
                     <td className="p-3">
-                      {reqItem.status === 'pending_supervisor' && (
+                      {(reqItem.status === 'pending_supervisor' || reqItem.status === 'pending_manager') && (
                         <div className="flex gap-2">
-                          <button onClick={() => openEdit(reqItem)} className="text-blue-500 hover:text-blue-700 text-xs font-medium">ویرایش</button>
+                          {reqItem.status === 'pending_supervisor' && (
+                            <button onClick={() => openEdit(reqItem)} className="text-blue-500 hover:text-blue-700 text-xs font-medium">ویرایش</button>
+                          )}
                           <button onClick={() => deleteRequest(reqItem.id)} className="text-red-500 hover:text-red-700 text-xs font-medium">حذف</button>
                         </div>
                       )}
@@ -798,29 +918,122 @@ export default function Overtime() {
 
         {tab === 'manager' && (
           <div className="p-6 space-y-4">
-            {pendingManager.length === 0 && <p className="text-center text-gray-400 py-8">درخواستی در انتظار تایید مدیر نیست</p>}
-            {pendingManager.map(reqItem => (
-              <div key={reqItem.id} className="border rounded-xl p-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold">{reqItem.user_name}</p>
-                    <p className="text-sm text-gray-500">{reqItem.user_dept} | سرپرست: {reqItem.supervisor_name}</p>
-                    <p className="text-sm mt-2">اضافه کار به مدت {reqItem.days_count} (شروع {reqItem.start_date} {reqItem.start_hour} تا {reqItem.end_date} {reqItem.end_hour})</p>
-                    {reqItem.reason && <p className="text-sm text-gray-500 mt-1 font-medium">علت: {reqItem.reason}</p>}
-                    {reqItem.supervisor_comment && (
-                      <p className="text-xs text-blue-500 mt-1">
-                        نظر سرپرست ({reqItem.supervisor_name || 'نامشخص'}): {reqItem.supervisor_comment}
-                      </p>
-                    )}
+            {pendingManager.length === 0 ? (
+              <p className="text-center text-gray-400 py-8">درخواستی در انتظار تایید مدیر نیست</p>
+            ) : (
+              <>
+                {/* Bulk Actions Header */}
+                <div className="bg-primary-50/70 border border-primary-100 p-4 rounded-xl flex flex-wrap gap-4 justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-sm font-bold text-gray-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedPendingIds.length === pendingManager.length && pendingManager.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedPendingIds(pendingManager.map(p => p.id));
+                          else setSelectedPendingIds([]);
+                        }}
+                        className="rounded text-primary-600 w-4 h-4"
+                      />
+                      انتخاب همه ({selectedPendingIds.length} از {pendingManager.length} انتخاب شده)
+                    </label>
                   </div>
-                  <div className="flex gap-2">
-                    <input type="text" placeholder="توضیحات" value={comments[reqItem.id] || ''} onChange={(e) => setComments({ ...comments, [reqItem.id]: e.target.value })} className="px-3 py-2 border rounded-lg text-sm w-full sm:w-40" />
-                    <button onClick={() => approveManager(reqItem.id)} className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium">تایید</button>
-                    <button onClick={() => rejectManager(reqItem.id)} className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium">رد</button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="توضیحات تایید/رد گروهی..."
+                      value={bulkComment}
+                      onChange={(e) => setBulkComment(e.target.value)}
+                      className="px-3 py-2 border rounded-lg text-sm w-full sm:w-60 bg-white"
+                    />
+                    <button
+                      onClick={() => bulkApproveManager()}
+                      disabled={selectedPendingIds.length === 0}
+                      className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
+                    >
+                      ✓ تایید گروهی انتخاب‌شده‌ها
+                    </button>
+                    <button
+                      onClick={() => bulkRejectManager()}
+                      disabled={selectedPendingIds.length === 0}
+                      className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
+                    >
+                      ✕ رد گروهی انتخاب‌شده‌ها
+                    </button>
                   </div>
                 </div>
-              </div>
-            ))}
+
+                {/* List of Requests */}
+                <div className="space-y-3">
+                  {pendingManager.map(reqItem => (
+                    <div
+                      key={reqItem.id}
+                      className={`border rounded-xl p-4 transition-all ${
+                        selectedPendingIds.includes(reqItem.id) ? 'bg-primary-50/40 border-primary-300 shadow-sm' : 'bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedPendingIds.includes(reqItem.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedPendingIds([...selectedPendingIds, reqItem.id]);
+                              else setSelectedPendingIds(selectedPendingIds.filter(id => id !== reqItem.id));
+                            }}
+                            className="mt-1 rounded text-primary-600 w-4 h-4"
+                          />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-bold text-gray-800">{reqItem.user_name}</p>
+                              {reqItem.group_id && (
+                                <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full font-medium">
+                                  درخواست گروهی
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              واحد: {reqItem.user_dept} {reqItem.supervisor_name ? `| سرپرست درخواست‌دهنده: ${reqItem.supervisor_name}` : ''}
+                            </p>
+                            <p className="text-sm mt-2 text-gray-700">
+                              اضافه کار به مدت <span className="font-bold text-primary-600">{reqItem.days_count}</span> (از {reqItem.start_date} ساعت {reqItem.start_hour} تا {reqItem.end_date} ساعت {reqItem.end_hour})
+                            </p>
+                            {reqItem.reason && <p className="text-xs text-gray-600 mt-1 font-medium">علت: {reqItem.reason}</p>}
+                            {reqItem.supervisor_comment && (
+                              <p className="text-xs text-blue-500 mt-1">
+                                نظر سرپرست ({reqItem.supervisor_name || 'نامشخص'}): {reqItem.supervisor_comment}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end sm:self-start">
+                          <input
+                            type="text"
+                            placeholder="توضیحات تکی..."
+                            value={comments[reqItem.id] || ''}
+                            onChange={(e) => setComments({ ...comments, [reqItem.id]: e.target.value })}
+                            className="px-3 py-2 border rounded-lg text-sm w-36 sm:w-40"
+                          />
+                          <button
+                            onClick={() => approveManager(reqItem.id)}
+                            className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                          >
+                            تایید
+                          </button>
+                          <button
+                            onClick={() => rejectManager(reqItem.id)}
+                            className="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                          >
+                            رد
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
