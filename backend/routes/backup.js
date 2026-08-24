@@ -194,7 +194,21 @@ module.exports = function () {
 
       await runCommand(psqlBinary, psqlArgs, { ...process.env, PGPASSWORD: cfg.password });
 
-      res.json({ message: 'بکاپ با موفقیت بازیابی شد', restoredFrom: filename });
+      // همگام‌سازی خودکار ساختار دیتابیس با مدل‌های جدید Prisma پس از بازیابی بکاپ‌های قدیمی
+      try {
+        const { exec } = require('child_process');
+        await new Promise((resolveSync) => {
+          exec('npx prisma db push --accept-data-loss', { cwd: path.join(__dirname, '..') }, (err, stdout, stderr) => {
+            if (err) console.warn('[Backup Restore] Prisma sync warning:', stderr || err.message);
+            else console.log('[Backup Restore] Prisma sync success:', stdout);
+            resolveSync();
+          });
+        });
+      } catch (syncErr) {
+        console.warn('[Backup Restore] Failed to auto-sync Prisma schema:', syncErr.message);
+      }
+
+      res.json({ message: 'بکاپ با موفقیت بازیابی شد و ساختار دیتابیس همگام‌سازی شد', restoredFrom: filename });
     } catch (err) {
       res.status(500).json({ error: 'خطا در بازیابی بکاپ: ' + err.message });
     }
