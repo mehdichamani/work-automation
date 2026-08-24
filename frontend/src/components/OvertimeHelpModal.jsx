@@ -45,11 +45,10 @@ export default function OvertimeHelpModal({ isOpen, onClose }) {
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
-              className={`flex items-center gap-1.5 px-3.5 py-2 text-xs md:text-sm font-medium rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                activeTab === t.id
+              className={`flex items-center gap-1.5 px-3.5 py-2 text-xs md:text-sm font-medium rounded-xl whitespace-nowrap transition-all cursor-pointer ${activeTab === t.id
                   ? 'bg-primary-500 text-white shadow-xs'
                   : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
-              }`}
+                }`}
             >
               <span>{t.icon}</span>
               <span>{t.label}</span>
@@ -120,7 +119,7 @@ export default function OvertimeHelpModal({ isOpen, onClose }) {
                     <span className="font-medium text-gray-800">روزهای عادی کاری (شنبه تا چهارشنبه)</span>
                   </div>
                   <span className="font-bold text-blue-700 bg-blue-100 px-3 py-1 rounded-lg text-xs">
-                    از ساعت ۱۶:۳۰ الی ۲۴:۰۰
+                    از ساعت ۱۷:۰۰ الی ۲۴:۰۰
                   </span>
                 </div>
 
@@ -130,7 +129,7 @@ export default function OvertimeHelpModal({ isOpen, onClose }) {
                     <span className="font-medium text-gray-800">روزهای پنج‌شنبه</span>
                   </div>
                   <span className="font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-lg text-xs">
-                    از ساعت ۱۳:۳۰ الی ۲۴:۰۰
+                    از ساعت ۱۲:۰۰ الی ۲۴:۰۰
                   </span>
                 </div>
 
