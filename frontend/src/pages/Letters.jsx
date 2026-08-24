@@ -7,6 +7,7 @@ import { printTable, printLetter } from '../utils/printUtils';
 import { toJalaliDateTime } from '../utils/dateUtils';
 import RichTextEditor from '../components/RichTextEditor';
 import HtmlContent from '../components/HtmlContent';
+import LettersHelpModal from '../components/LettersHelpModal';
 
 const statusMap = {
   pending_central: { text: 'در انتظار سانترال', color: 'bg-blue-100 text-blue-700' },
@@ -64,6 +65,7 @@ export default function Letters() {
   const [letterSearch, setLetterSearch] = useState('');
   const [form, setForm] = useState({ subject: '', body: '', priority: 'priority_3' });
   const [nextNumber, setNextNumber] = useState('');
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   const isSantral = hasPermission('letters_central');
   const isManager = user.role === 'manager' || user.role === 'admin';
@@ -301,7 +303,22 @@ export default function Letters() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <h2 className="text-xl font-bold">مدیریت نامه‌ها</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold">مدیریت نامه‌ها</h2>
+        <button
+          onClick={() => setShowHelpModal(true)}
+          className="flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-xs"
+          title="راهنمای سامانه و گردش نامه‌ها"
+        >
+          <span className="text-base">📖</span>
+          <span>راهنما</span>
+        </button>
+      </div>
+
+      <LettersHelpModal
+        isOpen={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+      />
 
       {showForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
