@@ -8,6 +8,7 @@ import Pagination from '../components/Pagination';
 import { printLeaveAll, printTable } from '../utils/printUtils';
 import { toJalaliDateTime } from '../utils/dateUtils';
 import LeavePrintView from '../components/LeavePrintView';
+import LeaveHelpModal from '../components/LeaveHelpModal';
 
 const statusMap = {
   pending_supervisor: { text: 'در انتظار سرپرست', color: 'bg-blue-100 text-blue-700' },
@@ -76,6 +77,7 @@ export default function Leave() {
   const [calculation, setCalculation] = useState(null);
   const [selectedLeave, setSelectedLeave] = useState(null);
   const [printLeave, setPrintLeave] = useState(null);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const [editCalculation, setEditCalculation] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [requestFor, setRequestFor] = useState('self'); // 'self' or 'subordinate'
@@ -784,22 +786,32 @@ export default function Leave() {
             </p>
           )}
         </div>
-        {user?.work_type === 'shift' ? (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-sm leading-relaxed flex items-start gap-3 w-full md:w-auto">
-            <span className="text-xl">⚠️</span>
-            <div>
-              <p className="font-bold">وضعیت کاری شما «شیفتی» تنظیم شده است</p>
-              <p className="mt-0.5 text-xs text-amber-700">پرسنل شیفتی مجاز به ثبت درخواست مرخصی جدید نیستند. تاریخچه درخواست‌های ثبت‌شده قبلی شما در بخش‌های زیر جهت اطلاع محفوظ است.</p>
-            </div>
-          </div>
-        ) : (
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowForm(true)}
-            className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2 rounded-xl font-medium transition-colors"
+            onClick={() => setShowHelpModal(true)}
+            className="flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-xs"
+            title="راهنمای قوانین و مراحل مرخصی"
           >
-            + درخواست جدید
+            <span className="text-base">📖</span>
+            <span>راهنما</span>
           </button>
-        )}
+          {user?.work_type === 'shift' ? (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-sm leading-relaxed flex items-start gap-3 w-full md:w-auto">
+              <span className="text-xl">⚠️</span>
+              <div>
+                <p className="font-bold">وضعیت کاری شما «شیفتی» تنظیم شده است</p>
+                <p className="mt-0.5 text-xs text-amber-700">پرسنل شیفتی مجاز به ثبت درخواست مرخصی جدید نیستند. تاریخچه درخواست‌های ثبت‌شده قبلی شما در بخش‌های زیر جهت اطلاع محفوظ است.</p>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowForm(true)}
+              className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2 rounded-xl font-medium transition-colors shadow-xs shadow-primary-500/20"
+            >
+              + درخواست جدید
+            </button>
+          )}
+        </div>
       </div>
 
       {showForm && (
@@ -2154,6 +2166,11 @@ export default function Leave() {
           </div>
         </div>
       )}
+
+      <LeaveHelpModal
+        isOpen={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+      />
     </div>
   );
 }
