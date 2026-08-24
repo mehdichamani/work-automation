@@ -114,7 +114,7 @@ export default function Overtime() {
     };
     window.addEventListener('ws-update', handleUpdate);
     return () => window.removeEventListener('ws-update', handleUpdate);
-  }, [tab, allRequestsPage]);
+  }, [tab, allRequestsPage, allRequestsDebounce]);
 
   useEffect(() => {
     const timer = setTimeout(() => setAllRequestsDebounce(allRequestsSearch), 400);
@@ -152,7 +152,8 @@ export default function Overtime() {
         setBalanceAll(balAllRes.data);
       }
     } catch (err) {
-      toast.error('خطا در بارگذاری اطلاعات');
+      console.error('Error loading overtime data:', err);
+      toast.error(err.response?.data?.error || 'خطا در بارگذاری اطلاعات');
     }
   };
 
