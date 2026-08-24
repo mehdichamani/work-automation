@@ -49,7 +49,23 @@ export default function LearningViewer() {
     loadMaterials();
   }, [loadMaterials]);
 
+  const handleDownload = (fileUrl, fileName) => {
+    const link = document.createElement('a');
+    link.href = fileUrl;
+    link.setAttribute('download', fileName || 'file');
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleView = (material) => {
+    if (material.category === 'pdf' && material.file_url) {
+      handleDownload(material.file_url, `${material.title}.pdf`);
+      // Update view count if needed by fetching single item
+      api.get(`/educational/${material.id}`).catch(() => {});
+      return;
+    }
     setViewingMaterial(material);
   };
 
@@ -88,12 +104,21 @@ export default function LearningViewer() {
     }
     if (material.category === 'pdf') {
       return (
-        <iframe
-          src={material.file_url}
-          className="w-full h-[70vh] rounded-lg border"
-          title={material.title}
-          style={{ direction: 'ltr' }}
-        />
+        <div className="flex flex-col items-center justify-center p-8 text-center" dir="rtl">
+          <div className="text-6xl mb-4">📄</div>
+          <h3 className="text-xl font-bold text-gray-800 mb-2">{material.title}</h3>
+          <p className="text-gray-600 mb-6 max-w-md">{material.description || 'فایل راهنما و محتوای آموزشی با فرمت PDF'}</p>
+          <a
+            href={material.file_url}
+            download={`${material.title}.pdf`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-colors shadow-sm"
+          >
+            <span>📥</span>
+            <span>دانلود فایل PDF</span>
+          </a>
+        </div>
       );
     }
     return (
@@ -192,8 +217,17 @@ export default function LearningViewer() {
                   <span>توسط {material.uploader_name}</span>
                   <span>{moment(material.created_at).format('jYYYY/jMM/jDD')}</span>
                 </div>
-                <div className="mt-2 flex items-center gap-1 text-xs text-gray-400">
-                  <span>👁 {material.view_count || 0}</span>
+                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+                  <span className="text-xs text-gray-400">👁 {material.view_count || 0}</span>
+                  {material.category === 'pdf' ? (
+                    <span className="text-xs text-blue-600 font-medium flex items-center gap-1 group-hover:underline">
+                      <span>📥</span> دریافت فایل
+                    </span>
+                  ) : (
+                    <span className="text-xs text-blue-600 font-medium flex items-center gap-1 group-hover:underline">
+                      <span>▶️</span> مشاهده
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
