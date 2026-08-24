@@ -7,6 +7,7 @@ import JalaliCalendar from '../components/JalaliCalendar';
 import Pagination from '../components/Pagination';
 import { printTable } from '../utils/printUtils';
 import { toJalaliDateTime } from '../utils/dateUtils';
+import OvertimeHelpModal from '../components/OvertimeHelpModal';
 
 const statusMap = {
   pending_supervisor: { text: 'در انتظار سرپرست', color: 'bg-blue-100 text-blue-700' },
@@ -53,6 +54,7 @@ export default function Overtime() {
   const [calculation, setCalculation] = useState(null);
   const [editCalculation, setEditCalculation] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const [requestFor, setRequestFor] = useState('self'); // 'self' or 'subordinate'
   const [modifyingRequest, setModifyingRequest] = useState(null);
   const [modForm, setModForm] = useState({ end_date: '', end_hour: '', hours_count: 0, reason: '', showEndCal: false });
@@ -469,17 +471,27 @@ export default function Overtime() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm">
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm">
         <div>
           <h2 className="text-xl font-bold text-gray-800">درخواست و مدیریت اضافه کار</h2>
           <p className="text-sm text-gray-500 mt-1">ساعت‌های مجاز برای اضافه کار دقیقاً عکس ساعات و روزهای مرخصی می‌باشد.</p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg hover:shadow-xl"
-        >
-          ➕ ثبت درخواست جدید
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowHelpModal(true)}
+            className="flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-3 rounded-xl text-sm font-medium transition-colors shadow-xs cursor-pointer"
+            title="راهنمای قوانین و گردش کار اضافه‌کاری"
+          >
+            <span className="text-base">📖</span>
+            <span>راهنما</span>
+          </button>
+          <button
+            onClick={() => setShowForm(true)}
+            className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg hover:shadow-xl cursor-pointer"
+          >
+            ➕ ثبت درخواست جدید
+          </button>
+        </div>
       </div>
 
       {/* cumulative approved hours header */}
@@ -1172,6 +1184,11 @@ export default function Overtime() {
           </div>
         )}
       </div>
+
+      <OvertimeHelpModal
+        isOpen={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+      />
     </div>
   );
 }
