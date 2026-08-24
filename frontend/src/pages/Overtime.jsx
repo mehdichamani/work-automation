@@ -109,14 +109,37 @@ export default function Overtime() {
     }
   }, [editForm.start_date, editForm.start_hour, editForm.end_date, editForm.end_hour]);
 
+  const fetchPendingCounts = useCallback(async () => {
+    try {
+      const promises = [];
+      if (user.role === 'supervisor' || user.role === 'admin') {
+        promises.push(api.get('/overtime/pending-supervisor').then(r => setPendingSupervisor(r.data)).catch(() => {}));
+      }
+      if (user.role === 'manager' || user.role === 'admin' || hasPermission('overtime_manager_approve')) {
+        promises.push(api.get('/overtime/pending-manager').then(r => setPendingManager(r.data)).catch(() => {}));
+      }
+      if (hasPermission('overtime_security_view')) {
+        promises.push(api.get('/overtime/security').then(r => setSecurityList(r.data)).catch(() => {}));
+      }
+      await Promise.all(promises);
+    } catch (e) {
+      /* ignore */
+    }
+  }, [user.role, hasPermission]);
+
+  useEffect(() => {
+    fetchPendingCounts();
+  }, [fetchPendingCounts]);
+
   useEffect(() => {
     loadData();
     const handleUpdate = () => {
       loadData();
+      fetchPendingCounts();
     };
     window.addEventListener('ws-update', handleUpdate);
     return () => window.removeEventListener('ws-update', handleUpdate);
-  }, [tab, allRequestsPage, allRequestsDebounce]);
+  }, [tab, allRequestsPage, allRequestsDebounce, fetchPendingCounts]);
 
   useEffect(() => {
     const timer = setTimeout(() => setAllRequestsDebounce(allRequestsSearch), 400);

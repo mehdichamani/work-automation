@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import moment from 'moment-jalaali';
@@ -35,16 +35,28 @@ export default function Inventory() {
   const isWarehouse = user.role === 'admin' || user.department_name === 'انبار';
   const canAddCardex = hasPermission('inventory_add');
   const canManageItems = hasPermission('inventory_items');
-  const canViewAll = hasPermission('inventory_all');
+  const fetchPendingCounts = useCallback(async () => {
+    try {
+      const res = await api.get('/inventory/pending-confirm');
+      setPendingConfirm(res.data);
+    } catch (e) {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPendingCounts();
+  }, [fetchPendingCounts]);
 
   useEffect(() => {
     loadData();
     const handleUpdate = () => {
       loadData();
+      fetchPendingCounts();
     };
     window.addEventListener('ws-update', handleUpdate);
     return () => window.removeEventListener('ws-update', handleUpdate);
-  }, [tab]);
+  }, [tab, fetchPendingCounts]);
 
   const loadData = async () => {
     try {

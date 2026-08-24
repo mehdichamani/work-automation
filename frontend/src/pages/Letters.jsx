@@ -88,12 +88,39 @@ export default function Letters() {
     (l.subject && l.subject.toLowerCase().includes(letterSearch.toLowerCase()))
   );
 
+  const fetchPendingCounts = useCallback(async () => {
+    try {
+      const promises = [
+        api.get('/letters/my-unit').then(r => setUnitLetters(r.data)).catch(() => {})
+      ];
+      if (isSantral) {
+        promises.push(api.get('/letters/pending-central').then(r => setPendingCentral(r.data)).catch(() => {}));
+        promises.push(api.get('/letters/returned-central').then(r => setReturnedCentral(r.data)).catch(() => {}));
+        promises.push(api.get('/letters/archived').then(r => setArchivedLetters(r.data)).catch(() => {}));
+      }
+      if (isManager) {
+        promises.push(api.get('/letters/pending-manager').then(r => setPendingManager(r.data)).catch(() => {}));
+        promises.push(api.get('/letters/processed-manager').then(r => setProcessedManager(r.data)).catch(() => {}));
+      }
+      await Promise.all(promises);
+    } catch (e) {
+      /* ignore */
+    }
+  }, [isSantral, isManager]);
+
+  useEffect(() => {
+    fetchPendingCounts();
+  }, [fetchPendingCounts]);
+
   useEffect(() => {
     loadData();
-    const handleUpdate = () => { loadData(); };
+    const handleUpdate = () => {
+      loadData();
+      fetchPendingCounts();
+    };
     window.addEventListener('ws-update', handleUpdate);
     return () => window.removeEventListener('ws-update', handleUpdate);
-  }, [tab, allLettersPage]);
+  }, [tab, allLettersPage, fetchPendingCounts]);
 
   useEffect(() => {
     const timer = setTimeout(() => setAllLettersDebounce(allLettersSearch), 400);

@@ -372,14 +372,40 @@ export default function Leave() {
     }
   }, [editForm.start_date, editForm.start_hour, editForm.end_date, editForm.end_hour]);
 
+  const fetchPendingCounts = useCallback(async () => {
+    try {
+      const promises = [];
+      if (user.role === 'supervisor' || user.role === 'admin') {
+        promises.push(api.get('/leave/pending-supervisor').then(r => setPendingSupervisor(r.data)).catch(() => {}));
+      }
+      if (user.role === 'admin' || user.role === 'manager' || hasPermission('leave_admin_approve')) {
+        promises.push(api.get('/leave/pending-admin').then(r => setPendingAdmin(r.data)).catch(() => {}));
+      }
+      if (user.role === 'manager' || user.role === 'admin') {
+        promises.push(api.get('/leave/pending-manager').then(r => setPendingManager(r.data)).catch(() => {}));
+      }
+      if (hasPermission('leave_security_view')) {
+        promises.push(api.get('/leave/security').then(r => setSecurityList(r.data)).catch(() => {}));
+      }
+      await Promise.all(promises);
+    } catch (e) {
+      /* ignore */
+    }
+  }, [user.role, hasPermission]);
+
+  useEffect(() => {
+    fetchPendingCounts();
+  }, [fetchPendingCounts]);
+
   useEffect(() => {
     loadData();
     const handleUpdate = () => {
       loadData();
+      fetchPendingCounts();
     };
     window.addEventListener('ws-update', handleUpdate);
     return () => window.removeEventListener('ws-update', handleUpdate);
-  }, [tab, allLeavesPage, allLeavesDebounce]);
+  }, [tab, allLeavesPage, allLeavesDebounce, fetchPendingCounts]);
 
   const loadData = async () => {
     try {
