@@ -1060,10 +1060,11 @@ export default function AdminPanel() {
       {tab === 'backup' && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl shadow-sm p-6">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-6 gap-4">
               <div>
                 <h3 className="font-bold text-gray-800">ایجاد بکاپ جدید</h3>
-                <p className="text-sm text-gray-500 mt-1">از تمام اطلاعات سیستم بکاپ تهیه کنید</p>
+                <p className="text-sm text-gray-500 mt-1">از پایگاه‌داده PostgreSQL نسخه پشتیبان محلی تهیه می‌شود.</p>
+                <p className="text-xs text-gray-400 mt-1">محل ذخیره: backend/backups</p>
               </div>
               <button
                 onClick={createBackup}
@@ -1078,7 +1079,7 @@ export default function AdminPanel() {
                 ) : (
                   <>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                    ایجاد بکاپ
+                    تهیه بکاپ جدید از پایگاه‌داده
                   </>
                 )}
               </button>

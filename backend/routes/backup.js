@@ -1,18 +1,75 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
-const prisma = require('../database/prisma');
-const { mapRow } = require('../utils/dbAdapter');
+const { execFile } = require('child_process');
 const { authMiddleware, roleGuard } = require('../middleware/auth');
-const { runBackup, getBackupConfig } = require('../backup/index');
-const backupCron = require('../backup/cron');
 const { getDbConfig } = require('../database/config');
 
 const BACKUP_DIR = path.join(__dirname, '..', 'backups');
 
 function ensureBackupDir() {
-  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  if (!fs.existsSync(BACKUP_DIR)) {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  }
+}
+
+function safeFilename(value) {
+  const filename = path.basename(String(value || ''));
+  if (!filename || filename.includes('..')) return null;
+  if (!filename.endsWith('.sql')) return null;
+  return filename;
+}
+
+function resolvePostgresBinary(command) {
+  const candidates = [];
+  const envPath = process.env.PATH || '';
+  envPath.split(path.delimiter)
+    .filter(Boolean)
+    .forEach(dir => {
+      candidates.push(path.join(dir, command));
+      candidates.push(path.join(dir, `${command}.exe`));
+    });
+
+  const windowsRoots = [
+    'C:\Program Files\PostgreSQL',
+    'C:\Program Files\PostgreSQL\\',
+    'C:\Program Files',
+    'C:\PostgreSQL'
+  ];
+
+  windowsRoots.forEach(root => {
+    if (!root) return;
+    for (let i = 16; i >= 9; i -= 1) {
+      candidates.push(path.join(root, String(i), 'bin', command));
+      candidates.push(path.join(root, String(i), 'bin', `${command}.exe`));
+    }
+    candidates.push(path.join(root, 'bin', command));
+    candidates.push(path.join(root, 'bin', `${command}.exe`));
+  });
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  return command;
+}
+
+function buildTimestamp() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+function runCommand(command, args, env) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { env }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(stderr && String(stderr).trim() ? String(stderr).trim() : error.message));
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
 }
 
 module.exports = function () {
@@ -20,170 +77,37 @@ module.exports = function () {
   router.use(authMiddleware);
   router.use(roleGuard('admin'));
 
-  // ─── NEW automated backup endpoints (MUST be before /:filename) ───
-  router.get('/settings', async (req, res) => {
-    try {
-      const row = await prisma.backupSetting.findUnique({ where: { id: 1 } });
-      if (!row) {
-        const def = getBackupConfig();
-        return res.json({
-          daily_path: def.dailyPath, weekly_path: def.weeklyPath,
-          daily_hour: 23, daily_minute: 0,
-          weekly_day: 5, weekly_hour: 14, weekly_minute: 0,
-          daily_retention_days: 30, weekly_retention_weeks: 12,
-          daily_enabled: 1, weekly_enabled: 1,
-        });
-      }
-      res.json(mapRow(row));
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  router.put('/settings', async (req, res) => {
-    try {
-      const {
-        daily_path, weekly_path, daily_hour, daily_minute,
-        weekly_day, weekly_hour, weekly_minute,
-        daily_retention_days, weekly_retention_weeks,
-        daily_enabled, weekly_enabled
-      } = req.body;
-      const def = getBackupConfig();
-      const data = {
-        dailyPath: daily_path || def.dailyPath,
-        weeklyPath: weekly_path || def.weeklyPath,
-        dailyHour: Number(daily_hour ?? 23),
-        dailyMinute: Number(daily_minute ?? 0),
-        weeklyDay: Number(weekly_day ?? 5),
-        weeklyHour: Number(weekly_hour ?? 14),
-        weeklyMinute: Number(weekly_minute ?? 0),
-        dailyRetentionDays: Number(daily_retention_days ?? 30),
-        weeklyRetentionWeeks: Number(weekly_retention_weeks ?? 12),
-        dailyEnabled: daily_enabled ? true : false,
-        weeklyEnabled: weekly_enabled ? true : false,
-      };
-      await prisma.backupSetting.upsert({
-        where: { id: 1 },
-        update: data,
-        create: data,
-      });
-      backupCron.init();
-      await backupCron.schedule();
-      res.json({ success: true, message: 'تنظیمات بکاپ ذخیره شد' });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  router.post('/run/:type', async (req, res) => {
-    try {
-      const type = req.params.type;
-      if (type !== 'daily' && type !== 'weekly') {
-        return res.status(400).json({ error: 'نوع بکاپ نامعتبر (daily یا weekly)' });
-      }
-      // Pass DB config so runBackup uses admin settings
-      const cfg = await backupCron.loadConfigFromDB();
-      const result = await runBackup(type, cfg);
-      try {
-        await prisma.backupLog.create({
-          data: {
-            type: result.type,
-            date: result.date,
-            dbFile: result.dbFile,
-            dbSize: result.dbSize,
-            uploadsFile: result.uploadsFile,
-            uploadsSize: result.uploadsSize,
-            uploadsFiles: result.uploadsFiles,
-            backupDir: result.backupDir,
-            status: 'success',
-            error: '',
-            createdBy: req.user ? Number(req.user.id) : null,
-          },
-        });
-      } catch (logErr) {
-        console.error('[Backup] Failed to log manual backup:', logErr.message);
-      }
-      res.json({ success: true, result });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  router.get('/logs', async (req, res) => {
-    try {
-      const { page = 1, limit = 20 } = req.query;
-      const pageNum = parseInt(page);
-      const limitNum = parseInt(limit);
-      const offset = (pageNum - 1) * limitNum;
-      const total = await prisma.backupLog.count();
-      const logs = await prisma.backupLog.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: limitNum,
-        skip: offset,
-      });
-      res.json({ logs: mapRow(logs), total, page: pageNum, limit: limitNum });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  router.get('/status', async (req, res) => {
-    try {
-      const status = backupCron.getStatus();
-      res.json(status);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ─── OLD manual backup endpoints ───
   router.post('/create', async (req, res) => {
     try {
       ensureBackupDir();
-      const now = new Date();
-      const pad = (n) => String(n).padStart(2, '0');
-      const ts = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-      const filename = `edari_backup_${ts}.sql`;
-      const backupPath = path.join(BACKUP_DIR, filename);
       const cfg = getDbConfig();
-      if (!cfg) return res.status(500).json({ error: 'DATABASE_URL not set' });
+      if (!cfg || !cfg.database) {
+        return res.status(500).json({ error: 'تنظیمات پایگاه‌داده پیدا نشد' });
+      }
 
-      const pgDumpCmd = `pg_dump -h "${cfg.host}" -p "${cfg.port}" -U "${cfg.user}" -d "${cfg.database}" -f "${backupPath}" --no-owner --no-privileges`;
-      const env = { ...process.env, PGPASSWORD: cfg.password };
-      exec(pgDumpCmd, { env }, async (err) => {
-        if (err) {
-          try {
-            const tables = await prisma.$queryRaw`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`;
-            let sql = '-- Edari Backup\n-- ' + new Date().toISOString() + '\n\n';
-            for (const t of tables) {
-              const tableName = t.table_name;
-              if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) continue;
-              const rows = await prisma.$queryRawUnsafe(`SELECT * FROM "${tableName}"`);
-              if (rows.length > 0) {
-                const cols = Object.keys(rows[0]);
-                sql += `TRUNCATE "${tableName}" CASCADE;\n`;
-                for (const row of rows) {
-                  const vals = cols.map(c => {
-                    const v = row[c];
-                    if (v === null) return 'NULL';
-                    if (typeof v === 'number') return v;
-                    return `'${String(v).replace(/'/g, "''")}'`;
-                  });
-                  sql += `INSERT INTO "${tableName}" (${cols.map(c => `"${c}"`).join(',')}) VALUES (${vals.join(',')});\n`;
-                }
-                sql += '\n';
-              }
-            }
-            fs.writeFileSync(backupPath, sql, 'utf8');
-            const stat = fs.statSync(backupPath);
-            res.json({ message: 'بکاپ با موفقیت ایجاد شد', filename, size: stat.size });
-          } catch (fallbackErr) {
-            res.status(500).json({ error: 'خطا در ایجاد بکاپ: ' + fallbackErr.message });
-          }
-          return;
-        }
-        const stat = fs.statSync(backupPath);
-        res.json({ message: 'بکاپ با موفقیت ایجاد شد', filename, size: stat.size });
+      const filename = `edari_backup_${buildTimestamp()}.sql`;
+      const backupPath = path.join(BACKUP_DIR, filename);
+      const pgDumpBinary = resolvePostgresBinary('pg_dump');
+      const pgDumpArgs = [
+        '-h', cfg.host,
+        '-p', String(cfg.port),
+        '-U', cfg.user,
+        '-d', cfg.database,
+        '-f', backupPath,
+        '--clean',
+        '--if-exists',
+        '--no-owner',
+        '--no-privileges'
+      ];
+
+      await runCommand(pgDumpBinary, pgDumpArgs, { ...process.env, PGPASSWORD: cfg.password });
+
+      const stat = fs.statSync(backupPath);
+      res.json({
+        message: 'بکاپ با موفقیت ایجاد شد',
+        filename,
+        size: stat.size,
+        path: BACKUP_DIR
       });
     } catch (err) {
       res.status(500).json({ error: 'خطا در ایجاد بکاپ: ' + err.message });
@@ -194,12 +118,14 @@ module.exports = function () {
     try {
       ensureBackupDir();
       const files = fs.readdirSync(BACKUP_DIR)
-        .filter(f => f.endsWith('.sql') || f.endsWith('.db'))
-        .map(f => {
-          const stat = fs.statSync(path.join(BACKUP_DIR, f));
-          return { filename: f, size: stat.size, created: stat.mtime };
+        .filter(file => file.endsWith('.sql'))
+        .map(file => {
+          const filePath = path.join(BACKUP_DIR, file);
+          const stat = fs.statSync(filePath);
+          return { filename: file, size: stat.size, created: stat.mtime };
         })
         .sort((a, b) => new Date(b.created) - new Date(a.created));
+
       res.json(files);
     } catch (err) {
       res.status(500).json({ error: 'خطا در لیست بکاپ‌ها: ' + err.message });
@@ -208,56 +134,86 @@ module.exports = function () {
 
   router.get('/download/:filename', (req, res) => {
     try {
-      const filename = path.basename(req.params.filename);
-      if ((!filename.endsWith('.sql') && !filename.endsWith('.db')) || filename.includes('..')) {
-        return res.status(400).json({ error: 'نام فایل نامعتبر' });
+      const filename = safeFilename(req.params.filename);
+      if (!filename) {
+        return res.status(400).json({ error: 'نام فایل نامعتبر است' });
       }
+
       const filePath = path.join(BACKUP_DIR, filename);
-      if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'فایل بکاپ یافت نشد' });
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'فایل بکاپ یافت نشد' });
+      }
+
       res.download(filePath, filename);
     } catch (err) {
-      res.status(500).json({ error: 'خطا در دانلود: ' + err.message });
+      res.status(500).json({ error: 'خطا در دانلود بکاپ: ' + err.message });
     }
   });
 
   router.post('/restore/:filename', async (req, res) => {
     try {
-      const filename = path.basename(req.params.filename);
-      if ((!filename.endsWith('.sql') && !filename.endsWith('.db')) || filename.includes('..')) {
-        return res.status(400).json({ error: 'نام فایل نامعتبر' });
+      const filename = safeFilename(req.params.filename);
+      if (!filename) {
+        return res.status(400).json({ error: 'نام فایل نامعتبر است' });
       }
+
       const backupPath = path.join(BACKUP_DIR, filename);
-      if (!fs.existsSync(backupPath)) return res.status(404).json({ error: 'فایل بکاپ یافت نشد' });
+      if (!fs.existsSync(backupPath)) {
+        return res.status(404).json({ error: 'فایل بکاپ یافت نشد' });
+      }
 
       const cfg = getDbConfig();
-      if (!cfg) return res.status(500).json({ error: 'DATABASE_URL not set' });
-      const env = { ...process.env, PGPASSWORD: cfg.password };
-
-      if (filename.endsWith('.sql')) {
-        const psqlCmd = `psql -h "${cfg.host}" -p "${cfg.port}" -U "${cfg.user}" -d "${cfg.database}" -f "${backupPath}" --set ON_ERROR_STOP=off`;
-        exec(psqlCmd, { env }, (err, stdout, stderr) => {
-          if (err) return res.status(500).json({ error: 'خطا در بازیابی: ' + (stderr || err.message) });
-          res.json({ message: 'بکاپ با موفقیت بازیابی شد', restoredFrom: filename });
-        });
-      } else {
-        return res.status(400).json({ error: 'فایل‌های .db قدیمی پشتیبانی نمی‌شوند' });
+      if (!cfg || !cfg.database) {
+        return res.status(500).json({ error: 'تنظیمات پایگاه‌داده پیدا نشد' });
       }
+
+      const psqlBinary = resolvePostgresBinary('psql');
+
+      // اجرای DROP SCHEMA public CASCADE و ساخت مجدد آن جهت اطمینان از پاک‌سازی کامل قبل از بازیابی
+      const resetSchemaSql = 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO postgres; GRANT ALL ON SCHEMA public TO public;';
+      try {
+        await runCommand(psqlBinary, [
+          '-h', cfg.host,
+          '-p', String(cfg.port),
+          '-U', cfg.user,
+          '-d', cfg.database,
+          '-c', resetSchemaSql
+        ], { ...process.env, PGPASSWORD: cfg.password });
+      } catch (schemaErr) {
+        console.warn('هشدار در ریست اسکیما قبل از بازیابی:', schemaErr.message);
+      }
+
+      const psqlArgs = [
+        '-h', cfg.host,
+        '-p', String(cfg.port),
+        '-U', cfg.user,
+        '-d', cfg.database,
+        '-f', backupPath,
+        '--set', 'ON_ERROR_STOP=off'
+      ];
+
+      await runCommand(psqlBinary, psqlArgs, { ...process.env, PGPASSWORD: cfg.password });
+
+      res.json({ message: 'بکاپ با موفقیت بازیابی شد', restoredFrom: filename });
     } catch (err) {
-      res.status(500).json({ error: 'خطا در بازیابی: ' + err.message });
+      res.status(500).json({ error: 'خطا در بازیابی بکاپ: ' + err.message });
     }
   });
 
-  // DELETE must be last (matches everything)
   router.delete('/:filename', (req, res) => {
     try {
-      const filename = path.basename(req.params.filename);
-      if ((!filename.endsWith('.sql') && !filename.endsWith('.db')) || filename.includes('..')) {
-        return res.status(400).json({ error: 'نام فایل نامعتبر' });
+      const filename = safeFilename(req.params.filename);
+      if (!filename) {
+        return res.status(400).json({ error: 'نام فایل نامعتبر است' });
       }
+
       const filePath = path.join(BACKUP_DIR, filename);
-      if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'فایل بکاپ یافت نشد' });
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'فایل بکاپ یافت نشد' });
+      }
+
       fs.unlinkSync(filePath);
-      res.json({ message: 'بکاپ حذف شد' });
+      res.json({ message: 'بکاپ حذف شد', filename });
     } catch (err) {
       res.status(500).json({ error: 'خطا در حذف بکاپ: ' + err.message });
     }

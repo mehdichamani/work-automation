@@ -14,10 +14,6 @@ const { authMiddleware, auditLog } = require('./middleware/auth');
 let server;
 
 async function startServer() {
-  // Initialize backup cron
-  const backupCron = require('./backup/cron');
-  await backupCron.schedule();
-
   const app = express();
   const PORT = process.env.PORT || 2833;
 
