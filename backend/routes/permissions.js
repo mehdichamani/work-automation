@@ -8,6 +8,7 @@ const MODULES = [
   { key: 'inventory_items', label: 'مدیریت تعریف کالاها', group: 'کارتکس انبار' },
   { key: 'inventory_all', label: 'مشاهده همه کارتکس‌ها', group: 'کارتکس انبار' },
   { key: 'leave_approve', label: 'تایید مرخصی (سرپرست)', group: 'مرخصی' },
+  { key: 'leave_admin_approve', label: 'بررسی و تایید اداری مرخصی روزانه', group: 'مرخصی' },
   { key: 'leave_manager_approve', label: 'تایید مرخصی (مدیر)', group: 'مرخصی' },
   { key: 'leave_security_view', label: 'رویت حراست (مرخصی)', group: 'مرخصی' },
   { key: 'leave_quota_manage', label: 'مدیریت سهمیه مرخصی پرسنل', group: 'مرخصی' },

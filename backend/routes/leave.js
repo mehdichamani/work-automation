@@ -376,12 +376,38 @@ module.exports = function() {
       if (targetUserId !== req.user.id) {
         // Registered by supervisor/manager/admin on behalf of user
         if (req.user.role === 'supervisor') {
-          await notify(targetUserId, 'ثبت مرخصی توسط سرپرست', `مرخصی برای شما توسط سرپرست (${req.user.full_name}) ثبت گردید و برای تایید مدیر ارسال شد`, '/leave');
+          if (initialStatus === 'pending_admin') {
+            await notify(targetUserId, 'ثبت مرخصی توسط سرپرست', `مرخصی برای شما توسط سرپرست (${req.user.full_name}) ثبت گردید و برای بررسی اداری ارسال شد`, '/leave');
 
-          // Notify managers
-          const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true }, select: { id: true } });
-          for (const m of managers) {
-            await notify(m.id, 'درخواست مرخصی جدید', `درخواست مرخصی ثبت شده توسط سرپرست برای ${targetUser.full_name} نیاز به تایید مدیر دارد`, '/leave');
+            // Notify admins and users with leave_admin_approve permission
+            const adminUsers = await prisma.user.findMany({ where: { OR: [{ role: 'admin' }, { role: 'manager' }], isActive: true }, select: { id: true } });
+            const directPerms = await prisma.permission.findMany({
+              where: { moduleKey: 'leave_admin_approve', isEnabled: true, userId: { not: null } },
+              select: { userId: true },
+            });
+            const deptPerms = await prisma.permission.findMany({
+              where: { moduleKey: 'leave_admin_approve', isEnabled: true, departmentId: { not: null } },
+              select: { departmentId: true },
+            });
+            const deptUserIds = deptPerms.length > 0
+              ? (await prisma.user.findMany({ where: { departmentId: { in: deptPerms.map(d => d.departmentId) }, isActive: true }, select: { id: true } })).map(u => u.id)
+              : [];
+            const recipientIds = new Set([
+              ...adminUsers.map(a => a.id),
+              ...directPerms.map(p => p.userId),
+              ...deptUserIds,
+            ]);
+            for (const uid of recipientIds) {
+              await notify(uid, 'درخواست مرخصی جدید', `درخواست مرخصی روزانه ثبت شده توسط سرپرست برای ${targetUser.full_name} نیاز به بررسی اداری دارد`, '/leave');
+            }
+          } else {
+            await notify(targetUserId, 'ثبت مرخصی توسط سرپرست', `مرخصی برای شما توسط سرپرست (${req.user.full_name}) ثبت گردید و برای تایید مدیر ارسال شد`, '/leave');
+
+            // Notify managers
+            const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true }, select: { id: true } });
+            for (const m of managers) {
+              await notify(m.id, 'درخواست مرخصی جدید', `درخواست مرخصی ثبت شده توسط سرپرست برای ${targetUser.full_name} نیاز به تایید مدیر دارد`, '/leave');
+            }
           }
         } else {
           // Registered by manager/admin
@@ -514,8 +540,24 @@ module.exports = function() {
       if (nextStatus === 'pending_admin') {
         await notify(leave.userId, 'تایید سرپرست', `درخواست مرخصی شما توسط سرپرست تایید شد و برای اداری ارسال شد`, '/leave');
         const adminUsers = await prisma.user.findMany({ where: { OR: [{ role: 'admin' }, { role: 'manager' }], isActive: true }, select: { id: true } });
-        for (const a of adminUsers) {
-          await notify(a.id, 'درخواست مرخصی جدید', `درخواست مرخصی روزانه ${leave.userId} نیاز به بررسی اداری دارد`, '/leave');
+        const directPerms = await prisma.permission.findMany({
+          where: { moduleKey: 'leave_admin_approve', isEnabled: true, userId: { not: null } },
+          select: { userId: true },
+        });
+        const deptPerms = await prisma.permission.findMany({
+          where: { moduleKey: 'leave_admin_approve', isEnabled: true, departmentId: { not: null } },
+          select: { departmentId: true },
+        });
+        const deptUserIds = deptPerms.length > 0
+          ? (await prisma.user.findMany({ where: { departmentId: { in: deptPerms.map(d => d.departmentId) }, isActive: true }, select: { id: true } })).map(u => u.id)
+          : [];
+        const recipientIds = new Set([
+          ...adminUsers.map(a => a.id),
+          ...directPerms.map(p => p.userId),
+          ...deptUserIds,
+        ]);
+        for (const uid of recipientIds) {
+          await notify(uid, 'درخواست مرخصی جدید', `درخواست مرخصی روزانه ${leave.userId} نیاز به بررسی اداری دارد`, '/leave');
         }
       } else {
         await notify(leave.userId, 'تایید سرپرست', `درخواست مرخصی شما توسط سرپرست تایید شد و برای مدیر ارسال شد`, '/leave');

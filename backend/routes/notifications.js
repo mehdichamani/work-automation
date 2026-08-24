@@ -69,22 +69,43 @@ module.exports = function() {
         jobApplication: 0
       };
 
+      let hasAdminApprove = req.user.role === 'admin' || req.user.role === 'manager';
+      if (!hasAdminApprove) {
+        const userPerm = await prisma.permission.findFirst({ where: { userId: Number(req.user.id), moduleKey: 'leave_admin_approve' } });
+        if (userPerm !== null && userPerm !== undefined) {
+          hasAdminApprove = userPerm.isEnabled === true;
+        } else if (req.user.department_id) {
+          const deptPerm = await prisma.permission.findFirst({ where: { departmentId: Number(req.user.department_id), userId: null, moduleKey: 'leave_admin_approve' } });
+          if (deptPerm !== null && deptPerm !== undefined) {
+            hasAdminApprove = deptPerm.isEnabled === true;
+          }
+        }
+      }
+
       if (req.user.role === 'admin' || req.user.role === 'manager') {
         const r = await prisma.leaveRequest.count({ where: { status: { in: ['pending_manager', 'pending_admin'] } } });
         counts.leave = parseInt(r, 10) || 0;
 
         const ro = await prisma.overtimeRequest.count({ where: { status: 'pending_manager' } });
         counts.overtime = parseInt(ro, 10) || 0;
-      } else if (req.user.role === 'supervisor') {
-        const deptWhere = { status: 'pending_supervisor' };
-        if (req.user.department_id) {
-          deptWhere.user = { departmentId: Number(req.user.department_id), role: { not: 'admin' } };
-        }
-        const r = await prisma.leaveRequest.count({ where: deptWhere });
-        counts.leave = parseInt(r, 10) || 0;
+      } else {
+        let leaveCount = 0;
+        if (req.user.role === 'supervisor') {
+          const deptWhere = { status: 'pending_supervisor' };
+          if (req.user.department_id) {
+            deptWhere.user = { departmentId: Number(req.user.department_id), role: { not: 'admin' } };
+          }
+          const r = await prisma.leaveRequest.count({ where: deptWhere });
+          leaveCount += parseInt(r, 10) || 0;
 
-        const ro = await prisma.overtimeRequest.count({ where: deptWhere });
-        counts.overtime = parseInt(ro, 10) || 0;
+          const ro = await prisma.overtimeRequest.count({ where: deptWhere });
+          counts.overtime = parseInt(ro, 10) || 0;
+        }
+        if (hasAdminApprove) {
+          const rAdmin = await prisma.leaveRequest.count({ where: { status: 'pending_admin' } });
+          leaveCount += parseInt(rAdmin, 10) || 0;
+        }
+        counts.leave = leaveCount;
       }
 
       let centralCount = 0;
