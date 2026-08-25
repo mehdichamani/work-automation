@@ -504,61 +504,67 @@ export default function Layout({ children }) {
               </button>
               
               {showNotifPanel && (
-                <div className="absolute left-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border z-50 animate-fade-in">
-                  {activeAnnouncements.length > 0 && (
-                    <div className="border-b bg-orange-50">
-                      <div className="p-3 border-b flex justify-between items-center">
-                        <span className="font-bold text-sm text-orange-700">📢 اطلاعیه‌ها</span>
-                      </div>
-                      <div className="max-h-40 overflow-y-auto">
-                        {activeAnnouncements.map(a => (
-                            <div key={a.id} className="p-3 border-b border-orange-100 hover:bg-orange-100 cursor-pointer">
-                            <div className="flex items-center gap-2 mb-1">
-                              <p className="font-bold text-xs text-orange-800">{a.title}</p>
-                              {a.priority === 'urgent' && <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded-full">فوری</span>}
-                              {a.priority === 'important' && <span className="text-[9px] bg-yellow-500 text-white px-1.5 py-0.5 rounded-full">مهم</span>}
-                            </div>
-                            {a.body && <p className="text-[11px] text-orange-600 line-clamp-2">{a.body}</p>}
-                            {a.image_path && (
-                              <img src={a.image_path} alt={a.title} className="mt-1 w-full h-20 object-cover rounded-lg" />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="p-3 border-b flex justify-between items-center bg-gray-50/50">
-                    <span className="font-bold text-sm">اعلانات</span>
-                    <div className="flex items-center gap-2">
-                      {typeof window !== 'undefined' && 'Notification' in window && browserNotifPerm !== 'granted' && (
-                        <button
-                          onClick={requestBrowserNotifPermission}
-                          className="text-[11px] bg-primary-50 text-primary-600 hover:bg-primary-100 px-2 py-0.5 rounded border border-primary-200 transition-colors"
-                          title="فعال‌سازی دریافت نوتیفیکیشن روی دسکتاپ و مرورگر"
-                        >
-                          فعال‌سازی اعلان مرورگر
-                        </button>
-                      )}
-                      <button onClick={markAllRead} className="text-xs text-primary-500 hover:underline">خواندن همه</button>
-                    </div>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto">
-                    {notifications.length === 0 ? (
-                      <p className="p-4 text-sm text-gray-400 text-center">اعلانی وجود ندارد</p>
-                    ) : (
-                      notifications.map(n => (
-                        <div 
-                          key={n.id} 
-                          onClick={() => { markRead(n.id); if(n.link) navigate(n.link); setShowNotifPanel(false); }}
-                          className={`p-3 border-b cursor-pointer hover:bg-gray-50 ${!n.is_read ? 'bg-blue-50' : ''}`}
-                        >
-                          <p className="font-bold text-xs">{n.title}</p>
-                          <p className="text-xs text-gray-600 mt-1">{n.body}</p>
+                <>
+                  <div 
+                    className="fixed inset-0 z-40 bg-black/20 md:bg-transparent" 
+                    onClick={() => setShowNotifPanel(false)} 
+                  />
+                  <div className="fixed md:absolute left-4 right-4 md:left-auto md:right-0 top-16 md:top-full mt-2 w-auto md:w-84 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-100 z-50 animate-fade-in overflow-hidden">
+                    {activeAnnouncements.length > 0 && (
+                      <div className="border-b bg-orange-50">
+                        <div className="p-3 border-b border-orange-100 flex justify-between items-center">
+                          <span className="font-bold text-sm text-orange-700">📢 اطلاعیه‌ها</span>
                         </div>
-                      ))
+                        <div className="max-h-40 overflow-y-auto">
+                          {activeAnnouncements.map(a => (
+                              <div key={a.id} className="p-3 border-b border-orange-100/50 hover:bg-orange-100/70 cursor-pointer">
+                              <div className="flex items-center gap-2 mb-1">
+                                <p className="font-bold text-xs text-orange-800">{a.title}</p>
+                                {a.priority === 'urgent' && <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded-full">فوری</span>}
+                                {a.priority === 'important' && <span className="text-[9px] bg-yellow-500 text-white px-1.5 py-0.5 rounded-full">مهم</span>}
+                              </div>
+                              {a.body && <p className="text-[11px] text-orange-600 line-clamp-2">{a.body}</p>}
+                              {a.image_path && (
+                                <img src={a.image_path} alt={a.title} className="mt-1 w-full h-20 object-cover rounded-lg" />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
+                    <div className="p-3 border-b flex justify-between items-center bg-gray-50/50">
+                      <span className="font-bold text-sm">اعلانات</span>
+                      <div className="flex items-center gap-2">
+                        {typeof window !== 'undefined' && 'Notification' in window && browserNotifPerm !== 'granted' && (
+                          <button
+                            onClick={requestBrowserNotifPermission}
+                            className="text-[10px] sm:text-[11px] bg-primary-50 text-primary-600 hover:bg-primary-100 px-2 py-0.5 rounded border border-primary-200 transition-colors whitespace-nowrap"
+                            title="فعال‌سازی دریافت نوتیفیکیشن روی دسکتاپ و مرورگر"
+                          >
+                            فعال‌سازی اعلان
+                          </button>
+                        )}
+                        <button onClick={markAllRead} className="text-xs text-primary-500 hover:underline whitespace-nowrap">خواندن همه</button>
+                      </div>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
+                      {notifications.length === 0 ? (
+                        <p className="p-4 text-sm text-gray-400 text-center">اعلانی وجود ندارد</p>
+                      ) : (
+                        notifications.map(n => (
+                          <div 
+                            key={n.id} 
+                            onClick={() => { markRead(n.id); if(n.link) navigate(n.link); setShowNotifPanel(false); }}
+                            className={`p-3 cursor-pointer hover:bg-gray-50 transition-colors ${!n.is_read ? 'bg-blue-50/60' : ''}`}
+                          >
+                            <p className="font-bold text-xs text-gray-800">{n.title}</p>
+                            <p className="text-xs text-gray-600 mt-1 line-clamp-3 leading-relaxed">{n.body}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
 
