@@ -94,7 +94,7 @@
             position: fixed;
             inset: 0;
             background-size: 40px 40px;
-            background-image: 
+            background-image:
                 linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
                 linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
             pointer-events: none;
@@ -105,6 +105,7 @@
             0% {
                 transform: scale(1) translateY(0);
             }
+
             100% {
                 transform: scale(1.15) translateY(-30px);
             }
@@ -126,7 +127,7 @@
             border: 1px solid var(--surface-border);
             border-radius: 28px;
             padding: 44px 36px;
-            box-shadow: 
+            box-shadow:
                 0 25px 60px -15px rgba(0, 0, 0, 0.7),
                 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
             text-align: center;
@@ -138,6 +139,7 @@
                 opacity: 0;
                 transform: translateY(20px) scale(0.98);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0) scale(1);
@@ -170,8 +172,17 @@
         }
 
         @keyframes blink {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.3; transform: scale(0.75); }
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.3;
+                transform: scale(0.75);
+            }
         }
 
         /* تصویر اصلی */
@@ -304,7 +315,8 @@
 
             <!-- تصویر -->
             <div class="image-container">
-                <img src="under maintenance.png" alt="سامانه موقتاً غیرفعال است" class="maintenance-img" onerror="this.src='/under maintenance.png'">
+                <img src="under maintenance.png" alt="سامانه موقتاً غیرفعال است" class="maintenance-img"
+                    onerror="this.src='/under maintenance.png'">
             </div>
 
             <!-- عنوان و توضیحات شرکت -->
@@ -317,9 +329,11 @@
             <div class="message-box">
                 همکاران گرامی،
                 <br>
-                به اطلاع می‌رساند سامانه اتوماسیون اداری به دلیل <span class="highlight-gold">تصمیم‌گیری‌های کلان مدیریتی</span> موقتاً غیرفعال شده است.
+                به اطلاع می‌رساند سامانه اتوماسیون اداری<span class="highlight-gold"> موقتاً غیرفعال شده
+                    است.</span>
                 <br><br>
-                از صبر و همراهی شما سپاسگزاریم. به‌محض تصمیم‌گیری و راه‌اندازی مجدد، از طریق همین سامانه به‌طور کامل اطلاع‌رسانی خواهد شد.
+                از صبر و همراهی شما سپاسگزاریم. به‌محض تصمیم‌گیری و راه‌اندازی مجدد، از طریق همین سامانه به‌طور کامل
+                اطلاع‌رسانی خواهد شد.
             </div>
 
             <!-- پاورقی -->

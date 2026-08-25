@@ -192,28 +192,43 @@ async function startServer() {
     res.json({ status: 'ok', company: 'ط§ط±ظˆظ… ط´غŒط´ظ‡ ط³ط§ع†غŒ', timestamp: new Date().toISOString() });
   });
 
+  // Serve static files from root and frontend public for maintenance assets
+  app.use(express.static(path.join(__dirname, '..')));
+  app.use(express.static(path.join(__dirname, '..', 'frontend', 'public')));
+
+  const maintenanceFilePath = path.join(__dirname, '..', 'under-maintenance.html');
+
+  // Intercept all page requests in maintenance mode immediately
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+      return next();
+    }
+    // Allow static file extensions (e.g. .png, .webp, .css, .js, .json)
+    if (req.path.match(/\.(png|jpe?g|gif|webp|svg|ico|css|js|woff2?|ttf|json)$/i)) {
+      return next();
+    }
+    if (require('fs').existsSync(maintenanceFilePath)) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      return res.sendFile(maintenanceFilePath);
+    }
+    next();
+  });
+
   // Serve static files from the React frontend build
   const frontendDistPath = path.join(__dirname, '..', 'frontend', 'dist');
-  console.log('Serving frontend build from:', frontendDistPath);
   app.use(express.static(frontendDistPath));
-
-  app.get('/', (req, res) => {
-    res.sendFile(path.join(frontendDistPath, 'index.html'), (err) => {
-      if (err) {
-        res.status(404).send('ظپط±ط§ظ†طھâ€Œط§ظ†ط¯ ظ‡ظ†ظˆط² ط¨غŒظ„ط¯ ظ†ط´ط¯ظ‡ ط§ط³طھ. ظ„ط·ظپط§ظ‹ ط¯ط³طھظˆط± npm run build ط±ط§ ط¯ط± ظ¾ظˆط´ظ‡ frontend ط§ط¬ط±ط§ ع©ظ†غŒط¯.');
-      }
-    });
-  });
 
   app.post('/api/admin/server-restart', authMiddleware, (req, res) => {
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'ظپظ‚ط· ظ…ط¯غŒط± ط³غŒط³طھظ… ظ…غŒâ€Œطھظˆط§ظ†ط¯ ط³ط±ظˆط± ط±ط§ ط±غŒâ€Œط§ط³طھط§ط±طھ ع©ظ†ط¯' });
+      return res.status(403).json({ error: 'فقط مدیر سیستم می‌تواند سرور را ری‌استارت کند' });
     }
     const confirmToken = req.headers['x-restart-confirm'];
     if (!confirmToken || confirmToken !== process.env.RESTART_SECRET) {
       return res.status(403).json({ error: 'تأیید ری‌استارت الزامی است' });
     }
-    res.json({ message: 'ط³ط±ظˆط± ط¯ط± ط­ط§ظ„ ط±غŒâ€Œط§ط³طھط§ط±طھ...' });
+    res.json({ message: 'سرور در حال ری‌استارت...' });
     setTimeout(() => {
       if (process.env.pm_id !== undefined) {
         exec('pm2 restart edari-backend', (err) => {
@@ -234,14 +249,18 @@ async function startServer() {
     }, 500);
   });
 
-  // Fallback wildcard to serve React Router SPA pages
+  // Fallback wildcard to serve maintenance page or React Router SPA pages
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
       return next();
     }
+    if (require('fs').existsSync(maintenanceFilePath)) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      return res.sendFile(maintenanceFilePath);
+    }
     res.sendFile(path.join(frontendDistPath, 'index.html'), (err) => {
       if (err) {
-        res.status(404).send('ظپط±ط§ظ†طھâ€Œط§ظ†ط¯ ظ‡ظ†ظˆط² ط¨غŒظ„ط¯ ظ†ط´ط¯ظ‡ ط§ط³طھ. ظ„ط·ظپط§ظ‹ ط¯ط³طھظˆط± npm run build ط±ط§ ط¯ط± ظ¾ظˆط´ظ‡ frontend ط§ط¬ط±ط§ ع©ظ†غŒط¯.');
+        res.status(404).send('صفحه مورد نظر یافت نشد.');
       }
     });
   });
