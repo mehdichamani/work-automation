@@ -172,6 +172,53 @@ export default function Layout({ children }) {
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [activeAnnouncements, setActiveAnnouncements] = useState([]);
   const [pendingCounts, setPendingCounts] = useState({ leave: 0, overtime: 0, letters: 0, inventory: 0, jobApplication: 0 });
+  const [browserNotifPerm, setBrowserNotifPerm] = useState(
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied'
+  );
+
+  const prevNotificationsRef = useRef(null);
+
+  const requestBrowserNotifPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const perm = await Notification.requestPermission();
+        setBrowserNotifPerm(perm);
+        if (perm === 'granted') {
+          toast.success('اعلان مرورگر فعال شد');
+        } else if (perm === 'denied') {
+          toast.error('دسترسی اعلان توسط مرورگر مسدود شده است');
+        }
+      } catch (err) {
+        console.error('Error requesting notification permission:', err);
+      }
+    }
+  };
+
+  const showBrowserNotification = useCallback((notif) => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        const title = notif.title || 'پیام جدید در اتوماسیون';
+        const options = {
+          body: notif.body || '',
+          icon: '/favicon.ico',
+          tag: `notif-${notif.id || Date.now()}`,
+          renotify: true,
+          requireInteraction: false
+        };
+
+        const n = new Notification(title, options);
+        n.onclick = () => {
+          window.focus();
+          if (notif.link) {
+            navigate(notif.link);
+          }
+          n.close();
+        };
+      } catch (e) {
+        console.error('Failed to trigger browser notification:', e);
+      }
+    }
+  }, [navigate]);
 
   const fetchPendingCounts = async () => {
     try {
@@ -183,14 +230,26 @@ export default function Layout({ children }) {
   const fetchNotifications = useCallback(async () => {
     try {
       const res = await api.get('/notifications');
-      setNotifications(res.data.slice(0, 10));
+      const latestList = res.data.slice(0, 10);
+
+      // Check for new incoming unread notifications to trigger browser notification
+      if (prevNotificationsRef.current !== null) {
+        const prevIds = new Set(prevNotificationsRef.current.map(n => n.id));
+        const newUnread = latestList.filter(n => !n.is_read && !prevIds.has(n.id));
+        newUnread.forEach(n => {
+          showBrowserNotification(n);
+        });
+      }
+      prevNotificationsRef.current = latestList;
+
+      setNotifications(latestList);
       const countRes = await api.get('/notifications/unread-count');
       setUnreadCount(countRes.data.count);
       const annRes = await api.get('/announcements/active');
       setActiveAnnouncements(annRes.data.slice(0, 5));
       fetchPendingCounts();
     } catch (err) { /* non-critical */ }
-  }, []);
+  }, [showBrowserNotification]);
 
   const socketRef = useRef(null);
   const debounceNotifRef = useRef(null);
@@ -200,6 +259,11 @@ export default function Layout({ children }) {
       refreshPermissions();
       fetchNotifications();
       fetchPendingCounts();
+
+      // Automatically request browser notification permission if default/prompt
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().then(perm => setBrowserNotifPerm(perm)).catch(() => {});
+      }
 
       if (socketRef.current) {
         socketRef.current.disconnect();
@@ -463,9 +527,20 @@ export default function Layout({ children }) {
                       </div>
                     </div>
                   )}
-                  <div className="p-3 border-b flex justify-between items-center">
+                  <div className="p-3 border-b flex justify-between items-center bg-gray-50/50">
                     <span className="font-bold text-sm">اعلانات</span>
-                    <button onClick={markAllRead} className="text-xs text-primary-500 hover:underline">خواندن همه</button>
+                    <div className="flex items-center gap-2">
+                      {typeof window !== 'undefined' && 'Notification' in window && browserNotifPerm !== 'granted' && (
+                        <button
+                          onClick={requestBrowserNotifPermission}
+                          className="text-[11px] bg-primary-50 text-primary-600 hover:bg-primary-100 px-2 py-0.5 rounded border border-primary-200 transition-colors"
+                          title="فعال‌سازی دریافت نوتیفیکیشن روی دسکتاپ و مرورگر"
+                        >
+                          فعال‌سازی اعلان مرورگر
+                        </button>
+                      )}
+                      <button onClick={markAllRead} className="text-xs text-primary-500 hover:underline">خواندن همه</button>
+                    </div>
                   </div>
                   <div className="max-h-80 overflow-y-auto">
                     {notifications.length === 0 ? (
