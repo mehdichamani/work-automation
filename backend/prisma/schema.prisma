@@ -43,6 +43,7 @@ model Department {
   workOrders             WorkOrder[]
   paymentRequests        PaymentRequest[]
   projectSupplyRequests  ProjectSupplyRequest[]
+  educationalMaterials   EducationalMaterial[]
 
   @@map("departments")
 }
@@ -108,6 +109,7 @@ model User {
   jobApplications          JobApplication[]
   jobApplicationReviews    JobApplication[]      @relation("JobAppReviewer")
   educationalMaterials     EducationalMaterial[]
+  userLearningProgress     UserLearningProgress[]
   pushSubscriptions        PushSubscription[]
   attachments              Attachment[]
   smsCodes                 SmsCode[]
@@ -1277,24 +1279,83 @@ model JobApplicationCounter {
   @@map("job_application_counter")
 }
 
+model EducationalCategory {
+  id          Int      @id @default(autoincrement())
+  title       String   @unique
+  description String?
+  icon        String?  @default("📁")
+  color       String?  @default("#3B82F6")
+  orderIndex  Int      @default(0) @map("order_index")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  materials   EducationalMaterial[]
+
+  @@map("educational_categories")
+}
+
 model EducationalMaterial {
-  id             Int      @id @default(autoincrement())
-  title          String
-  description    String?
-  category       String   @default("pdf")
-  fileUrl        String   @map("file_url")
-  fileType       String?  @map("file_type")
-  fileSize       Int      @default(0) @map("file_size")
-  thumbnailUrl   String?  @map("thumbnail_url")
-  targetAudience String   @default("all") @map("target_audience")
-  tags           String[]
-  isActive       Boolean  @default(true) @map("is_active")
-  uploadedBy     Int      @map("uploaded_by")
-  uploader       User     @relation(fields: [uploadedBy], references: [id])
-  viewCount      Int      @default(0) @map("view_count")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id                 Int                    @id @default(autoincrement())
+  title              String
+  description        String?
+  category           String                 @default("pdf") // Legacy / fallback string
+  categoryId         Int?                   @map("category_id")
+  educationalCategory EducationalCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  contentType        String                 @default("pdf") @map("content_type") // pdf, video, audio, article, embed
+  mediaSource        String                 @default("upload") @map("media_source") // upload, external_url, embed_code
+  fileUrl            String?                @map("file_url")
+  fileType           String?                @map("file_type")
+  fileSize           Int                    @default(0) @map("file_size")
+  contentText        String?                @map("content_text")
+  embedCode          String?                @map("embed_code")
+  thumbnailUrl       String?                @map("thumbnail_url")
+  durationMinutes    Int?                   @map("duration_minutes")
+  difficulty         String?                @default("all") // all, beginner, intermediate, advanced
+  targetAudience     String                 @default("all") @map("target_audience")
+  targetDepartmentId Int?                   @map("target_department_id")
+  targetDepartment   Department?            @relation(fields: [targetDepartmentId], references: [id], onDelete: SetNull)
+  isPinned           Boolean                @default(false) @map("is_pinned")
+  tags               String[]
+  isActive           Boolean                @default(true) @map("is_active")
+  uploadedBy         Int                    @map("uploaded_by")
+  uploader           User                   @relation(fields: [uploadedBy], references: [id])
+  viewCount          Int                    @default(0) @map("view_count")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  attachments        EducationalAttachment[]
+  userProgress       UserLearningProgress[]
+
   @@map("educational_materials")
+}
+
+model EducationalAttachment {
+  id          Int                 @id @default(autoincrement())
+  materialId  Int                 @map("material_id")
+  material    EducationalMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  title       String
+  fileUrl     String              @map("file_url")
+  fileType    String?             @map("file_type")
+  fileSize    Int                 @default(0) @map("file_size")
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  @@map("educational_attachments")
+}
+
+model UserLearningProgress {
+  id           Int                 @id @default(autoincrement())
+  userId       Int                 @map("user_id")
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  materialId   Int                 @map("material_id")
+  material     EducationalMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  isCompleted  Boolean             @default(false) @map("is_completed")
+  isBookmarked Boolean             @default(false) @map("is_bookmarked")
+  completedAt  DateTime?           @map("completed_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  @@unique([userId, materialId])
+  @@map("user_learning_progress")
 }
 
 model ActivityLog {

@@ -42,7 +42,8 @@ const MODULES = [
   { key: 'daily_output', label: 'گزارش تولید', group: 'ماژول‌های جدید' },
   { key: 'project_supply', label: 'تامین پروژه', group: 'ماژول‌های جدید' },
   { key: 'inspection_request', label: 'بازدید فنی', group: 'ماژول‌های جدید' },
-  { key: 'learning_view', label: 'مشاهده محتوای آموزشی', group: 'دسترسی‌های پایه' },
+  { key: 'learning_view', label: 'مشاهده محتوای آموزشی', group: 'آموزش و یادگیری' },
+  { key: 'learning_manage', label: 'مدیریت و بارگذاری محتوای آموزشی', group: 'آموزش و یادگیری' },
 ];
 
 module.exports = function() {

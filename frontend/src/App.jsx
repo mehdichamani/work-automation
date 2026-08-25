@@ -90,8 +90,8 @@ function AppRoutes() {
           <Route path="/audit-log" element={<PrivateRoute allowedRoles={['admin']}><AuditLog /></PrivateRoute>} />
           <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
           <Route path="/daily-work-report" element={<PrivateRoute><DailyWorkReport /></PrivateRoute>} />
-          <Route path="/learning" element={<PrivateRoute><LearningViewer /></PrivateRoute>} />
-          <Route path="/admin/educational" element={<PrivateRoute allowedRoles={['admin']}><EducationalManager /></PrivateRoute>} />
+          <Route path="/learning" element={<PrivateRoute requiredPermission="learning_view"><LearningViewer /></PrivateRoute>} />
+          <Route path="/admin/educational" element={<PrivateRoute requiredPermission="learning_manage"><EducationalManager /></PrivateRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>

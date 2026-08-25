@@ -75,7 +75,7 @@ function createMockPrisma() {
     backupSetting: [], backupLog: [], csvImportLog: [], setting: [],
     pushSubscription: [], attachment: [], jobApplication: [],
     jobApplicationWorkHistory: [], jobApplicationAttachment: [], jobApplicationCounter: [],
-    educationalMaterial: [],
+    educationalCategory: [], educationalMaterial: [], educationalAttachment: [], userLearningProgress: [],
   };
   let nextId = 10000;
 
