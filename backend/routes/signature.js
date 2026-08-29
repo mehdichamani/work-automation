@@ -220,104 +220,40 @@ module.exports = function() {
     }
   });
 
-  // ثبت امضا روی رکورد
-  router.post('/sign', async (req, res) => {
-    try {
-      const { module_name, record_id, comment } = req.body;
-      if (!module_name || !record_id) {
-        return res.status(400).json({ error: 'ماژول و شناسه رکورد الزامی است' });
-      }
-
-      const sig = await prisma.digitalSignature.findFirst({
-        where: { userId: Number(req.user.id) },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (!sig) {
-        return res.status(400).json({ error: 'ابتدا امضای خود را ذخیره کنید' });
-      }
-
-      const existingSign = await prisma.signatureLog.findFirst({
-        where: { userId: Number(req.user.id), moduleName: module_name, recordId: Number(record_id) },
-      });
-      if (existingSign) {
-        return res.status(400).json({ error: 'شما قبلاً این رکورد را امضا کرده‌اید' });
-      }
-
-      await prisma.signatureLog.create({
-        data: { userId: Number(req.user.id), signatureId: sig.id, moduleName: module_name, recordId: Number(record_id), action: 'signed', ipAddress: req.ip || null },
-      });
-
-      res.json({ success: true, message: 'امضا ثبت شد' });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // بررسی امضای رکورد
-  router.get('/verify/:module/:recordId', async (req, res) => {
+  // تاریخچه لاگ‌های ورود گروهی امضا
+  router.get('/admin/logs', roleGuard('admin', 'manager'), async (req, res) => {
     try {
       const logs = await prisma.signatureLog.findMany({
-        where: { moduleName: req.params.module, recordId: Number(req.params.recordId) },
-        orderBy: { createdAt: 'asc' },
-        include: {
-          signature: {
-            select: { signatureData: true, signatureType: true, scannedSignature: true, employeeCode: true },
-          },
-          user: { select: { fullName: true, id: true } },
-        },
-      });
-      const mapped = logs.map(l => flattenJoins(l, {
-        signature_data: 'signature.signatureData',
-        signature_type: 'signature.signatureType',
-        scanned_signature: 'signature.scannedSignature',
-        employee_code: 'signature.employeeCode',
-        full_name: 'user.fullName',
-        user_id: 'user.id',
-      }));
-      res.json(mapRow(mapped));
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // تاریخچه امضا
-  router.get('/log/:module/:recordId', async (req, res) => {
-    try {
-      const logs = await prisma.signatureLog.findMany({
-        where: { moduleName: req.params.module, recordId: Number(req.params.recordId) },
+        where: { action: 'bulk_upload' },
         orderBy: { createdAt: 'desc' },
+        take: 50,
         include: {
-          user: { select: { fullName: true } },
-          signature: {
-            select: { signatureData: true, scannedSignature: true, employeeCode: true },
-          },
+          user: { select: { id: true, fullName: true, username: true } },
         },
       });
-      const mapped = logs.map(l => flattenJoins(l, {
-        full_name: 'user.fullName',
-        signature_data: 'signature.signatureData',
-        scanned_signature: 'signature.scannedSignature',
-        employee_code: 'signature.employeeCode',
-      }));
-      res.json(mapRow(mapped));
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
 
-  // حذف امضا
-  router.delete('/:id', async (req, res) => {
-    try {
-      const sig = await prisma.digitalSignature.findFirst({
-        where: { id: Number(req.params.id), userId: Number(req.user.id) },
+      const mapped = logs.map(l => {
+        let detailsObj = null;
+        if (l.details) {
+          try {
+            detailsObj = JSON.parse(l.details);
+          } catch (e) {
+            detailsObj = null;
+          }
+        }
+
+        return {
+          id: l.id,
+          user_id: l.userId,
+          user_full_name: l.user?.fullName || 'کاربر سیستم',
+          action: l.action,
+          details: detailsObj,
+          ip_address: l.ipAddress,
+          created_at: l.createdAt,
+        };
       });
-      if (!sig) return res.status(404).json({ error: 'امضا یافت نشد' });
-      if (sig.scannedSignature) {
-        const filePath = path.join(__dirname, '..', sig.scannedSignature);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      }
-      await prisma.digitalSignature.delete({ where: { id: Number(req.params.id) } });
-      res.json({ success: true });
+
+      res.json(mapped);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -341,6 +277,8 @@ module.exports = function() {
       }
 
       const results = [];
+      const updatedPersonnel = [];
+
       for (const file of req.files) {
         const originalName = path.parse(file.originalname).name;
         // تبدیل ارقام فارسی و عربی به انگلیسی
@@ -403,10 +341,31 @@ module.exports = function() {
         }
 
         results.push({ file: file.originalname, status: 'ok', employeeCode, userName: user.fullName });
+        updatedPersonnel.push({ employeeCode, userName: user.fullName, file: file.originalname });
       }
 
       const okCount = results.filter(r => r.status === 'ok').length;
       const failCount = results.filter(r => r.status === 'error').length;
+
+      // ثبت لاگ رویداد ورود گروهی امضا
+      if (okCount > 0 || failCount > 0) {
+        await prisma.signatureLog.create({
+          data: {
+            userId: Number(req.user.id),
+            moduleName: 'bulk_upload',
+            action: 'bulk_upload',
+            ipAddress: req.ip || null,
+            details: JSON.stringify({
+              totalFiles: req.files.length,
+              okCount,
+              failCount,
+              updatedPersonnel,
+              failedFiles: results.filter(r => r.status === 'error'),
+            }),
+          },
+        });
+      }
+
       res.json({ success: true, okCount, failCount, results });
     } catch (err) {
       res.status(500).json({ error: err.message });

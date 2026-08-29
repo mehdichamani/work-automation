@@ -152,6 +152,7 @@ model SignatureLog {
   moduleName  String?  @map("module_name")
   recordId    Int?     @map("record_id")
   action      String
+  details     String?
   ipAddress   String?  @map("ip_address")
   createdAt   DateTime @default(now()) @map("created_at")
   @@map("signature_logs")
