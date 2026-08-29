@@ -44,9 +44,41 @@ const chatUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB strict limit
 });
 
+async function hasChatPerm(user) {
+  if (user.role === 'admin') return true;
+  const userPerm = await prisma.permission.findFirst({
+    where: { userId: Number(user.id), moduleKey: 'chat_view' }
+  });
+  if (userPerm !== null && userPerm !== undefined) {
+    return userPerm.isEnabled === true;
+  }
+  if (user.department_id) {
+    const deptPerm = await prisma.permission.findFirst({
+      where: { departmentId: Number(user.department_id), userId: null, moduleKey: 'chat_view' }
+    });
+    if (deptPerm !== null && deptPerm !== undefined) {
+      return deptPerm.isEnabled === true;
+    }
+  }
+  return false;
+}
+
 module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
+
+  // Chat permission guard
+  router.use(async (req, res, next) => {
+    try {
+      const allowed = await hasChatPerm(req.user);
+      if (!allowed) {
+        return res.status(403).json({ error: 'شما دسترسی استفاده از چت داخلی را ندارید' });
+      }
+      next();
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   router.get('/rooms', async (req, res) => {
     try {

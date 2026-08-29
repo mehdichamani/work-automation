@@ -70,7 +70,7 @@ function AppRoutes() {
           <Route path="/admin" element={<PrivateRoute allowedRoles={['admin']}><AdminPanel /></PrivateRoute>} />
           <Route path="/workflow" element={<PrivateRoute><WorkflowBuilder /></PrivateRoute>} />
           <Route path="/signature" element={<PrivateRoute><SignatureManager /></PrivateRoute>} />
-          <Route path="/chat" element={<PrivateRoute><Chat /></PrivateRoute>} />
+          <Route path="/chat" element={<PrivateRoute requiredPermission="chat_view"><Chat /></PrivateRoute>} />
           <Route path="/job-application" element={<PrivateRoute><JobApplication /></PrivateRoute>} />
           <Route path="/shifts" element={<PrivateRoute requiredPermission="shifts_manage"><Shifts /></PrivateRoute>} />
           <Route path="/admin/import-users" element={<PrivateRoute requiredPermission="user_import_csv"><UserImportCsv /></PrivateRoute>} />

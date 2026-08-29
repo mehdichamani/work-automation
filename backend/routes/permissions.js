@@ -44,6 +44,7 @@ const MODULES = [
   { key: 'inspection_request', label: 'بازدید فنی', group: 'ماژول‌های جدید' },
   { key: 'learning_view', label: 'مشاهده محتوای آموزشی', group: 'آموزش و یادگیری' },
   { key: 'learning_manage', label: 'مدیریت و بارگذاری محتوای آموزشی', group: 'آموزش و یادگیری' },
+  { key: 'chat_view', label: 'استفاده از چت و پیام‌رسان داخلی', group: 'ابزارهای ارتباطی' },
 ];
 
 module.exports = function() {
