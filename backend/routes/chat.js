@@ -1,4 +1,7 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { authMiddleware } = require('../middleware/auth');
 const { chatMessage } = require('../middleware/validate');
 const prisma = require('../database/prisma');
@@ -9,6 +12,37 @@ function getNowString() {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
+
+const chatStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, '..', 'uploads', 'chat_temp');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const safeName = `${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`;
+    cb(null, safeName);
+  }
+});
+
+const chatFileFilter = (req, file, cb) => {
+  const allowedMimes = [
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    'application/pdf', 'text/plain'
+  ];
+  if (allowedMimes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('فرمت فایل مجاز نیست. فقط عکس، PDF و متن متنی ساده مجاز است.'), false);
+  }
+};
+
+const chatUpload = multer({
+  storage: chatStorage,
+  fileFilter: chatFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB strict limit
+});
 
 module.exports = function() {
   const router = express.Router();
@@ -126,17 +160,80 @@ module.exports = function() {
         .map(m => flattenJoins(m, { user_name: 'user.fullName', user_role: 'user.role' }))
         .reverse();
 
+      const nowStr = getNowString();
       if (member) {
         await prisma.chatMember.update({
           where: { id: member.id },
-          data: { lastReadAt: getNowString() },
+          data: { lastReadAt: nowStr },
         });
       }
 
-      res.json(mapRow(mapped));
+      // Also get members' last read info so we can check if messages are read
+      const otherMembers = await prisma.chatMember.findMany({
+        where: { roomId: roomId, userId: { not: Number(req.user.id) } },
+        select: { userId: true, lastReadAt: true }
+      });
+
+      const result = mapped.map(msg => {
+        let isReadByOther = false;
+        if (msg.user_id === Number(req.user.id) && otherMembers.length > 0) {
+          const msgTime = new Date(msg.created_at).getTime();
+          isReadByOther = otherMembers.some(m => m.lastReadAt && new Date(String(m.lastReadAt).replace(' ', 'T')).getTime() >= msgTime);
+        }
+        return {
+          ...msg,
+          is_read: isReadByOther
+        };
+      });
+
+      res.json(mapRow(result));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  router.post('/rooms/:id/read', async (req, res) => {
+    try {
+      const roomId = Number(req.params.id);
+      if (isNaN(roomId)) return res.status(400).json({ error: 'شناسه نامعتبر است' });
+
+      const nowStr = getNowString();
+      await prisma.chatMember.updateMany({
+        where: { roomId: roomId, userId: Number(req.user.id) },
+        data: { lastReadAt: nowStr },
+      });
+
+      if (global.io) {
+        global.io.to(`room_${roomId}`).emit('chat:read', {
+          roomId,
+          userId: Number(req.user.id),
+          readAt: nowStr
+        });
+      }
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/rooms/:id/upload', (req, res, next) => {
+    chatUpload.single('file')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ error: err.message || 'خطا در بارگذاری فایل' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'فایلی ارسال نشده است' });
+      }
+      const fileUrl = `/uploads/chat_temp/${req.file.filename}`;
+      res.json({
+        success: true,
+        url: fileUrl,
+        filename: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      });
+    });
   });
 
   router.post('/rooms/:id/messages', chatMessage, async (req, res) => {
@@ -155,7 +252,7 @@ module.exports = function() {
         return res.status(403).json({ error: 'دسترسی غیرمجاز' });
       }
 
-      const result = await prisma.chatMessage.create({
+      const createdMsg = await prisma.chatMessage.create({
         data: {
           roomId: roomId,
           userId: Number(req.user.id),
@@ -163,9 +260,37 @@ module.exports = function() {
           messageType: message_type || 'text',
           attachmentUrl: attachment_url || null,
         },
+        include: { user: { select: { fullName: true, role: true } } },
       });
 
-      res.json({ id: result.id, success: true });
+      const mappedMsg = flattenJoins(createdMsg, { user_name: 'user.fullName', user_role: 'user.role' });
+      mappedMsg.is_read = false;
+
+      // Realtime emit via Socket.io
+      if (global.io) {
+        global.io.to(`room_${roomId}`).emit('chat:message', {
+          roomId,
+          message: mapRow(mappedMsg)
+        });
+
+        // Notify room members outside the room
+        const roomMembers = await prisma.chatMember.findMany({
+          where: { roomId: roomId, userId: { not: Number(req.user.id) } },
+          select: { userId: true }
+        });
+
+        for (const rm of roomMembers) {
+          global.io.to(`user_${rm.userId}`).emit('chat:notification', {
+            roomId,
+            senderId: Number(req.user.id),
+            senderName: req.user.fullName || req.user.full_name || 'کاربر',
+            message: message || (message_type === 'image' ? '📷 تصویر' : '📎 فایل پیوست'),
+            createdAt: createdMsg.createdAt
+          });
+        }
+      }
+
+      res.json(mapRow({ id: createdMsg.id, success: true, message: mappedMsg }));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -186,3 +311,4 @@ module.exports = function() {
 
   return router;
 };
+

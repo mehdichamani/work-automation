@@ -140,6 +140,24 @@ module.exports = function() {
         counts.jobApplication = parseInt(r, 10) || 0;
       }
 
+      // Calculate unread chat messages
+      const userMemberships = await prisma.chatMember.findMany({
+        where: { userId: Number(req.user.id) },
+        select: { roomId: true, lastReadAt: true }
+      });
+      let chatUnread = 0;
+      for (const cm of userMemberships) {
+        const cnt = await prisma.chatMessage.count({
+          where: {
+            roomId: cm.roomId,
+            userId: { not: Number(req.user.id) },
+            createdAt: { gt: cm.lastReadAt ? new Date(String(cm.lastReadAt).replace(' ', 'T')) : new Date('2000-01-01') },
+          }
+        });
+        chatUnread += cnt;
+      }
+      counts.chat = chatUnread;
+
       res.json(counts);
     } catch (err) {
       res.status(500).json({ error: err.message });

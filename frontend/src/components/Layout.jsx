@@ -282,6 +282,8 @@ export default function Layout({ children }) {
       const socket = io();
       socketRef.current = socket;
 
+      socket.emit('user:register', user.id);
+
       socket.on('update', () => {
         if (debounceNotifRef.current) clearTimeout(debounceNotifRef.current);
         debounceNotifRef.current = setTimeout(() => {
@@ -289,6 +291,33 @@ export default function Layout({ children }) {
           fetchPendingCounts();
         }, 300);
         window.dispatchEvent(new CustomEvent('ws-update'));
+      });
+
+      socket.on('chat:notification', (data) => {
+        fetchPendingCounts();
+        // If not in the chat page or in a different room, play sound and notify
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+          osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); // A5
+          gain.gain.setValueAtTime(0.08, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.35);
+        } catch (_) {}
+
+        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+          showBrowserNotification({
+            title: `پیام جدید از ${data.senderName}`,
+            body: data.message,
+            link: '/chat'
+          });
+        }
       });
 
       const interval = setInterval(() => {
@@ -304,6 +333,17 @@ export default function Layout({ children }) {
       };
     }
   }, [user, fetchNotifications]);
+
+  // Update browser tab title based on unread counts
+  useEffect(() => {
+    const totalUnread = (notifications.filter(n => !n.is_read).length) + (pendingCounts.chat || 0);
+    const baseTitle = 'سیستم اتوماسیون اداری اروین شیشه ساچی';
+    if (totalUnread > 0) {
+      document.title = `(${totalUnread}) ${baseTitle}`;
+    } else {
+      document.title = baseTitle;
+    }
+  }, [notifications, pendingCounts]);
 
   const markRead = async (id) => {
     await api.put(`/notifications/${id}/read`);
@@ -332,6 +372,7 @@ export default function Layout({ children }) {
       if (item.path === '/letters') count = pendingCounts.letters;
       if (item.path === '/inventory') count = pendingCounts.inventory;
       if (item.path === '/job-application') count = pendingCounts.jobApplication;
+      if (item.path === '/chat') count = pendingCounts.chat;
 
       return {
         ...item,
@@ -348,6 +389,7 @@ export default function Layout({ children }) {
       totalPending: totalGroupPending
     };
   }).filter(group => group.visibleItems.length > 0);
+
 
   return (
     <div className="flex h-screen overflow-hidden">

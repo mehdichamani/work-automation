@@ -266,8 +266,61 @@ async function startServer() {
   global.io = io;
 
   io.on('connection', (socket) => {
+    socket.on('user:register', (userId) => {
+      if (userId) {
+        socket.join(`user_${userId}`);
+      }
+    });
+
+    socket.on('chat:join', (roomId) => {
+      if (roomId) {
+        socket.join(`room_${roomId}`);
+      }
+    });
+
+    socket.on('chat:leave', (roomId) => {
+      if (roomId) {
+        socket.leave(`room_${roomId}`);
+      }
+    });
+
+    socket.on('chat:typing', ({ roomId, userId, userName, isTyping }) => {
+      if (roomId) {
+        socket.to(`room_${roomId}`).emit('chat:typing', { roomId, userId, userName, isTyping });
+      }
+    });
+
     socket.on('disconnect', () => {});
   });
+
+  // Schedule cleanup of temporary chat attachments (> 24 hours old) every hour
+  const chatTempDir = path.join(__dirname, 'uploads', 'chat_temp');
+  if (!fs.existsSync(chatTempDir)) {
+    fs.mkdirSync(chatTempDir, { recursive: true });
+  }
+
+  const cleanOldChatFiles = () => {
+    try {
+      if (!fs.existsSync(chatTempDir)) return;
+      const now = Date.now();
+      const maxAgeMs = 24 * 60 * 60 * 1000;
+      const files = fs.readdirSync(chatTempDir);
+      for (const file of files) {
+        const filePath = path.join(chatTempDir, file);
+        try {
+          const stats = fs.statSync(filePath);
+          if (now - stats.mtimeMs > maxAgeMs) {
+            fs.unlinkSync(filePath);
+          }
+        } catch (_) {}
+      }
+    } catch (e) {
+      console.error('Error cleaning old chat files:', e.message);
+    }
+  };
+  setInterval(cleanOldChatFiles, 60 * 60 * 1000);
+  cleanOldChatFiles();
+
 
   const bindHost = process.env.BIND_HOST || '0.0.0.0';
   server = httpServer.listen(PORT, bindHost, () => {
