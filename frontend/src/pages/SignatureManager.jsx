@@ -1,22 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
-import { toJalali, toJalaliDateTime } from '../utils/dateUtils';
+import { toJalaliDateTime } from '../utils/dateUtils';
 import SignaturePad from '../components/SignaturePad';
 
 export default function SignatureManager() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const isAdminOrManager = user.role === 'admin' || user.role === 'manager';
 
-  // Navigation tab: default to 'admin-overview' if admin/manager, else 'my-sig'
-  const [activeTab, setActiveTab] = useState(isAdminOrManager ? 'admin-overview' : 'my-sig');
-
-  // --- State for Personal Signature ---
-  const [personalSig, setPersonalSig] = useState(null);
-  const [personalLoading, setPersonalLoading] = useState(true);
-  const [personalUploading, setPersonalUploading] = useState(false);
-  const [personalDrawTab, setPersonalDrawTab] = useState('draw'); // 'draw' | 'scan'
-  const personalFileInputRef = useRef(null);
+  // Navigation tabs: 'admin-overview', 'bulk-upload', 'logs'
+  const [activeTab, setActiveTab] = useState('admin-overview');
 
   // --- State for Admin Personnel Signature Management ---
   const [personnelList, setPersonnelList] = useState([]);
@@ -45,23 +38,8 @@ export default function SignatureManager() {
 
   // Load Initial Data
   useEffect(() => {
-    loadPersonalSignature();
-    if (isAdminOrManager) {
-      loadPersonnelList();
-    }
-  }, [isAdminOrManager]);
-
-  const loadPersonalSignature = async () => {
-    try {
-      setPersonalLoading(true);
-      const res = await api.get('/signature/my');
-      setPersonalSig(res.data);
-    } catch (err) {
-      // ignore
-    } finally {
-      setPersonalLoading(false);
-    }
-  };
+    loadPersonnelList();
+  }, []);
 
   const loadPersonnelList = async () => {
     try {
@@ -142,52 +120,6 @@ export default function SignatureManager() {
     return { total, signed, unsigned, percent };
   }, [personnelList]);
 
-  // --- Handlers for Personal Signature ---
-  const handleSavePersonalDrawn = async (signatureData) => {
-    try {
-      await api.post('/signature/save', { signature_data: signatureData, signature_type: 'drawn' });
-      toast.success('امضای شما با موفقیت ذخیره شد');
-      loadPersonalSignature();
-      if (isAdminOrManager) loadPersonnelList();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'خطا در ذخیره امضا');
-    }
-  };
-
-  const handleUploadPersonalScan = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setPersonalUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('signature', file);
-      formData.append('employee_code', user.employee_code || user.id);
-      await api.post('/signature/upload-scan', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      toast.success('امضای اسکن شده شما با موفقیت ذخیره شد');
-      loadPersonalSignature();
-      if (isAdminOrManager) loadPersonnelList();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'خطا در آپلود امضا');
-    } finally {
-      setPersonalUploading(false);
-      if (personalFileInputRef.current) personalFileInputRef.current.value = '';
-    }
-  };
-
-  const handleDeletePersonal = async () => {
-    if (!personalSig || !confirm('آیا از حذف امضای دیجیتال خود اطمینان دارید؟')) return;
-    try {
-      await api.delete(`/signature/${personalSig.id}`);
-      toast.success('امضا حذف گردید');
-      setPersonalSig(null);
-      if (isAdminOrManager) loadPersonnelList();
-    } catch (err) {
-      toast.error('خطا در حذف امضا');
-    }
-  };
-
   // --- Handlers for Admin Action on Single User ---
   const handleOpenAssignModal = (targetUser) => {
     setSelectedUserForAction(targetUser);
@@ -210,7 +142,6 @@ export default function SignatureManager() {
       setShowAssignModal(false);
       setSelectedUserForAction(null);
       loadPersonnelList();
-      if (Number(selectedUserForAction.id) === Number(user.id)) loadPersonalSignature();
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا در آپلود امضای کاربر');
     } finally {
@@ -231,7 +162,6 @@ export default function SignatureManager() {
       setShowAssignModal(false);
       setSelectedUserForAction(null);
       loadPersonnelList();
-      if (Number(selectedUserForAction.id) === Number(user.id)) loadPersonalSignature();
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا در ذخیره امضا');
     }
@@ -243,7 +173,6 @@ export default function SignatureManager() {
       const res = await api.delete(`/signature/admin/user/${targetUser.id}`);
       toast.success(res.data.message || 'امضای کاربر حذف شد');
       loadPersonnelList();
-      if (Number(targetUser.id) === Number(user.id)) setPersonalSig(null);
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا در حذف امضا');
     }
@@ -373,9 +302,7 @@ export default function SignatureManager() {
         toast.error(`${res.data.failCount} فایل با خطا مواجه شد`);
       }
 
-      // Cleanup successful files from previews
       loadPersonnelList();
-      loadPersonalSignature();
     } catch (err) {
       toast.error(err.response?.data?.error || 'خطا در آپلود گروهی');
     } finally {
@@ -393,86 +320,65 @@ export default function SignatureManager() {
             <div className="flex items-center gap-3">
               <span className="text-3xl p-2 bg-white/20 rounded-2xl backdrop-blur-md">✍️</span>
               <div>
-                <h1 className="text-2xl font-extrabold tracking-tight">سامانه مدیریت امضای دیجیتال</h1>
+                <h1 className="text-2xl font-extrabold tracking-tight">کنترل و مدیریت امضای دیجیتال پرسنل</h1>
                 <p className="text-blue-100 text-sm mt-1">
-                  کنترل متمرکز، ورود گروهی و ثبت امضای رسمی پرسنل و مدیران جهت استفاده در اسناد و نامه‌ها
+                  سامانه متمرکز ثبت، ورود گروهی و مدیریت تصاویر امضای پرسنل سازمان جهت الصاق در اسناد و نامه‌ها
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Quick stats badge if Admin/Manager */}
-          {isAdminOrManager && (
-            <div className="flex items-center gap-3 bg-white/15 backdrop-blur-md p-3 rounded-2xl border border-white/20 self-start md:self-auto">
-              <div className="text-center px-2">
-                <span className="text-xs text-blue-200 block">کل پرسنل</span>
-                <span className="text-lg font-bold">{stats.total}</span>
-              </div>
-              <div className="w-px h-8 bg-white/20" />
-              <div className="text-center px-2">
-                <span className="text-xs text-emerald-300 block">دارای امضا</span>
-                <span className="text-lg font-bold text-emerald-300">{stats.signed}</span>
-              </div>
-              <div className="w-px h-8 bg-white/20" />
-              <div className="text-center px-2">
-                <span className="text-xs text-amber-200 block">فاقد امضا</span>
-                <span className="text-lg font-bold text-amber-200">{stats.unsigned}</span>
-              </div>
+          {/* Quick stats badge */}
+          <div className="flex items-center gap-3 bg-white/15 backdrop-blur-md p-3 rounded-2xl border border-white/20 self-start md:self-auto">
+            <div className="text-center px-2">
+              <span className="text-xs text-blue-200 block">کل پرسنل</span>
+              <span className="text-lg font-bold">{stats.total}</span>
             </div>
-          )}
+            <div className="w-px h-8 bg-white/20" />
+            <div className="text-center px-2">
+              <span className="text-xs text-emerald-300 block">دارای امضا</span>
+              <span className="text-lg font-bold text-emerald-300">{stats.signed}</span>
+            </div>
+            <div className="w-px h-8 bg-white/20" />
+            <div className="text-center px-2">
+              <span className="text-xs text-amber-200 block">فاقد امضا</span>
+              <span className="text-lg font-bold text-amber-200">{stats.unsigned}</span>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Main Tabs Navigation */}
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-2">
-        {isAdminOrManager && (
-          <>
-            <button
-              onClick={() => setActiveTab('admin-overview')}
-              className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold text-sm transition-all duration-200 ${
-                activeTab === 'admin-overview'
-                  ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/25 scale-[1.02]'
-                  : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
-              }`}
-            >
-              <span>👥</span>
-              <span>مدیریت امضای پرسنل</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'admin-overview' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                {stats.total}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('bulk-upload')}
-              className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold text-sm transition-all duration-200 ${
-                activeTab === 'bulk-upload'
-                  ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/25 scale-[1.02]'
-                  : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
-              }`}
-            >
-              <span>📁</span>
-              <span>ورود گروهی امضاها (Bulk)</span>
-              {bulkPreviews.length > 0 && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500 text-white animate-pulse">
-                  {bulkPreviews.length} فایل
-                </span>
-              )}
-            </button>
-          </>
-        )}
-
         <button
-          onClick={() => setActiveTab('my-sig')}
+          onClick={() => setActiveTab('admin-overview')}
           className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold text-sm transition-all duration-200 ${
-            activeTab === 'my-sig'
+            activeTab === 'admin-overview'
               ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/25 scale-[1.02]'
               : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
           }`}
         >
-          <span>👤</span>
-          <span>امضای من</span>
-          {personalSig && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">ثبت شده</span>
+          <span>👥</span>
+          <span>مدیریت امضای پرسنل</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'admin-overview' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'}`}>
+            {stats.total}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('bulk-upload')}
+          className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold text-sm transition-all duration-200 ${
+            activeTab === 'bulk-upload'
+              ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/25 scale-[1.02]'
+              : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+          }`}
+        >
+          <span>📁</span>
+          <span>ورود گروهی امضاها (Bulk Upload)</span>
+          {bulkPreviews.length > 0 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500 text-white animate-pulse">
+              {bulkPreviews.length} فایل
+            </span>
           )}
         </button>
 
@@ -495,7 +401,7 @@ export default function SignatureManager() {
       {/* ───────────────────────────────────────────────────────────── */}
       {/* TAB 1: ADMIN PERSONNEL SIGNATURE MANAGEMENT                   */}
       {/* ───────────────────────────────────────────────────────────── */}
-      {isAdminOrManager && activeTab === 'admin-overview' && (
+      {activeTab === 'admin-overview' && (
         <div className="space-y-6">
           {/* Progress Bar & Filter Card */}
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
@@ -700,7 +606,7 @@ export default function SignatureManager() {
       {/* ───────────────────────────────────────────────────────────── */}
       {/* TAB 2: BULK SIGNATURE UPLOAD                                 */}
       {/* ───────────────────────────────────────────────────────────── */}
-      {isAdminOrManager && activeTab === 'bulk-upload' && (
+      {activeTab === 'bulk-upload' && (
         <div className="space-y-6">
           {/* Instructions Box */}
           <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-3xl p-6">
@@ -945,142 +851,7 @@ export default function SignatureManager() {
       )}
 
       {/* ───────────────────────────────────────────────────────────── */}
-      {/* TAB 3: PERSONAL SIGNATURE (MY SIGNATURE)                      */}
-      {/* ───────────────────────────────────────────────────────────── */}
-      {activeTab === 'my-sig' && (
-        <div className="max-w-2xl mx-auto space-y-6">
-          {/* Current signature display */}
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
-            <h3 className="font-bold text-gray-800 text-base flex items-center gap-2">
-              <span>🔏</span>
-              <span>امضای دیجیتال ثبت شده برای شما</span>
-            </h3>
-
-            {personalLoading ? (
-              <div className="text-center py-8 text-gray-400">در حال بارگذاری...</div>
-            ) : personalSig ? (
-              <div className="space-y-4">
-                <div className="border-2 border-dashed border-gray-200 rounded-2xl p-6 bg-gray-50/50 text-center">
-                  {personalSig.scanned_signature ? (
-                    <img
-                      src={personalSig.scanned_signature}
-                      alt="امضای اسکن شده"
-                      className="max-h-36 max-w-xs mx-auto object-contain"
-                    />
-                  ) : personalSig.signature_data ? (
-                    <img
-                      src={personalSig.signature_data}
-                      alt="امضای کشیده شده"
-                      className="max-h-36 max-w-xs mx-auto object-contain"
-                    />
-                  ) : null}
-
-                  <div className="flex items-center justify-center gap-3 mt-4">
-                    <span
-                      className={`text-xs px-3 py-1 rounded-full font-medium ${
-                        personalSig.signature_type === 'scanned'
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-emerald-100 text-emerald-700'
-                      }`}
-                    >
-                      {personalSig.signature_type === 'scanned' ? 'تصویر اسکن شده' : 'رسم شده دستی'}
-                    </span>
-                    {personalSig.employee_code && (
-                      <span className="text-xs text-gray-500 font-mono">
-                        کد پرسنلی: {personalSig.employee_code}
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="text-[11px] text-gray-400 mt-2">
-                    آخرین بروزرسانی: {toJalali(personalSig.updated_at || personalSig.created_at)}
-                  </p>
-                </div>
-
-                <div className="flex justify-end">
-                  <button
-                    onClick={handleDeletePersonal}
-                    className="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-xs font-bold transition-colors"
-                  >
-                    🗑️ حذف امضای فعلی
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-2xl bg-gray-50/50">
-                <p className="text-3xl mb-2">✍️</p>
-                <p className="text-sm font-medium text-gray-600">شما هنوز امضای دیجیتال ثبت نکرده‌اید</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  می‌توانید با استفاده از کادرهای زیر امضای خود را بکشید یا اسکن آن را آپلود نمایید.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Draw / Upload for personal */}
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
-            <div className="flex gap-2 border-b border-gray-100 pb-3">
-              <button
-                onClick={() => setPersonalDrawTab('draw')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                  personalDrawTab === 'draw'
-                    ? 'bg-primary-600 text-white shadow-md shadow-primary-500/20'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                ✏️ ترسیم امضا با قلم / ماوس
-              </button>
-              <button
-                onClick={() => setPersonalDrawTab('scan')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                  personalDrawTab === 'scan'
-                    ? 'bg-primary-600 text-white shadow-md shadow-primary-500/20'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                📷 آپلود تصویر اسکن شده
-              </button>
-            </div>
-
-            {personalDrawTab === 'draw' && (
-              <div>
-                <p className="text-xs text-gray-500 mb-3">
-                  در کادر زیر با ماوس یا انگشت خود امضا کنید و سپس روی «ذخیره امضا» کلیک کنید:
-                </p>
-                <SignaturePad onSave={handleSavePersonalDrawn} existingSignature={personalSig?.signature_data} />
-              </div>
-            )}
-
-            {personalDrawTab === 'scan' && (
-              <div className="space-y-4">
-                <p className="text-xs text-gray-500">
-                  فایل تصویر اسکن شده امضای خود را با پس‌زمینه شفاف یا سفید آپلود نمایید:
-                </p>
-                <div className="border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center hover:border-primary-400 transition-colors">
-                  <input
-                    ref={personalFileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleUploadPersonalScan}
-                    className="hidden"
-                    id="my-sig-upload"
-                  />
-                  <label htmlFor="my-sig-upload" className="cursor-pointer block">
-                    <div className="text-4xl mb-2">📷</div>
-                    <p className="text-sm text-gray-700 font-bold">
-                      {personalUploading ? 'در حال ذخیره امضا...' : 'انتخاب تصویر امضا'}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">فرمت‌های PNG، JPG (حداکثر ۵ مگابایت)</p>
-                  </label>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ───────────────────────────────────────────────────────────── */}
-      {/* TAB 4: LOGS & HISTORY                                         */}
+      {/* TAB 3: LOGS & HISTORY                                         */}
       {/* ───────────────────────────────────────────────────────────── */}
       {activeTab === 'logs' && (
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">

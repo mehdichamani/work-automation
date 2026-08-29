@@ -41,19 +41,6 @@ module.exports = function() {
   const router = express.Router();
   router.use(authMiddleware);
 
-  // دریافت امضای خود کاربر
-  router.get('/my', async (req, res) => {
-    try {
-      const sig = await prisma.digitalSignature.findFirst({
-        where: { userId: Number(req.user.id) },
-        orderBy: { createdAt: 'desc' },
-      });
-      res.json(mapRow(sig));
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
   // دریافت امضای یک کاربر خاص (برای نمایش در برگه)
   router.get('/user/:userId', async (req, res) => {
     try {
@@ -203,49 +190,23 @@ module.exports = function() {
     }
   });
 
-  // آپلود امضای اسکن شده
-  router.post('/upload-scan', upload.single('signature'), async (req, res) => {
-    try {
-      if (!req.file) return res.status(400).json({ error: 'فایل امضا انتخاب نشده' });
-
-      const url = `/uploads/signatures/${req.file.filename}`;
-      const employeeCode = req.body.employee_code || req.user.employee_code || req.user.id;
-
-      // حذف امضای قبلی
-      const oldSig = await prisma.digitalSignature.findFirst({ where: { userId: Number(req.user.id) } });
-      if (oldSig && oldSig.scannedSignature) {
-        const oldPath = path.join(__dirname, '..', oldSig.scannedSignature);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      }
-
-      // بروزرسانی یا درج
-      if (oldSig) {
-        await prisma.digitalSignature.update({
-          where: { id: oldSig.id },
-          data: { scannedSignature: url, employeeCode, signatureType: 'scanned' },
-        });
-      } else {
-        await prisma.digitalSignature.create({
-          data: { userId: Number(req.user.id), signatureData: '', signatureType: 'scanned', scannedSignature: url, employeeCode },
-        });
-      }
-
-      res.json({ url, success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ذخیره امضای کشیده شده
-  router.post('/save', async (req, res) => {
+  // ذخیره امضای کشیده شده برای کاربر توسط مدیر سیستم
+  router.post('/save', roleGuard('admin'), async (req, res) => {
     try {
       const { signature_data, signature_type, user_id } = req.body;
       if (!signature_data) {
         return res.status(400).json({ error: 'داده امضا الزامی است' });
       }
 
-      const targetUserId = (user_id && req.user.role === 'admin') ? parseInt(user_id, 10) : req.user.id;
-      const employeeCode = req.user.employee_code || targetUserId;
+      const targetUserId = parseInt(user_id, 10);
+      if (!targetUserId) {
+        return res.status(400).json({ error: 'شناسه کاربر الزامی است' });
+      }
+
+      const user = await prisma.user.findUnique({ where: { id: targetUserId } });
+      if (!user) return res.status(404).json({ error: 'کاربر مورد نظر یافت نشد' });
+
+      const employeeCode = String(targetUserId);
 
       await prisma.digitalSignature.deleteMany({ where: { userId: Number(targetUserId) } });
 
