@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const hpp = require('hpp');
 const mongoSanitize = require('express-mongo-sanitize');
+const fs = require('fs');
 const path = require('path');
 const { exec, execFile } = require('child_process');
 const prisma = require('./database/prisma');
