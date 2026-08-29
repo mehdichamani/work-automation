@@ -93,8 +93,12 @@ export default function UserImportCsv() {
     role: ['role', 'user_role', 'نقش', 'سمت', 'نوع کاربر', 'نوع کاربری', 'سطح دسترسی', 'نقش کاربر'],
     department: ['department', 'department_name', 'dept', 'واحد', 'نام واحد', 'دپارتمان', 'بخش', 'قسمت'],
     quota: ['total_hours', 'hours', 'quota', 'سهمیه', 'سهمیه (ساعت)', 'سهمیه مرخصی', 'سهمیه ساعت', 'ساعت مرخصی', 'سهمیه مرخصی (ساعت)', 'سهمیه (روز)', 'سهمیه روز', 'total_days', 'days'],
+    usedHours: ['used_hours', 'used', 'مصرف شده', 'مصرف شده (ساعت)', 'استفاده شده', 'مرخصی مصرف شده', 'ساعت استفاده شده'],
     workType: ['work_type', 'worktype', 'shift', 'وضعیت کاری', 'نوع کار', 'وضعیت کار', 'شیفت', 'نوع شیفت', 'نوع نوبت'],
-    password: ['password', 'pass', 'کلمه عبور', 'رمز عبور', 'رمز', 'پسورد', 'گذرواژه']
+    phone: ['phone', 'mobile', 'cellphone', 'موبایل', 'شماره موبایل', 'تلفن همراه', 'شماره تماس', 'تلفن'],
+    email: ['email', 'mail', 'ایمیل', 'پست الکترونیکی', 'پست الکترونیک', 'رایانامه'],
+    isActive: ['is_active', 'status', 'وضعیت حساب', 'وضعیت کاربر', 'وضعیت', 'فعال'],
+    password: ['password', 'pass', 'کلمه عبور', 'رمز عبور', 'رمز', 'پسورد', 'گذرواژه', 'کلمه عبور جدید', 'رمز جدید']
   };
 
   const findValueByAliases = (rowObj, aliasList) => {
@@ -109,8 +113,8 @@ export default function UserImportCsv() {
   const processFile = async (file) => {
     if (!file) return;
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['xlsx', 'xls', 'csv', 'txt'].includes(ext)) {
-      toast.error('لطفاً فقط فایل با فرمت Excel (.xlsx, .xls) یا CSV (.csv) انتخاب کنید');
+    if (!['csv', 'txt', 'xlsx', 'xls'].includes(ext)) {
+      toast.error('لطفاً فایل با فرمت استاندارد CSV (.csv) یا اکسل انتخاب کنید');
       return;
     }
 
@@ -121,7 +125,7 @@ export default function UserImportCsv() {
       const workbook = XLSX.read(data, { type: 'array', cellDates: true, codepage: 65001 });
       const firstSheetName = workbook.SheetNames[0];
       if (!firstSheetName) {
-        toast.error('فایل انتخابی هیچ برگه‌ای (Sheet) ندارد');
+        toast.error('فایل انتخابی هیچ برگه‌ای ندارد');
         return;
       }
       const worksheet = workbook.Sheets[firstSheetName];
@@ -213,18 +217,34 @@ export default function UserImportCsv() {
       const rawRole = findValueByAliases(rowObj, aliases.role);
       const deptName = findValueByAliases(rowObj, aliases.department);
       const quotaStrRaw = findValueByAliases(rowObj, aliases.quota) || '0';
+      const usedHoursRaw = findValueByAliases(rowObj, aliases.usedHours);
       const rawWorkType = findValueByAliases(rowObj, aliases.workType);
+      const phone = toEnglishDigits(findValueByAliases(rowObj, aliases.phone));
+      const email = findValueByAliases(rowObj, aliases.email);
+      const rawIsActive = findValueByAliases(rowObj, aliases.isActive);
       const password = findValueByAliases(rowObj, aliases.password);
 
       const idStr = toEnglishDigits(idStrRaw);
       const quotaStr = toEnglishDigits(quotaStrRaw);
+      const usedStr = toEnglishDigits(usedHoursRaw);
 
       const id = parseInt(idStr, 10);
       const quotaHours = parseFloat(quotaStr) || 0;
+      const usedHours = usedStr !== '' ? (parseFloat(usedStr) || 0) : null;
+      const remainingHours = usedHours !== null ? Math.round((quotaHours - usedHours) * 100) / 100 : quotaHours;
+
       const normalizedRoleKey = rawRole.toLowerCase().trim();
       const role = roleMap[normalizedRoleKey] || roleMap[rawRole.trim()] || '';
       const normalizedWorkTypeKey = rawWorkType.toLowerCase().trim();
       const work_type = workTypeMap[normalizedWorkTypeKey] || workTypeMap[rawWorkType.trim()] || 'normal';
+
+      let is_active = true;
+      if (rawIsActive) {
+        const normActive = rawIsActive.toLowerCase().trim();
+        if (normActive === 'غیرفعال' || normActive === 'false' || normActive === '0') {
+          is_active = false;
+        }
+      }
 
       const errors = [];
       if (!idStr) {
@@ -278,7 +298,12 @@ export default function UserImportCsv() {
         role: role || rawRole,
         department_name: deptName.trim(),
         total_hours: quotaHours,
+        used_hours: usedHours,
+        remaining_hours: remainingHours,
         work_type,
+        phone,
+        email,
+        is_active,
         password,
         errors,
         deptMessage,
@@ -390,7 +415,7 @@ export default function UserImportCsv() {
       admin: 'مدیر سیستم',
       manager: 'مدیر',
       supervisor: 'سرپرست',
-      user: 'کاربر'
+      user: 'کاربر عادی'
     };
     return labels[role] || role;
   };
@@ -404,30 +429,41 @@ export default function UserImportCsv() {
     return res || '0 ساعت';
   };
 
-  const downloadSampleExcel = () => {
-    const sampleData = [
-      ['کد پرسنلی', 'نام کامل', 'نقش', 'واحد', 'سهمیه (ساعت)', 'وضعیت کاری', 'کلمه عبور'],
-      [1005, 'رضا محمدی', 'کاربر عادی', 'اداری', 82, 'عادی', '1005'],
-      [1006, 'علی علوی', 'سرپرست', 'فناوری اطلاعات', 60, 'عادی', 'pass123'],
-      [1007, 'حسن حسینی', 'مدیر', 'تولید و خط', 40, 'شیفتی', '1007']
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(sampleData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Users');
-    XLSX.writeFile(wb, 'sample_users.xlsx');
-    toast.success('فایل نمونه اکسل دانلود شد');
+  const handleExportUsersCsv = async () => {
+    try {
+      toast.loading('در حال آماده‌سازی فایل CSV...', { id: 'exportCsv' });
+      const res = await api.get('/admin/users/export-csv', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv;charset=utf-8;' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `users_export_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('فایل خروجی کاربران با فرمت CSV UTF-8 دانلود شد', { id: 'exportCsv' });
+    } catch (err) {
+      console.error('CSV Export Error:', err);
+      toast.error('خطا در خروجی گرفتن از کاربران', { id: 'exportCsv' });
+    }
   };
 
   const downloadSampleCsv = () => {
-    const sampleText = "کد پرسنلی,نام کامل,نقش,واحد,سهمیه (ساعت),وضعیت کاری,کلمه عبور\n1005,رضا محمدی,کاربر عادی,اداری,82,عادی,1005\n1006,علی علوی,سرپرست,فناوری اطلاعات,60,عادی,pass123\n1007,حسن حسینی,مدیر,تولید و خط,40,شیفتی,1007";
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), sampleText], { type: 'text/csv;charset=utf-8;' });
+    const sampleHeaders = "کد پرسنلی,نام کامل,نقش,واحد,وضعیت کاری,شماره موبایل,ایمیل,سهمیه (ساعت),مصرف شده (ساعت),مانده مرخصی (ساعت),وضعیت حساب,کلمه عبور جدید\n";
+    const sampleRows = [
+      "10005,رضا محمدی,کاربر عادی,اداری,عادی,09123456789,reza@example.com,82,10,72,فعال,",
+      "10006,علی علوی,سرپرست,فناوری اطلاعات,عادی,09351112233,ali@example.com,60,0,60,فعال,",
+      "10007,حسن حسینی,مدیر,تولید و خط,شیفتی,09142223344,hasan@example.com,40,8,32,فعال,"
+    ].join("\n");
+    const fullContent = sampleHeaders + sampleRows;
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), fullContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = 'sample_users.csv';
     a.click();
     URL.revokeObjectURL(url);
-    toast.success('فایل نمونه CSV دانلود شد');
+    toast.success('فایل نمونه استاندارد CSV دانلود شد');
   };
 
   const downloadCsvFile = async (logId, fileName) => {
@@ -454,19 +490,19 @@ export default function UserImportCsv() {
         <div className="absolute inset-0 bg-white/5 opacity-10 backdrop-blur-2xl"></div>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">وارد کردن گروهی کاربران</h1>
-            <p className="text-white/80 text-sm mt-1">ایجاد و به‌روزرسانی سریع پرسنل به همراه ثبت سهمیه اولیه از طریق فایل اکسل (Excel) یا CSV</p>
+            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">ورود و خروج گروهی کاربران</h1>
+            <p className="text-white/80 text-sm mt-1">مدیریت رفت‌وبرگشتی اطلاعات پرسنل، سهمیه و مانده مرخصی، شماره تماس و واحدها با استاندارد CSV (UTF-8)</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={downloadSampleExcel}
-              className="bg-white/20 hover:bg-white/30 border border-white/30 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+              onClick={handleExportUsersCsv}
+              className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
             >
-              📊 دانلود فایل نمونه اکسل (XLSX)
+              📥 خروجی کاربران به CSV (UTF-8)
             </button>
             <button
               onClick={downloadSampleCsv}
-              className="bg-white/10 hover:bg-white/20 border border-white/20 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+              className="bg-white/15 hover:bg-white/25 border border-white/30 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
             >
               📄 دانلود فایل نمونه CSV
             </button>
@@ -480,21 +516,25 @@ export default function UserImportCsv() {
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-4">
             <h3 className="font-bold text-gray-800 text-base flex items-center gap-2">
               <span>📋</span>
-              <span>راهنمای ستون‌های فایل</span>
+              <span>راهنمای ستون‌های استاندارد CSV</span>
             </h3>
             <div className="space-y-3 text-xs text-gray-600 leading-relaxed">
-              <p>فایل اکسل یا CSV باید شامل ردیف عناوین (Header) با نام‌های زیر باشد:</p>
+              <p>فایل CSV باید با کدگذاری <strong>UTF-8</strong> و شامل ردیف عناوین زیر باشد:</p>
               <ul className="list-disc pr-4 space-y-1.5">
-                <li><strong className="text-gray-900">کد پرسنلی</strong>: عدد منحصربه‌فرد (اجباری)</li>
+                <li><strong className="text-gray-900">کد پرسنلی</strong>: عدد یکتا حداقل ۵ رقمی (اجباری)</li>
                 <li><strong className="text-gray-900">نام کامل</strong>: نام و نام خانوادگی (اجباری)</li>
-                <li><strong className="text-gray-900">نقش</strong>: مانند <code className="bg-gray-100 px-1 py-0.5 rounded">مدیر</code>، <code className="bg-gray-100 px-1 py-0.5 rounded">سرپرست</code> یا <code className="bg-gray-100 px-1 py-0.5 rounded">کاربر عادی</code></li>
-                <li><strong className="text-gray-900">واحد</strong>: نام واحد سازمانی (در صورت نبودن، واحد جدید خودکار ایجاد می‌شود)</li>
-                <li><strong className="text-gray-900">سهمیه (ساعت)</strong>: سهمیه سالانه به ساعت — مثلاً <code className="bg-gray-100 px-1 py-0.5 rounded">82</code> ساعت (۱۰ روز و ۲ ساعت)</li>
+                <li><strong className="text-gray-900">نقش</strong>: مانند <code className="bg-gray-100 px-1 py-0.5 rounded">کاربر عادی</code>، <code className="bg-gray-100 px-1 py-0.5 rounded">سرپرست</code> یا <code className="bg-gray-100 px-1 py-0.5 rounded">مدیر</code></li>
+                <li><strong className="text-gray-900">واحد</strong>: نام واحد سازمانی (خودکار ایجاد می‌شود)</li>
                 <li><strong className="text-gray-900">وضعیت کاری</strong>: مانند <code className="bg-gray-100 px-1 py-0.5 rounded">عادی</code> یا <code className="bg-gray-100 px-1 py-0.5 rounded">شیفتی</code></li>
-                <li><strong className="text-gray-900">کلمه عبور</strong>: رمز عبور (در صورت خالی بودن، کد پرسنلی پیش‌فرض است)</li>
+                <li><strong className="text-gray-900">شماره موبایل</strong>: شماره تماس جهت پیامک‌ها</li>
+                <li><strong className="text-gray-900">ایمیل</strong>: آدرس پست الکترونیکی</li>
+                <li><strong className="text-gray-900">سهمیه (ساعت)</strong>: سهمیه سالانه مرخصی به ساعت</li>
+                <li><strong className="text-gray-900">مصرف شده (ساعت)</strong>: میزان مرخصی استفاده شده تاکنون</li>
+                <li><strong className="text-gray-900">وضعیت حساب</strong>: <code className="bg-gray-100 px-1 py-0.5 rounded">فعال</code> یا <code className="bg-gray-100 px-1 py-0.5 rounded">غیرفعال</code></li>
+                <li><strong className="text-gray-900">کلمه عبور جدید</strong>: در صورت خالی بودن، رمز قبلی کاربر بدون تغییر باقی می‌ماند</li>
               </ul>
               <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-blue-800 text-xs leading-5">
-                💡 در صورتی که کد پرسنلی از قبل در سیستم وجود داشته باشد، اطلاعات کاربری و سهمیه او بدون حذف مرخصی‌های قبلی، <strong>بروزرسانی (Overwrite)</strong> خواهد شد.
+                💡 <strong>سازگاری کامل رفت‌وبرگشتی:</strong> می‌توانید ابتدا خروجی CSV بگیرید، مقادیر را در اکسل ویرایش کرده و مجدداً فایل را بارگذاری کنید.
               </div>
             </div>
           </div>
@@ -530,19 +570,19 @@ export default function UserImportCsv() {
             }`}
           >
             <div className="w-16 h-16 bg-primary-50 rounded-2xl flex items-center justify-center text-3xl mb-3 text-primary-600 shadow-inner">
-              {parsing ? '⏳' : isDragging ? '📥' : '📊'}
+              {parsing ? '⏳' : isDragging ? '📥' : '📄'}
             </div>
             <p className="text-sm font-bold text-gray-800">
-              {parsing ? 'در حال خواندن و پردازش اطلاعات فایل...' : 'فایل اکسل (XLSX, XLS) یا CSV خود را اینجا رها کنید یا انتخاب نمایید'}
+              {parsing ? 'در حال خواندن و پردازش اطلاعات فایل CSV...' : 'فایل استاندارد CSV خود را اینجا رها کنید یا انتخاب نمایید'}
             </p>
             <p className="text-xs text-gray-400 mt-1.5">
-              پشتیبانی کامل از فایل‌های اکسل مایکروسافت، جداول فارسی و کدهای پرسنلی
+              پشتیبانی کامل از کدگذاری UTF-8، سهمیه و مصرف مرخصی، شماره موبایل، ایمیل و کدهای پرسنلی
             </p>
 
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv,.txt"
+              accept=".csv,.txt,.xlsx,.xls"
               onChange={handleFileUpload}
               className="hidden"
               id="user-file-picker"
@@ -555,7 +595,7 @@ export default function UserImportCsv() {
               }`}
             >
               <span>📁</span>
-              <span>انتخاب فایل اکسل یا CSV</span>
+              <span>انتخاب فایل CSV کاربران</span>
             </label>
           </div>
 
@@ -620,7 +660,8 @@ export default function UserImportCsv() {
                       <th className="p-3">نام کامل</th>
                       <th className="p-3">نقش</th>
                       <th className="p-3">واحد</th>
-                      <th className="p-3">سهمیه (ساعت)</th>
+                      <th className="p-3">سهمیه / مصرف / مانده</th>
+                      <th className="p-3">موبایل / ایمیل</th>
                       <th className="p-3">وضعیت کاری</th>
                       <th className="p-3">وضعیت بررسی</th>
                     </tr>
@@ -647,10 +688,26 @@ export default function UserImportCsv() {
                           ) : '—'}
                         </td>
                         <td className="p-3 font-semibold text-gray-700 font-mono">
-                          <div className="space-y-0.5">
-                            <span>{row.total_hours} ساعت</span>
-                            <p className="text-[9px] text-gray-400">({formatHoursToDays(row.total_hours)})</p>
+                          <div className="space-y-0.5 text-[11px]">
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-500">سهمیه:</span>
+                              <span>{row.total_hours}h</span>
+                            </div>
+                            {row.used_hours !== null && (
+                              <div className="flex items-center gap-1 text-amber-700">
+                                <span className="text-gray-400">مصرف:</span>
+                                <span>{row.used_hours}h</span>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-1 text-emerald-700 font-bold">
+                              <span className="text-gray-400">مانده:</span>
+                              <span>{row.remaining_hours}h</span>
+                            </div>
                           </div>
+                        </td>
+                        <td className="p-3 text-gray-600 font-mono text-[11px]">
+                          <div>{row.phone || '—'}</div>
+                          <div className="text-gray-400 text-[10px]">{row.email || ''}</div>
                         </td>
                         <td className="p-3 text-gray-500 font-mono">{row.work_type === 'shift' ? 'شیفتی' : 'عادی'}</td>
                         <td className="p-3">
@@ -659,7 +716,7 @@ export default function UserImportCsv() {
                           ) : row.isValid ? (
                             <div className="space-y-0.5">
                               <span className="text-blue-600 font-bold flex items-center gap-1">🔵 معتبر (بروزرسانی)</span>
-                              <p className="text-[9px] text-blue-500">کد پرسنلی از قبل در سیستم وجود دارد.</p>
+                              <p className="text-[9px] text-blue-500">کد پرسنلی در سیستم موجود است و بروزرسانی خواهد شد.</p>
                             </div>
                           ) : (
                             <div className="space-y-1">

@@ -422,6 +422,104 @@ module.exports = function() {
     }
   });
 
+  router.get('/users/export-csv', async (req, res) => {
+    if (req.user.role !== 'admin' && !(await hasAdminPerm(req.user, 'user_import_csv'))) {
+      return res.status(403).json({ error: 'دسترسی غیرمجاز' });
+    }
+    try {
+      const activeOnly = req.query.active_only === '1';
+      const where = activeOnly ? { isActive: true } : {};
+
+      const users = await prisma.user.findMany({
+        where,
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          fullName: true,
+          role: true,
+          phone: true,
+          email: true,
+          workType: true,
+          isActive: true,
+          department: { select: { name: true } },
+          leaveBalance: { select: { totalDays: true, usedHours: true } }
+        }
+      });
+
+      const roleDisplayMap = {
+        admin: 'مدیر سیستم',
+        manager: 'مدیر',
+        supervisor: 'سرپرست',
+        user: 'کاربر عادی'
+      };
+
+      const workTypeDisplayMap = {
+        shift: 'شیفتی',
+        normal: 'عادی'
+      };
+
+      const headers = [
+        'کد پرسنلی',
+        'نام کامل',
+        'نقش',
+        'واحد',
+        'وضعیت کاری',
+        'شماره موبایل',
+        'ایمیل',
+        'سهمیه (ساعت)',
+        'مصرف شده (ساعت)',
+        'مانده مرخصی (ساعت)',
+        'وضعیت حساب',
+        'کلمه عبور جدید'
+      ];
+
+      const escapeCsvCell = (val) => {
+        if (val === null || val === undefined) return '';
+        const str = String(val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+
+      const csvRows = [];
+      csvRows.push(headers.map(escapeCsvCell).join(','));
+
+      for (const u of users) {
+        const totalHours = u.leaveBalance ? Math.round((u.leaveBalance.totalDays || 0) * 8 * 100) / 100 : 0;
+        const usedHours = u.leaveBalance ? Math.round((u.leaveBalance.usedHours || 0) * 100) / 100 : 0;
+        const remainingHours = Math.round((totalHours - usedHours) * 100) / 100;
+
+        const row = [
+          u.id,
+          u.fullName || '',
+          roleDisplayMap[u.role] || u.role || 'کاربر عادی',
+          u.department?.name || '',
+          workTypeDisplayMap[u.workType] || (u.workType === 'shift' ? 'شیفتی' : 'عادی'),
+          u.phone || '',
+          u.email || '',
+          totalHours,
+          usedHours,
+          remainingHours,
+          u.isActive ? 'فعال' : 'غیرفعال',
+          '' // Password left blank for security
+        ];
+
+        csvRows.push(row.map(escapeCsvCell).join(','));
+      }
+
+      const csvContent = '\uFEFF' + csvRows.join('\r\n');
+      const filename = `users_export_${new Date().toISOString().slice(0, 10)}.csv`;
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.status(200).send(csvContent);
+    } catch (err) {
+      console.error('Error exporting users CSV:', err);
+      res.status(500).json({ error: 'خطا در صدور فایل CSV کاربران: ' + err.message });
+    }
+  });
+
   router.post('/users/import-csv', async (req, res) => {
     if (req.user.role !== 'admin' && !(await hasAdminPerm(req.user, 'user_import_csv'))) {
       return res.status(403).json({ error: 'دسترسی غیرمجاز - شما دسترسی ورود گروهی کاربران را ندارید' });
@@ -432,7 +530,7 @@ module.exports = function() {
         return res.status(400).json({ error: 'لیست کاربران برای ثبت نامعتبر است' });
       }
 
-      // Preprocess and hash passwords before starting the database transaction to prevent transaction timeout
+      // Preprocess and validate users before database transaction
       const preparedUsers = [];
       const roleMap = {
         'admin': 'admin',
@@ -441,11 +539,15 @@ module.exports = function() {
         'user': 'user',
         'مدیر سیستم': 'admin',
         'مدیرسیستم': 'admin',
+        'مدیر ارشد': 'admin',
         'مدیر': 'manager',
+        'مدیریت': 'manager',
         'سرپرست': 'supervisor',
         'کاربر': 'user',
         'عادی': 'user',
-        'کاربر عادی': 'user'
+        'کاربر عادی': 'user',
+        'پرسنل': 'user',
+        'کارمند': 'user'
       };
 
       for (const u of users) {
@@ -475,14 +577,26 @@ module.exports = function() {
         }
 
         let totalDays = 0;
-        if (u.total_hours !== undefined) {
+        if (u.total_hours !== undefined && u.total_hours !== null && u.total_hours !== '') {
           totalDays = Number(u.total_hours) / 8;
-        } else if (u.total_days !== undefined) {
+        } else if (u.total_days !== undefined && u.total_days !== null && u.total_days !== '') {
           totalDays = Number(u.total_days);
         }
 
-        const pass = u.password || String(userId);
-        const mustChange = !u.password;
+        let usedHours = null;
+        if (u.used_hours !== undefined && u.used_hours !== null && u.used_hours !== '') {
+          usedHours = Number(u.used_hours);
+        }
+
+        let isActive = true;
+        if (u.is_active !== undefined && u.is_active !== null && u.is_active !== '') {
+          const strActive = String(u.is_active).trim().toLowerCase();
+          if (strActive === 'غیرفعال' || strActive === 'false' || strActive === '0') {
+            isActive = false;
+          }
+        }
+
+        const password = u.password ? String(u.password).trim() : '';
 
         preparedUsers.push({
           userId,
@@ -491,9 +605,12 @@ module.exports = function() {
           departmentName: u.department_name ? u.department_name.trim() : null,
           departmentId: u.department_id ? Number(u.department_id) : null,
           workType: u.work_type || 'normal',
+          phone: u.phone ? String(u.phone).trim() : null,
+          email: u.email ? String(u.email).trim() : null,
+          isActive,
           totalDays,
-          pass,
-          mustChange
+          usedHours,
+          password
         });
       }
 
@@ -501,22 +618,24 @@ module.exports = function() {
         return res.status(400).json({ error: 'هیچ کاربری با اطلاعات معتبر برای ثبت یافت نشد' });
       }
 
-      // Hash passwords with caching for identical/default passwords
+      // Hash passwords that are explicitly provided, or prepare default hash for new users
       const hashCache = new Map();
       const hashedUsers = [];
       for (const u of preparedUsers) {
-        let hash = hashCache.get(u.pass);
-        if (!hash) {
-          hash = await bcrypt.hash(u.pass, 10);
-          hashCache.set(u.pass, hash);
+        let passwordHash = null;
+        if (u.password) {
+          if (!hashCache.has(u.password)) {
+            hashCache.set(u.password, await bcrypt.hash(u.password, 10));
+          }
+          passwordHash = hashCache.get(u.password);
         }
         hashedUsers.push({
           ...u,
-          passwordHash: hash
+          passwordHash
         });
       }
 
-      // Execute database operations within transaction with increased timeout
+      // Execute database operations within transaction
       await prisma.$transaction(async (tx) => {
         for (const u of hashedUsers) {
           let departmentId = u.departmentId;
@@ -534,44 +653,79 @@ module.exports = function() {
 
           const existing = await tx.user.findUnique({ where: { id: u.userId } });
           if (existing) {
+            const updateData = {
+              fullName: u.fullName,
+              role: u.role,
+              departmentId,
+              workType: u.workType,
+              isActive: u.isActive,
+              ...(u.phone !== undefined ? { phone: u.phone } : {}),
+              ...(u.email !== undefined ? { email: u.email } : {})
+            };
+
+            // Only update password if an explicit new password was provided in CSV
+            if (u.passwordHash) {
+              updateData.password = u.passwordHash;
+              updateData.mustChangePassword = false;
+            }
+
             await tx.user.update({
               where: { id: u.userId },
-              data: {
-                password: u.passwordHash,
-                fullName: u.fullName,
-                role: u.role,
-                departmentId,
-                workType: u.workType,
-                isActive: true,
-                mustChangePassword: u.mustChange
-              },
+              data: updateData
             });
 
             const balanceExists = await tx.leaveBalance.findUnique({ where: { userId: u.userId } });
             if (balanceExists) {
+              const balanceUpdateData = { totalDays: u.totalDays };
+              if (u.usedHours !== null && !isNaN(u.usedHours)) {
+                balanceUpdateData.usedHours = u.usedHours;
+              }
               await tx.leaveBalance.update({
                 where: { userId: u.userId },
-                data: { totalDays: u.totalDays }
+                data: balanceUpdateData
               });
             } else {
               await tx.leaveBalance.create({
-                data: { userId: u.userId, totalDays: u.totalDays, usedHours: 0 }
+                data: {
+                  userId: u.userId,
+                  totalDays: u.totalDays,
+                  usedHours: u.usedHours !== null && !isNaN(u.usedHours) ? u.usedHours : 0
+                }
               });
             }
           } else {
+            // New user: if password not specified in CSV, default to userId string
+            let initialPasswordHash = u.passwordHash;
+            let mustChange = false;
+            if (!initialPasswordHash) {
+              const defaultPass = String(u.userId);
+              if (!hashCache.has(defaultPass)) {
+                hashCache.set(defaultPass, await bcrypt.hash(defaultPass, 10));
+              }
+              initialPasswordHash = hashCache.get(defaultPass);
+              mustChange = true;
+            }
+
             await tx.user.create({
               data: {
                 id: u.userId,
-                password: u.passwordHash,
+                password: initialPasswordHash,
                 fullName: u.fullName,
                 role: u.role,
                 departmentId,
                 workType: u.workType,
-                mustChangePassword: u.mustChange
-              },
+                phone: u.phone,
+                email: u.email,
+                isActive: u.isActive,
+                mustChangePassword: mustChange
+              }
             });
             await tx.leaveBalance.create({
-              data: { userId: u.userId, totalDays: u.totalDays, usedHours: 0 }
+              data: {
+                userId: u.userId,
+                totalDays: u.totalDays,
+                usedHours: u.usedHours !== null && !isNaN(u.usedHours) ? u.usedHours : 0
+              }
             });
           }
         }

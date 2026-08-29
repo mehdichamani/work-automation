@@ -776,8 +776,31 @@ export default function AdminPanel() {
               )}
             </div>
 
-            <div className="flex items-center justify-between sm:justify-end gap-3">
-              <span className="text-xs font-medium text-gray-500 bg-gray-100 px-3 py-2 rounded-xl whitespace-nowrap">
+            <div className="flex items-center justify-between sm:justify-end gap-2 flex-wrap">
+              <button
+                onClick={async () => {
+                  try {
+                    toast.loading('در حال آماده‌سازی فایل CSV...', { id: 'adminExportCsv' });
+                    const res = await api.get('/admin/users/export-csv', { responseType: 'blob' });
+                    const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv;charset=utf-8;' }));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.setAttribute('download', `users_export_${new Date().toISOString().slice(0, 10)}.csv`);
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    window.URL.revokeObjectURL(url);
+                    toast.success('فایل CSV کاربران دانلود شد', { id: 'adminExportCsv' });
+                  } catch (err) {
+                    toast.error('خطا در خروجی CSV', { id: 'adminExportCsv' });
+                  }
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-xl font-medium text-xs transition-colors flex items-center gap-1.5 shadow-sm hover:shadow whitespace-nowrap"
+              >
+                <span>📥</span>
+                <span>خروجی CSV (UTF-8)</span>
+              </button>
+              <span className="text-xs font-medium text-gray-500 bg-gray-100 px-3 py-2.5 rounded-xl whitespace-nowrap">
                 {userLoading ? 'در حال بارگذاری...' : `نمایش ${userList.length} از ${userTotal} کاربر`}
               </span>
               <button
@@ -786,7 +809,7 @@ export default function AdminPanel() {
                   setUserForm({ username: '', password: '', full_name: '', role: 'user', department_id: '' });
                   setShowUserForm(true);
                 }}
-                className="bg-primary-500 hover:bg-primary-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-colors flex items-center gap-1.5 shadow-sm hover:shadow whitespace-nowrap"
+                className="bg-primary-500 hover:bg-primary-600 text-white px-4 py-2.5 rounded-xl font-medium text-xs transition-colors flex items-center gap-1.5 shadow-sm hover:shadow whitespace-nowrap"
               >
                 <span>+</span>
                 <span>کاربر جدید</span>

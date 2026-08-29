@@ -69,7 +69,7 @@ const menuGroups = [
       { path: '/workflow', label: 'گردش کار', icon: '🔄', permission: 'workflow_view' },
       { path: '/signature', label: 'امضای دیجیتال', icon: '✍️', permission: 'signature_view' },
       { path: '/audit-log', label: 'لاگ فعالیت‌ها', icon: '📜', permission: 'audit_log_view' },
-      { path: '/admin/import-users', label: 'ورود گروهی کاربران', icon: '👥', permission: 'user_import_csv' },
+      { path: '/admin/import-users', label: 'ورود و خروج کاربران', icon: '👥', permission: 'user_import_csv' },
     ]
   }
 ];
