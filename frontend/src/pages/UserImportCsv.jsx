@@ -528,13 +528,13 @@ export default function UserImportCsv() {
                 <li><strong className="text-gray-900">وضعیت کاری</strong>: مانند <code className="bg-gray-100 px-1 py-0.5 rounded">عادی</code> یا <code className="bg-gray-100 px-1 py-0.5 rounded">شیفتی</code></li>
                 <li><strong className="text-gray-900">شماره موبایل</strong>: شماره تماس جهت پیامک‌ها</li>
                 <li><strong className="text-gray-900">ایمیل</strong>: آدرس پست الکترونیکی</li>
-                <li><strong className="text-gray-900">سهمیه (ساعت)</strong>: سهمیه سالانه مرخصی به ساعت</li>
-                <li><strong className="text-gray-900">مصرف شده (ساعت)</strong>: میزان مرخصی استفاده شده تاکنون</li>
+                <li><strong className="text-gray-900">سهمیه (ساعت)</strong>: سهمیه سالانه مرخصی به ساعت (قابل ویرایش)</li>
+                <li><strong className="text-gray-900">مصرف شده و مانده</strong>: فقط جهت اطلاع در خروجی (در ورود نادیده گرفته می‌شود و از سوابق سیستمی کاربر خوانده می‌شود)</li>
                 <li><strong className="text-gray-900">وضعیت حساب</strong>: <code className="bg-gray-100 px-1 py-0.5 rounded">فعال</code> یا <code className="bg-gray-100 px-1 py-0.5 rounded">غیرفعال</code></li>
                 <li><strong className="text-gray-900">کلمه عبور جدید</strong>: در صورت خالی بودن، رمز قبلی کاربر بدون تغییر باقی می‌ماند</li>
               </ul>
               <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-blue-800 text-xs leading-5">
-                💡 <strong>سازگاری کامل رفت‌وبرگشتی:</strong> می‌توانید ابتدا خروجی CSV بگیرید، مقادیر را در اکسل ویرایش کرده و مجدداً فایل را بارگذاری کنید.
+                💡 <strong>حفاظت کامل از سوابق مرخصی:</strong> ستون‌های مصرف‌شده و مانده مرخصی صرفاً در خروجی محاسبه می‌شوند و در هنگام ورود مجدد، مرخصی‌های استفاده شده قبلی پرسنل در دیتابیس محفوظ می‌ماند و فقط سهمیه سالانه به‌روزرسانی خواهد شد.
               </div>
             </div>
           </div>

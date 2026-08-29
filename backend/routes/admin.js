@@ -583,11 +583,6 @@ module.exports = function() {
           totalDays = Number(u.total_days);
         }
 
-        let usedHours = null;
-        if (u.used_hours !== undefined && u.used_hours !== null && u.used_hours !== '') {
-          usedHours = Number(u.used_hours);
-        }
-
         let isActive = true;
         if (u.is_active !== undefined && u.is_active !== null && u.is_active !== '') {
           const strActive = String(u.is_active).trim().toLowerCase();
@@ -609,7 +604,6 @@ module.exports = function() {
           email: u.email ? String(u.email).trim() : null,
           isActive,
           totalDays,
-          usedHours,
           password
         });
       }
@@ -674,22 +668,19 @@ module.exports = function() {
               data: updateData
             });
 
+            // Update only totalDays (quota), preserving existing used_hours in DB
             const balanceExists = await tx.leaveBalance.findUnique({ where: { userId: u.userId } });
             if (balanceExists) {
-              const balanceUpdateData = { totalDays: u.totalDays };
-              if (u.usedHours !== null && !isNaN(u.usedHours)) {
-                balanceUpdateData.usedHours = u.usedHours;
-              }
               await tx.leaveBalance.update({
                 where: { userId: u.userId },
-                data: balanceUpdateData
+                data: { totalDays: u.totalDays }
               });
             } else {
               await tx.leaveBalance.create({
                 data: {
                   userId: u.userId,
                   totalDays: u.totalDays,
-                  usedHours: u.usedHours !== null && !isNaN(u.usedHours) ? u.usedHours : 0
+                  usedHours: 0
                 }
               });
             }
@@ -724,7 +715,7 @@ module.exports = function() {
               data: {
                 userId: u.userId,
                 totalDays: u.totalDays,
-                usedHours: u.usedHours !== null && !isNaN(u.usedHours) ? u.usedHours : 0
+                usedHours: 0
               }
             });
           }
