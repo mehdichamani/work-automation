@@ -7,35 +7,44 @@ import { toJalali } from '../utils/dateUtils';
 import toast from 'react-hot-toast';
 
 export default function PublicDashboard() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [balance, setBalance] = useState(null);
   const [todayReservations, setTodayReservations] = useState([]);
   const [activeAnnouncements, setActiveAnnouncements] = useState([]);
   const [recentLeaves, setRecentLeaves] = useState([]);
   const debounceRef = useRef(null);
 
+  const canViewLeave = hasPermission('leave_request');
+  const canViewRestaurant = hasPermission('restaurant_view');
+  const canViewLetters = hasPermission('letters_send');
+  const canViewChat = hasPermission('chat_view');
+
   const loadData = useCallback(async () => {
-    try {
-      const balanceRes = await api.get('/leave/balance');
-      setBalance(balanceRes.data);
-    } catch { /* non-critical */ }
+    if (canViewLeave) {
+      try {
+        const balanceRes = await api.get('/leave/balance');
+        setBalance(balanceRes.data);
+      } catch { /* non-critical */ }
 
-    try {
-      const leavesRes = await api.get('/leave/my-requests');
-      setRecentLeaves(leavesRes.data.slice(0, 5));
-    } catch { /* non-critical */ }
+      try {
+        const leavesRes = await api.get('/leave/my-requests');
+        setRecentLeaves(leavesRes.data.slice(0, 5));
+      } catch { /* non-critical */ }
+    }
 
-    try {
-      const menuRes = await api.get('/restaurant/menu');
-      const today = moment().format('jYYYY/jMM/jDD');
-      setTodayReservations(menuRes.data.filter(m => m.food_date === today));
-    } catch { /* non-critical */ }
+    if (canViewRestaurant) {
+      try {
+        const menuRes = await api.get('/restaurant/menu');
+        const today = moment().format('jYYYY/jMM/jDD');
+        setTodayReservations(menuRes.data.filter(m => m.food_date === today));
+      } catch { /* non-critical */ }
+    }
 
     try {
       const annRes = await api.get('/announcements/active');
       setActiveAnnouncements(annRes.data.slice(0, 5));
     } catch { /* non-critical */ }
-  }, []);
+  }, [canViewLeave, canViewRestaurant]);
 
   useEffect(() => {
     loadData();
@@ -49,6 +58,32 @@ export default function PublicDashboard() {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [loadData]);
+
+  // Determine which shortcuts to show
+  const shortcuts = [
+    canViewLeave && {
+      to: '/leave',
+      icon: '🏖️',
+      title: 'ثبت مرخصی'
+    },
+    canViewRestaurant && {
+      to: '/restaurant',
+      icon: '🍽️',
+      title: 'رزرو غذا'
+    },
+    canViewLetters && {
+      to: '/letters',
+      icon: '📨',
+      title: 'نامه‌های اداری'
+    },
+    canViewChat && {
+      to: '/chat',
+      icon: '💬',
+      title: 'چت داخلی'
+    },
+  ].filter(Boolean);
+
+  const showWidgetsSection = canViewLeave || canViewRestaurant;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -75,37 +110,21 @@ export default function PublicDashboard() {
         </div>
       </div>
 
-      {/* Quick Access Shortcuts */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4">
-        <Link
-          to="/leave"
-          className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-primary-200 hover:-translate-y-0.5 transition-all text-center group"
-        >
-          <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">🏖️</span>
-          <span className="text-xs md:text-sm font-bold text-gray-700 group-hover:text-primary-600">ثبت مرخصی</span>
-        </Link>
-        <Link
-          to="/restaurant"
-          className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-primary-200 hover:-translate-y-0.5 transition-all text-center group"
-        >
-          <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">🍽️</span>
-          <span className="text-xs md:text-sm font-bold text-gray-700 group-hover:text-primary-600">رزرو غذا</span>
-        </Link>
-        <Link
-          to="/letters"
-          className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-primary-200 hover:-translate-y-0.5 transition-all text-center group"
-        >
-          <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">📨</span>
-          <span className="text-xs md:text-sm font-bold text-gray-700 group-hover:text-primary-600">نامه‌های اداری</span>
-        </Link>
-        <Link
-          to="/chat"
-          className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-primary-200 hover:-translate-y-0.5 transition-all text-center group"
-        >
-          <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">💬</span>
-          <span className="text-xs md:text-sm font-bold text-gray-700 group-hover:text-primary-600">چت داخلی</span>
-        </Link>
-      </div>
+      {/* Quick Access Shortcuts (Filtered by Permission) */}
+      {shortcuts.length > 0 && (
+        <div className={`grid grid-cols-2 sm:grid-cols-${Math.min(shortcuts.length, 4)} gap-3 md:gap-4`}>
+          {shortcuts.map((sc) => (
+            <Link
+              key={sc.to}
+              to={sc.to}
+              className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-primary-200 hover:-translate-y-0.5 transition-all text-center group"
+            >
+              <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">{sc.icon}</span>
+              <span className="text-xs md:text-sm font-bold text-gray-700 group-hover:text-primary-600">{sc.title}</span>
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* Announcements */}
       {activeAnnouncements.length > 0 && (
@@ -145,88 +164,97 @@ export default function PublicDashboard() {
         </div>
       )}
 
-      {/* Information Cards (Leave balance, Recent leaves, Today food) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-          <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
-            <span>🏖️</span> مانده مرخصی استحقاقی
-          </h3>
-          {balance ? (
-            <div className="space-y-3">
-              <div className="flex justify-between text-xs text-gray-600">
-                <span>کل سهمیه سالانه:</span>
-                <span className="font-bold text-gray-800">{balance.total_days} روز ({balance.total_days * 8} ساعت)</span>
-              </div>
-              <div className="flex justify-between text-xs text-gray-600">
-                <span>استفاده شده:</span>
-                <span className="font-bold text-red-500">
-                  {balance.used_days_display} روز و {balance.used_hours_display} ساعت
-                </span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                <div
-                  className="bg-primary-500 h-2.5 rounded-full transition-all"
-                  style={{ width: `${balance.total_days > 0 ? Math.max(0, Math.min(100, ((balance.total_days * 8 - balance.used_hours) / (balance.total_days * 8)) * 100)) : 0}%` }}
-                ></div>
-              </div>
-              <div className="flex justify-between text-xs pt-1 border-t border-gray-100">
-                <span className="text-gray-700 font-medium">مانده قابل استفاده:</span>
-                <span className="font-bold text-green-600">
-                  {balance.remaining_days} روز و {balance.remaining_hours_only} ساعت
-                </span>
+      {/* Information Cards (Leave balance, Recent leaves, Today food) - Filtered by Permission */}
+      {showWidgetsSection && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {canViewLeave && (
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+              <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
+                <span>🏖️</span> مانده مرخصی استحقاقی
+              </h3>
+              {balance ? (
+                <div className="space-y-3">
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>کل سهمیه سالانه:</span>
+                    <span className="font-bold text-gray-800">{balance.total_days} روز ({balance.total_days * 8} ساعت)</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>استفاده شده:</span>
+                    <span className="font-bold text-red-500">
+                      {balance.used_days_display} روز و {balance.used_hours_display} ساعت
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className="bg-primary-500 h-2.5 rounded-full transition-all"
+                      style={{ width: `${balance.total_days > 0 ? Math.max(0, Math.min(100, ((balance.total_days * 8 - balance.used_hours) / (balance.total_days * 8)) * 100)) : 0}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-xs pt-1 border-t border-gray-100">
+                    <span className="text-gray-700 font-medium">مانده قابل استفاده:</span>
+                    <span className="font-bold text-green-600">
+                      {balance.remaining_days} روز و {balance.remaining_hours_only} ساعت
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400">در حال دریافت اطلاعات...</p>
+              )}
+            </div>
+          )}
+
+          {canViewLeave && (
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+              <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
+                <span>📨</span> وضعیت آخرین مرخصی‌ها
+              </h3>
+              <div className="space-y-2">
+                {recentLeaves.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-2 text-center">درخواستی اخیراً ثبت نشده است</p>
+                ) : (
+                  recentLeaves.map(leave => (
+                    <div key={leave.id} className="flex justify-between items-center text-xs p-2.5 bg-gray-50 rounded-xl">
+                      <span className="font-medium text-gray-700">{leave.leave_type}</span>
+                      <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                        leave.status === 'approved' ? 'bg-green-100 text-green-700' :
+                        leave.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                        leave.status === 'pending_manager' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-blue-100 text-blue-700'
+                      }`}>
+                        {leave.status === 'approved' ? 'تایید شده' :
+                         leave.status === 'rejected' ? 'رد شده' :
+                         leave.status === 'pending_manager' ? 'در انتظار مدیر' :
+                         'در انتظار سرپرست'}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
-          ) : (
-            <p className="text-xs text-gray-400">در حال دریافت اطلاعات...</p>
+          )}
+
+          {canViewRestaurant && (
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+              <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
+                <span>🍽️</span> وعده غذایی امروز
+              </h3>
+              <div className="space-y-2">
+                {todayReservations.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-2 text-center">غذایی برای امروز تعریف نشده است</p>
+                ) : (
+                  todayReservations.map(food => (
+                    <div key={food.id} className="flex justify-between items-center text-xs p-2.5 bg-gray-50 rounded-xl">
+                      <span className="font-medium text-gray-700">{food.food_name}</span>
+                      <span className="text-[11px] text-gray-500 font-semibold">{food.price ? `${food.price.toLocaleString()} تومان` : 'رایگان'}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           )}
         </div>
-
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-          <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
-            <span>📨</span> وضعیت آخرین مرخصی‌ها
-          </h3>
-          <div className="space-y-2">
-            {recentLeaves.length === 0 ? (
-              <p className="text-xs text-gray-400 py-2 text-center">درخواستی اخیراً ثبت نشده است</p>
-            ) : (
-              recentLeaves.map(leave => (
-                <div key={leave.id} className="flex justify-between items-center text-xs p-2.5 bg-gray-50 rounded-xl">
-                  <span className="font-medium text-gray-700">{leave.leave_type}</span>
-                  <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${
-                    leave.status === 'approved' ? 'bg-green-100 text-green-700' :
-                    leave.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                    leave.status === 'pending_manager' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-blue-100 text-blue-700'
-                  }`}>
-                    {leave.status === 'approved' ? 'تایید شده' :
-                     leave.status === 'rejected' ? 'رد شده' :
-                     leave.status === 'pending_manager' ? 'در انتظار مدیر' :
-                     'در انتظار سرپرست'}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-          <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
-            <span>🍽️</span> وعده غذایی امروز
-          </h3>
-          <div className="space-y-2">
-            {todayReservations.length === 0 ? (
-              <p className="text-xs text-gray-400 py-2 text-center">غذایی برای امروز تعریف نشده است</p>
-            ) : (
-              todayReservations.map(food => (
-                <div key={food.id} className="flex justify-between items-center text-xs p-2.5 bg-gray-50 rounded-xl">
-                  <span className="font-medium text-gray-700">{food.food_name}</span>
-                  <span className="text-[11px] text-gray-500 font-semibold">{food.price ? `${food.price.toLocaleString()} تومان` : 'رایگان'}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
+
