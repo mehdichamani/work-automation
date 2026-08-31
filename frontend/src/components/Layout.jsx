@@ -732,66 +732,6 @@ export default function Layout({ children }) {
         </div>
       </main>
 
-      {/* Forced Password Change Modal (must_change_password === 1) */}
-      {user?.must_change_password === 1 && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[9999] p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl border border-red-100 text-right">
-            <h3 className="text-lg font-bold text-red-600 mb-2 font-vazir">⚠️ تغییر رمز عبور اجباری</h3>
-            <p className="text-sm text-gray-500 mb-6 leading-6">
-              به دلیل استفاده از رمز عبور پیش‌فرض (کد پرسنلی)، جهت حفظ امنیت حساب کاربری خود، لطفاً ابتدا رمز عبور جدیدی تعیین نمایید.
-            </p>
-            <form onSubmit={handleChangePassword} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور فعلی (کد پرسنلی)</label>
-                <input
-                  type="password"
-                  value={changePasswordForm.oldPassword}
-                  onChange={(e) => setChangePasswordForm({ ...changePasswordForm, oldPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center focus:ring-2 focus:ring-red-400 focus:border-transparent outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700">رمز عبور جدید</label>
-                <input
-                  type="password"
-                  value={changePasswordForm.newPassword}
-                  onChange={(e) => setChangePasswordForm({ ...changePasswordForm, newPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center focus:ring-2 focus:ring-red-400 focus:border-transparent outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700">تکرار رمز عبور جدید</label>
-                <input
-                  type="password"
-                  value={changePasswordForm.confirmNewPassword}
-                  onChange={(e) => setChangePasswordForm({ ...changePasswordForm, confirmNewPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border rounded-xl text-center focus:ring-2 focus:ring-red-400 focus:border-transparent outline-none"
-                  required
-                />
-              </div>
-              <div className="pt-2 flex gap-4">
-                <button
-                  type="submit"
-                  disabled={changePasswordLoading}
-                  className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-all disabled:opacity-50 shadow-md shadow-red-500/20"
-                >
-                  {changePasswordLoading ? 'در حال ثبت...' : 'تغییر رمز و ورود'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { logout(); navigate('/login'); }}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-3 rounded-xl font-bold transition-colors"
-                >
-                  خروج
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       <PWAInstall />
     </div>
   );

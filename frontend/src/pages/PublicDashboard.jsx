@@ -5,6 +5,7 @@ import api from '../api/axios';
 import moment from 'moment-jalaali';
 import { toJalali } from '../utils/dateUtils';
 import toast from 'react-hot-toast';
+import OnboardingChecklist from '../components/OnboardingChecklist';
 
 export default function PublicDashboard() {
   const { user, hasPermission } = useAuth();
@@ -109,6 +110,9 @@ export default function PublicDashboard() {
           </div>
         </div>
       </div>
+
+      {/* User Onboarding & Setup Checklist */}
+      <OnboardingChecklist onProfileUpdated={loadData} />
 
       {/* Quick Access Shortcuts (Filtered by Permission) */}
       {shortcuts.length > 0 && (
