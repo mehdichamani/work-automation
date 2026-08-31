@@ -7,6 +7,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const PublicDashboard = lazy(() => import('./pages/PublicDashboard'));
 const Leave = lazy(() => import('./pages/Leave'));
 const Overtime = lazy(() => import('./pages/Overtime'));
 const Letters = lazy(() => import('./pages/Letters'));
@@ -61,7 +62,8 @@ function AppRoutes() {
     <Layout>
       <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="text-lg text-gray-400">در حال بارگذاری...</div></div>}>
         <Routes location={location}>
-          <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+          <Route path="/" element={<PrivateRoute><PublicDashboard /></PrivateRoute>} />
+          <Route path="/admin-dashboard" element={<PrivateRoute allowedRoles={['admin', 'manager']}><Dashboard /></PrivateRoute>} />
           <Route path="/leave" element={<PrivateRoute><Leave /></PrivateRoute>} />
           <Route path="/overtime" element={<PrivateRoute><Overtime /></PrivateRoute>} />
           <Route path="/letters" element={<PrivateRoute><Letters /></PrivateRoute>} />

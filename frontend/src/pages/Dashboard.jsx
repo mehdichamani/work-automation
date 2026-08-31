@@ -92,7 +92,11 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="bg-gradient-to-l from-primary-500 to-primary-700 rounded-2xl p-6 text-white">
+      <div className="bg-gradient-to-l from-primary-600 to-primary-800 rounded-2xl p-6 text-white shadow-lg">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-xs font-semibold mb-2">
+          <span>📊</span>
+          <span>داشبورد مدیریتی و نظارتی</span>
+        </div>
         <h1 className="text-2xl font-bold">خوش آمدید {user.full_name}</h1>
         <p className="text-primary-200 mt-1">{moment().format('jYYYY/jMM/jDD - dddd')}</p>
       </div>

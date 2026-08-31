@@ -13,7 +13,7 @@ const menuGroups = [
     title: 'میز کار و ارتباطات',
     icon: '📊',
     items: [
-      { path: '/', label: 'داشبورد', icon: '📊', permission: 'dashboard_view' },
+      { path: '/', label: 'داشبورد عمومی', icon: '🏠' },
       { path: '/chat', label: 'چت داخلی', icon: '💬', permission: 'chat_view' },
       { path: '/learning', label: 'آموزش', icon: '📚', permission: 'learning_view' },
       { path: '/letters', label: 'نامه‌ها', icon: '📨', permission: 'letters_send' },
@@ -64,6 +64,7 @@ const menuGroups = [
     title: 'مدیریت و نظارت',
     icon: '⚙️',
     items: [
+      { path: '/admin-dashboard', label: 'داشبورد مدیریتی', icon: '📊', roles: ['admin', 'manager'] },
       { path: '/admin', label: 'پنل مدیریت', icon: '⚙️', permission: 'admin_panel' },
       { path: '/reports', label: 'گزارش‌گیری جامع', icon: '📈', permission: 'reports_view' },
       { path: '/workflow', label: 'گردش کار', icon: '🔄', permission: 'workflow_view' },
@@ -357,6 +358,7 @@ export default function Layout({ children }) {
 
   const processedGroups = menuGroups.map(group => {
     const visibleItems = group.items.filter(item => {
+      if (item.roles && (!user || !item.roles.includes(user.role))) return false;
       if (item.permission && !hasPermission(item.permission)) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
