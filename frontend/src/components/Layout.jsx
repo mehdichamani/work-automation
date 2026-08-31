@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
-import PWAInstall from './PWAInstall';
 import ErrorBoundary from './ErrorBoundary';
 
 const menuGroups = [
@@ -732,7 +731,6 @@ export default function Layout({ children }) {
         </div>
       </main>
 
-      <PWAInstall />
     </div>
   );
 }

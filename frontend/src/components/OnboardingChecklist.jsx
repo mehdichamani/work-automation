@@ -43,6 +43,7 @@ export default function OnboardingChecklist({ onProfileUpdated }) {
 
   // Standalone detection
   const [isStandalone, setIsStandalone] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
 
   // Notification status
   const [notifPermission, setNotifPermission] = useState('default');
@@ -80,7 +81,24 @@ export default function OnboardingChecklist({ onProfileUpdated }) {
     // 3. Browser Info
     setBrowserInfo(detectBrowserAndOS());
 
-    // 4. Fetch latest profile
+    // 4. Capture PWA install prompt
+    if (window.deferredPrompt) {
+      setDeferredPrompt(window.deferredPrompt);
+    }
+    const handlePrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      window.deferredPrompt = e;
+    };
+    const handleCustomPromptAvailable = () => {
+      if (window.deferredPrompt) {
+        setDeferredPrompt(window.deferredPrompt);
+      }
+    };
+    window.addEventListener('beforeinstallprompt', handlePrompt);
+    window.addEventListener('pwa-prompt-available', handleCustomPromptAvailable);
+
+    // 5. Fetch latest profile
     api.get('/profile').then(res => {
       setContactData({
         phone: res.data.phone || '',
@@ -97,13 +115,20 @@ export default function OnboardingChecklist({ onProfileUpdated }) {
     }).catch(() => {
       setContactData(prev => ({ ...prev, loaded: true }));
     });
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handlePrompt);
+      window.removeEventListener('pwa-prompt-available', handleCustomPromptAvailable);
+    };
   }, []);
 
   // Listen to PWA install events
   useEffect(() => {
     const handleAppInstalled = () => {
       setIsStandalone(true);
-      toast.success('برنامه با موفقیت نصب شد!');
+      setDeferredPrompt(null);
+      window.deferredPrompt = null;
+      toast.success('برنامه با موفقیت نصب شد 🎉');
     };
     window.addEventListener('appinstalled', handleAppInstalled);
     return () => window.removeEventListener('appinstalled', handleAppInstalled);
@@ -117,6 +142,27 @@ export default function OnboardingChecklist({ onProfileUpdated }) {
     (contactData.phone && contactData.phone.trim().length >= 10) ||
     (user?.phone && user.phone.trim().length >= 10)
   );
+
+  const triggerDirectInstall = async () => {
+    const promptEvent = deferredPrompt || window.deferredPrompt;
+    if (promptEvent && !browserInfo.isIOS) {
+      promptEvent.prompt();
+      try {
+        const { outcome } = await promptEvent.userChoice;
+        if (outcome === 'accepted') {
+          setIsStandalone(true);
+          toast.success('درخواست نصب تایید شد 🎉');
+          setActiveModal(null);
+        }
+      } catch {
+        setActiveModal('pwa');
+      }
+      setDeferredPrompt(null);
+      window.deferredPrompt = null;
+    } else {
+      setActiveModal('pwa');
+    }
+  };
 
   const steps = [
     {
@@ -140,22 +186,7 @@ export default function OnboardingChecklist({ onProfileUpdated }) {
       isDone: isPwaDone,
       badgeText: isPwaDone ? 'نصب شده' : 'پیشنهادی',
       actionText: isPwaDone ? 'مشاهده وضعیت' : 'نصب و راهنما',
-      onClick: () => {
-        if (window.deferredPrompt && !browserInfo.isIOS) {
-          window.deferredPrompt.prompt();
-          window.deferredPrompt.userChoice.then(({ outcome }) => {
-            if (outcome === 'accepted') {
-              setIsStandalone(true);
-              toast.success('درخواست نصب تایید شد');
-            }
-            window.deferredPrompt = null;
-          }).catch(() => {
-            setActiveModal('pwa');
-          });
-        } else {
-          setActiveModal('pwa');
-        }
-      }
+      onClick: triggerDirectInstall
     },
     {
       id: 'notification',
@@ -565,13 +596,22 @@ export default function OnboardingChecklist({ onProfileUpdated }) {
               </p>
             </div>
 
-            <div className="pt-2 flex justify-end">
+            <div className="pt-2 flex gap-2.5 justify-end">
+              {(deferredPrompt || window.deferredPrompt) && !browserInfo.isIOS && !isStandalone && (
+                <button
+                  type="button"
+                  onClick={triggerDirectInstall}
+                  className="flex-1 sm:flex-initial bg-primary-600 hover:bg-primary-700 text-white px-5 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md shadow-primary-600/20"
+                >
+                  نصب مستقیم برنامه
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setActiveModal(null)}
-                className="w-full sm:w-auto bg-primary-600 hover:bg-primary-700 text-white px-6 py-2 rounded-xl font-bold text-xs sm:text-sm"
+                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-5 py-2 rounded-xl font-bold text-xs sm:text-sm transition-colors"
               >
-                متوجه شدم
+                بستن
               </button>
             </div>
           </div>
