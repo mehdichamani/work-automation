@@ -353,31 +353,33 @@ export default function OnboardingChecklist({ onProfileUpdated }) {
         </div>
       )}
 
-      {/* Steps List (Mobile Optimized) */}
+      {/* Steps List (Mobile & Desktop Responsive) */}
       {!isCollapsed && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 md:gap-3.5 mt-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
           {steps.map((step) => (
             <div
               key={step.id}
               onClick={step.onClick}
-              className={`flex items-center justify-between p-3 md:p-3.5 rounded-xl md:rounded-2xl border transition-all cursor-pointer select-none active:scale-[0.99] ${
+              className={`flex flex-col sm:flex-row sm:items-center justify-between p-3.5 sm:p-4 rounded-2xl border transition-all cursor-pointer select-none active:scale-[0.99] gap-3 ${
                 step.isDone
                   ? 'bg-emerald-50/30 border-emerald-200/70 hover:border-emerald-300'
                   : 'bg-white hover:bg-gray-50 border-gray-200 hover:border-primary-300 shadow-sm'
               }`}
             >
-              <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                <div className={`w-8 h-8 md:w-9 md:h-9 rounded-lg md:rounded-xl flex items-center justify-center text-sm md:text-base flex-shrink-0 ${
+              {/* Content area */}
+              <div className="flex items-start gap-3 min-w-0 flex-1">
+                <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-base sm:text-lg flex-shrink-0 mt-0.5 ${
                   step.isDone ? 'bg-emerald-500 text-white shadow-sm' : 'bg-gray-100 text-gray-700'
                 }`}>
                   {step.isDone ? '✓' : step.icon}
                 </div>
-                <div className="min-w-0 pr-0.5 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <h3 className={`text-xs md:text-sm font-bold truncate ${step.isDone ? 'text-emerald-900' : 'text-gray-800'}`}>
+                
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className={`text-xs sm:text-sm font-bold ${step.isDone ? 'text-emerald-900' : 'text-gray-800'}`}>
                       {step.title}
                     </h3>
-                    <span className={`text-[9px] md:text-[10px] px-1.5 py-0.2 rounded-md font-bold flex-shrink-0 ${
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex-shrink-0 ${
                       step.isDone
                         ? 'bg-emerald-100 text-emerald-700'
                         : step.id === 'password'
@@ -387,27 +389,28 @@ export default function OnboardingChecklist({ onProfileUpdated }) {
                       {step.badgeText}
                     </span>
                   </div>
-                  <p className="text-[10px] md:text-xs text-gray-500 mt-0.5 truncate">
+                  <p className="text-[11px] sm:text-xs text-gray-500 leading-relaxed break-words">
                     {step.desc}
                   </p>
                 </div>
               </div>
 
-              <div className="flex-shrink-0 mr-2">
+              {/* Action Button */}
+              <div className="flex justify-end sm:flex-shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-gray-100">
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     step.onClick();
                   }}
-                  className={`px-2.5 py-1 md:px-3 md:py-1.5 rounded-lg md:rounded-xl text-[11px] md:text-xs font-bold transition-colors flex items-center gap-1 ${
+                  className={`w-full sm:w-auto justify-center px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm ${
                     step.isDone
                       ? 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
-                      : 'bg-primary-600 hover:bg-primary-700 text-white shadow-sm shadow-primary-500/20'
+                      : 'bg-primary-600 hover:bg-primary-700 text-white shadow-primary-500/20'
                   }`}
                 >
                   <span>{step.actionText}</span>
-                  <span className="text-[9px] opacity-70">←</span>
+                  <span className="text-[10px] opacity-70">←</span>
                 </button>
               </div>
             </div>
