@@ -114,6 +114,26 @@ export default function PublicDashboard() {
       {/* User Onboarding & Setup Checklist */}
       <OnboardingChecklist onProfileUpdated={loadData} />
 
+      {/* Beta / Testing Mode Notice Card */}
+      <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/5 rounded-2xl md:rounded-3xl p-4 md:p-5 border border-amber-300/80 shadow-sm flex items-start gap-3.5 animate-fade-in text-amber-950">
+        <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-600 flex items-center justify-center text-xl flex-shrink-0 mt-0.5">
+          ⚠️
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-bold text-sm md:text-base text-amber-900">
+              اطلاعیه مهم: سامانه در وضعیت آزمایشی
+            </h3>
+            <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold">
+              نسخه آزمایشی
+            </span>
+          </div>
+          <p className="text-xs md:text-sm text-amber-800/90 leading-relaxed">
+            سامانه به صورت آزمایشی فعال است و ممکن است بعضی قسمت‌های آن برای برخی کارکنان هنوز فعال نباشد. لطفاً مراحل راهنمای راه‌اندازی حساب کاربری را کامل کنید و منتظر بمانید؛ به زودی تمامی امکانات برای همه در دسترس قرار می‌گیرد.
+          </p>
+        </div>
+      </div>
+
       {/* Quick Access Shortcuts (Filtered by Permission) */}
       {shortcuts.length > 0 && (
         <div className={`grid grid-cols-2 sm:grid-cols-${Math.min(shortcuts.length, 4)} gap-3 md:gap-4`}>
