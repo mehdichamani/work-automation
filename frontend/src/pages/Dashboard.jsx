@@ -5,10 +5,12 @@ import api from '../api/axios';
 import moment from 'moment-jalaali';
 import { toJalali } from '../utils/dateUtils';
 import toast from 'react-hot-toast';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 
 export default function Dashboard() {
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
   const [recentLeaves, setRecentLeaves] = useState([]);
   const [balance, setBalance] = useState(null);
   const [todayReservations, setTodayReservations] = useState([]);
@@ -23,6 +25,11 @@ export default function Dashboard() {
       if (user.role === 'admin' || user.role === 'manager') {
         const statsRes = await api.get('/admin/stats');
         setStats(statsRes.data);
+
+        try {
+          const analyticsRes = await api.get('/analytics/stats');
+          setAnalytics(analyticsRes.data);
+        } catch { /* analytics non-critical */ }
       }
       const leavesRes = await api.get('/leave/my-requests');
       setRecentLeaves(leavesRes.data.slice(0, 5));
@@ -210,6 +217,98 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Analytics & Traffic Statistics Section for Admin / Manager */}
+      {analytics && (user.role === 'admin' || user.role === 'manager') && (
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-gray-100 pb-4">
+            <div>
+              <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                <span>📈</span> آمار و تحلیل بازدید سامانه
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">ترافیک صفحات، کاربران فعال و صفحات پربازدید</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                {analytics.todayActiveUsersCount || 0} کاربر فعال امروز
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 p-4 rounded-xl border border-blue-100">
+              <p className="text-xs text-blue-700 font-medium">بازدید امروز</p>
+              <p className="text-2xl font-bold text-blue-900 mt-1">{analytics.todayViews?.toLocaleString() || 0}</p>
+            </div>
+            <div className="bg-gradient-to-br from-indigo-50 to-indigo-100/50 p-4 rounded-xl border border-indigo-100">
+              <p className="text-xs text-indigo-700 font-medium">بازدید ۷ روز گذشته</p>
+              <p className="text-2xl font-bold text-indigo-900 mt-1">{analytics.weekViews?.toLocaleString() || 0}</p>
+            </div>
+            <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 p-4 rounded-xl border border-purple-100">
+              <p className="text-xs text-purple-700 font-medium">بازدید ۳۰ روز گذشته</p>
+              <p className="text-2xl font-bold text-purple-900 mt-1">{analytics.monthViews?.toLocaleString() || 0}</p>
+            </div>
+            <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-4 rounded-xl border border-emerald-100">
+              <p className="text-xs text-emerald-700 font-medium">کل بازدیدهای ثبت‌شده</p>
+              <p className="text-2xl font-bold text-emerald-900 mt-1">{analytics.totalViews?.toLocaleString() || 0}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2">
+            {/* Chart of last 7 days */}
+            <div className="lg:col-span-2 space-y-3">
+              <h4 className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
+                <span>📊</span> روند بازدید روزانه (۷ روز اخیر)
+              </h4>
+              <div className="h-52 w-full pt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={analytics.dailyTrend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0}/>
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip
+                      formatter={(val) => [`${val} بازدید`, 'تعداد']}
+                      labelFormatter={(lbl) => `تاریخ: ${lbl}`}
+                      contentStyle={{ direction: 'rtl', borderRadius: '0.75rem', fontSize: '12px' }}
+                    />
+                    <Area type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#colorViews)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Top Visited Pages */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
+                <span>🔥</span> پربازدیدترین صفحات (۳۰ روز اخیر)
+              </h4>
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                {analytics.topPages && analytics.topPages.length > 0 ? (
+                  analytics.topPages.map((p, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-gray-50 text-xs border border-gray-100 hover:bg-gray-100 transition-colors">
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="font-bold text-gray-400 w-4 text-center">{idx + 1}</span>
+                        <span className="font-medium text-gray-800 truncate" title={p.path}>{p.pageTitle}</span>
+                      </div>
+                      <span className="font-bold text-primary-600 bg-white px-2 py-0.5 rounded-md border border-gray-100 shadow-2xs whitespace-nowrap">
+                        {p.count}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-gray-400 text-center py-6">هنوز بازدیدی ثبت نشده است</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {stats && stats.deptStats && (user.role === 'admin' || user.role === 'manager') && (
         <div className="bg-white rounded-2xl p-6 shadow-sm">

@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
+import usePageTracking from './hooks/usePageTracking';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const PublicDashboard = lazy(() => import('./pages/PublicDashboard'));
@@ -51,6 +52,7 @@ function PrivateRoute({ children, allowedRoles, requiredPermission }) {
 
 function AppRoutes() {
   const location = useLocation();
+  usePageTracking();
   const isLogin = location.pathname === '/login';
 
   return isLogin ? (

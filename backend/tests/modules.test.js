@@ -199,3 +199,32 @@ describe('Profile API', () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe('Analytics API', () => {
+  test('POST /api/analytics/track - records page view', async () => {
+    const res = await request(app)
+      .post('/api/analytics/track')
+      .send({ path: '/leave', pageTitle: 'مرخصی', userId: 1000 });
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ success: true });
+  });
+
+  test('POST /api/analytics/track - requires path', async () => {
+    const res = await request(app)
+      .post('/api/analytics/track')
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  test('GET /api/analytics/stats - returns statistics for admin', async () => {
+    const res = await request(app)
+      .get('/api/analytics/stats')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('totalViews');
+    expect(res.body).toHaveProperty('todayViews');
+    expect(res.body).toHaveProperty('topPages');
+    expect(res.body).toHaveProperty('dailyTrend');
+  });
+});
+

@@ -116,6 +116,7 @@ model User {
   csvImportLogs            CsvImportLog[]
   backupLogs               BackupLog[]
   permissions              Permission[]
+  pageViews                PageView[]
 
   @@map("users")
 }
@@ -1469,4 +1470,20 @@ model Setting {
   value     String?
   updatedAt DateTime @updatedAt @map("updated_at")
   @@map("settings")
+}
+
+model PageView {
+  id        Int      @id @default(autoincrement())
+  path      String
+  pageTitle String?  @map("page_title")
+  userId    Int?     @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([path])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("page_views")
 }

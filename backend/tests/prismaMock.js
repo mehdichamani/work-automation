@@ -73,6 +73,7 @@ function createMockPrisma() {
     chatRoom: [], chatMember: [], chatMessage: [],
     workflowTemplate: [], workflowInstance: [], workflowStepLog: [],
     backupSetting: [], backupLog: [], csvImportLog: [], setting: [],
+    pageView: [],
     pushSubscription: [], attachment: [], jobApplication: [],
     jobApplicationWorkHistory: [], jobApplicationAttachment: [], jobApplicationCounter: [],
     educationalCategory: [], educationalMaterial: [], educationalAttachment: [], userLearningProgress: [],

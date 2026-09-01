@@ -188,6 +188,7 @@ async function startServer() {
   app.use('/api/chat', require('./routes/chat')());
   app.use('/api/daily-work-report', require('./routes/dailyWorkReport')());
   app.use('/api/educational', require('./routes/educational')());
+  app.use('/api/analytics', require('./routes/analytics')());
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', company: 'ط§ط±ظˆظ… ط´غŒط´ظ‡ ط³ط§ع†غŒ', timestamp: new Date().toISOString() });
